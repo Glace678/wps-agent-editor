@@ -1,9 +1,50 @@
 import { app, Menu, BrowserWindow, dialog, shell } from 'electron'
 import type { BaseWindow, MenuItemConstructorOptions } from 'electron'
 import { t } from '../i18n/translate'
+import type { AppMenuAction } from '../../src/types/app-menu'
 
 function asBrowserWindow(window: BaseWindow | undefined): BrowserWindow | null {
   return window instanceof BrowserWindow ? window : null
+}
+
+export function executeAppMenuAction(action: AppMenuAction, window: BrowserWindow | null): void {
+  switch (action) {
+    case 'open-file': window?.webContents.send('menu:open-file'); return
+    case 'open-folder': window?.webContents.send('menu:open-folder'); return
+    case 'save': window?.webContents.send('menu:save'); return
+    case 'print': window?.webContents.send('menu:print'); return
+    case 'quit': app.quit(); return
+    case 'undo': window?.webContents.undo(); return
+    case 'redo': window?.webContents.redo(); return
+    case 'cut': window?.webContents.cut(); return
+    case 'copy': window?.webContents.copy(); return
+    case 'paste': window?.webContents.paste(); return
+    case 'select-all': window?.webContents.selectAll(); return
+    case 'reload': window?.reload(); return
+    case 'force-reload': window?.webContents.reloadIgnoringCache(); return
+    case 'toggle-dev-tools': window?.webContents.toggleDevTools(); return
+    case 'reset-zoom': window?.webContents.setZoomLevel(0); return
+    case 'zoom-in':
+      if (window) window.webContents.setZoomLevel(window.webContents.getZoomLevel() + 0.5)
+      return
+    case 'zoom-out':
+      if (window) window.webContents.setZoomLevel(window.webContents.getZoomLevel() - 0.5)
+      return
+    case 'toggle-fullscreen':
+      if (window) window.setFullScreen(!window.isFullScreen())
+      return
+    case 'new-agent': window?.webContents.send('menu:new-agent'); return
+    case 'run-multi-agent': window?.webContents.send('menu:run-multi-agent'); return
+    case 'open-onlyoffice-docs': void shell.openExternal('https://api.onlyoffice.com/'); return
+    case 'show-about':
+      void dialog.showMessageBox({
+        type: 'info',
+        title: t('menu.aboutTitle'),
+        message: t('menu.aboutMessage'),
+        detail: t('menu.aboutDetail'),
+      })
+      return
+  }
 }
 
 export function createAppMenu(getMainWindow: () => BrowserWindow | null): void {
@@ -207,4 +248,9 @@ export function createAppMenu(getMainWindow: () => BrowserWindow | null): void {
 
   const menu = Menu.buildFromTemplate(template)
   Menu.setApplicationMenu(menu)
+  if (!isMac) {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.setMenuBarVisibility(false)
+    }
+  }
 }
