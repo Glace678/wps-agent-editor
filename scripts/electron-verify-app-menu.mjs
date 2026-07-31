@@ -153,6 +153,11 @@ try {
   await move(cdp, '[data-testid=app-menu-edit]')
   await waitFor(cdp, "Boolean(document.querySelector('[data-testid=app-menu-content-edit]'))", 'Edit menu after hover')
   assert.ok(Date.now() - startedAt < 250, 'File to Edit hover switch should be immediate')
+  assert.equal(
+    await evaluate(cdp, "getComputedStyle(document.querySelector('[data-testid=app-menu-content-edit]')).backgroundColor"),
+    'rgb(255, 255, 255)',
+    'light Edit menu must be white',
+  )
 
   await move(cdp, '[data-testid=app-menu-view]')
   await waitFor(cdp, "Boolean(document.querySelector('[data-testid=app-menu-content-view]'))", 'View menu after hover')
