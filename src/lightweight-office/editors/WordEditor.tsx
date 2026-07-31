@@ -89,13 +89,13 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     return () => {
       cancelled = true
       const inst = instanceRef.current as {
-        __wordToolbarResizeObserver?: ResizeObserver
+        __wordToolbarResizeCleanup?: () => void
         __wordToolbarOverflowCleanup?: () => void
       } | null
-      inst?.__wordToolbarResizeObserver?.disconnect()
+      inst?.__wordToolbarResizeCleanup?.()
       inst?.__wordToolbarOverflowCleanup?.()
       if (inst) {
-        delete inst.__wordToolbarResizeObserver
+        delete inst.__wordToolbarResizeCleanup
         delete inst.__wordToolbarOverflowCleanup
       }
       documentBridge.clear()
@@ -231,25 +231,40 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
             // 强制重算可见按钮与「⋯」菜单（与 Excel 三点溢出一致）。
             const root = editorRootRef.current
             if (root && toolbar?.onToolbarResize) {
-              const notify = () => {
+              let resizeFrame: number | null = null
+              const timers = new Set<number>()
+              const notifyNow = () => {
                 try {
                   toolbar.onToolbarResize?.()
                 } catch {
                   /* ignore resize races during unmount */
                 }
               }
+              const scheduleNotify = () => {
+                if (resizeFrame !== null) return
+                resizeFrame = requestAnimationFrame(() => {
+                  resizeFrame = null
+                  notifyNow()
+                })
+              }
               // 首帧布局完成后再量一次（避免 offsetWidth 仍为 0）
-              requestAnimationFrame(() => {
-                notify()
-                window.setTimeout(notify, 50)
-                window.setTimeout(notify, 200)
-              })
-              const ro = new ResizeObserver(() => notify())
+              scheduleNotify()
+              for (const delay of [50, 200]) {
+                const timer = window.setTimeout(() => {
+                  timers.delete(timer)
+                  scheduleNotify()
+                }, delay)
+                timers.add(timer)
+              }
+              const ro = new ResizeObserver(scheduleNotify)
               ro.observe(root)
-              const toolbarEl = root.querySelector('.superdoc-toolbar-container, .superdoc-toolbar')
-              if (toolbarEl instanceof HTMLElement) ro.observe(toolbarEl)
               // 挂到 instance 上，组件卸载时在 load effect cleanup 之外再拆
-              ;(event.superdoc as { __wordToolbarResizeObserver?: ResizeObserver }).__wordToolbarResizeObserver = ro
+              ;(event.superdoc as { __wordToolbarResizeCleanup?: () => void }).__wordToolbarResizeCleanup = () => {
+                ro.disconnect()
+                if (resizeFrame !== null) cancelAnimationFrame(resizeFrame)
+                for (const timer of timers) clearTimeout(timer)
+                timers.clear()
+              }
             }
           }}
           onEditorUpdate={() => {
