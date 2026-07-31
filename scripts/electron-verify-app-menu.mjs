@@ -180,6 +180,16 @@ try {
   const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
   fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
   fs.writeFileSync(screenshotPath, screenshot.result.data, 'base64')
+
+  await move(cdp, '[data-testid=app-menu-agent]')
+  await waitFor(cdp, "Boolean(document.querySelector('[data-testid=app-menu-content-agent]'))", 'Agent menu before action')
+  await click(cdp, '[data-testid=app-menu-action-new-agent]')
+  await waitFor(cdp, "Boolean(document.querySelector('[data-testid=agent-config-dialog-body]'))", 'new Agent dialog')
+  assert.equal(
+    await evaluate(cdp, "document.querySelectorAll('[data-testid=agent-config-dialog-body]').length"),
+    1,
+    'menu IPC listeners must not accumulate under React StrictMode',
+  )
   console.log(`PASS app menu light theme, hover switching, and no opening animation\n${screenshotPath}`)
 } finally {
   cdp?.close()
