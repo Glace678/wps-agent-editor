@@ -5,6 +5,10 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAgentStore } from '@/stores/agent.store'
 import { useTranslation } from '@/lib/i18n/runtime'
+import {
+  APP_MENU_NEW_AGENT_EVENT,
+  APP_MENU_RUN_MULTI_AGENT_EVENT,
+} from '@/lib/app-menu-events'
 import { AgentList } from './AgentList'
 import { AgentChat } from './AgentChat'
 import { AgentConfigDialog } from './AgentConfigDialog'
@@ -95,7 +99,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     }
   }, [agents, addMessage, setIsRunning, setTaskStatus, t])
 
-  const handleNewAgent = () => {
+  const handleNewAgent = useCallback(() => {
     const newAgent: AgentConfig = {
       id: crypto.randomUUID(),
       name: t('agents.newAgent'),
@@ -110,7 +114,18 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     }
     setEditingAgent(newAgent)
     setShowConfig(true)
-  }
+  }, [t])
+
+  useEffect(() => {
+    const openNewAgent = () => handleNewAgent()
+    const runMultiAgent = () => { void handleMultiAgent() }
+    window.addEventListener(APP_MENU_NEW_AGENT_EVENT, openNewAgent)
+    window.addEventListener(APP_MENU_RUN_MULTI_AGENT_EVENT, runMultiAgent)
+    return () => {
+      window.removeEventListener(APP_MENU_NEW_AGENT_EVENT, openNewAgent)
+      window.removeEventListener(APP_MENU_RUN_MULTI_AGENT_EVENT, runMultiAgent)
+    }
+  }, [handleMultiAgent, handleNewAgent])
 
   const handleSaveAgent = async (agent: AgentConfig) => {
     const updated = await window.api.agent.save(agent)
