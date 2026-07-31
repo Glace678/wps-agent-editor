@@ -4,6 +4,10 @@ import { useFileStore } from '@/stores/file.store'
 import { useEditorStore } from '@/stores/editor.store'
 import { useAgentBridge } from '@/lightweight-office'
 import { invokeOfficeAction } from '@/lib/office-shortcuts'
+import {
+  APP_MENU_NEW_AGENT_EVENT,
+  APP_MENU_RUN_MULTI_AGENT_EVENT,
+} from '@/lib/app-menu-events'
 
 export default function App() {
   const { setRecentFiles } = useFileStore()
@@ -28,7 +32,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    window.api.on('menu:open-file', async () => {
+    const disposeOpenFile = window.api.on('menu:open-file', async () => {
       const filePath = await window.api.file.selectFile()
       if (!filePath) return
       await window.api.file.open(filePath)
@@ -45,7 +49,7 @@ export default function App() {
       }
     })
 
-    window.api.on('menu:open-folder', async () => {
+    const disposeOpenFolder = window.api.on('menu:open-folder', async () => {
       const folder = await window.api.file.selectFolder()
       if (folder) {
         const entries = await window.api.file.list(folder)
@@ -55,19 +59,32 @@ export default function App() {
     })
 
     // File menu Save / Print → same Office action handlers as Ctrl+S / Ctrl+P
-    window.api.on('menu:save', () => {
+    const disposeSave = window.api.on('menu:save', () => {
       invokeOfficeAction('save')
     })
 
-    window.api.on('menu:print', () => {
+    const disposePrint = window.api.on('menu:print', () => {
       if (!invokeOfficeAction('print')) {
         window.print()
       }
     })
 
-    window.api.on('menu:new-agent', () => {
-      // AgentSidebar 通过 store 事件处理
+    const disposeNewAgent = window.api.on('menu:new-agent', () => {
+      window.dispatchEvent(new Event(APP_MENU_NEW_AGENT_EVENT))
     })
+
+    const disposeRunMultiAgent = window.api.on('menu:run-multi-agent', () => {
+      window.dispatchEvent(new Event(APP_MENU_RUN_MULTI_AGENT_EVENT))
+    })
+
+    return () => {
+      disposeOpenFile()
+      disposeOpenFolder()
+      disposeSave()
+      disposePrint()
+      disposeNewAgent()
+      disposeRunMultiAgent()
+    }
   }, [setRecentFiles])
 
   return <AppLayout />
