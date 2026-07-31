@@ -636,6 +636,13 @@ try {
     rightDrag.metrics.frames >= 8 && rightDrag.metrics.maxFrameGap < 80,
     `frames=${rightDrag.metrics.frames} maxGap=${rightDrag.metrics.maxFrameGap.toFixed(1)}ms`)
 
+  await dragPanelDivider(send, 'right', 220)
+  const dragRestored = await dragPanelDivider(send, 'left', -320)
+  check('drag: moving both dividers back restores the original toolbar partition',
+    JSON.stringify(dragRestored.endState.visible) === JSON.stringify(wide.visible)
+      && JSON.stringify(dragRestored.endState.overflow) === JSON.stringify(wide.overflow),
+    `visible=${visibleNames(dragRestored.endState).length}`)
+
   // 2) 中窗（容器 ~860px）：字体字号仍可见；标尺/格式标记/文档模式等右端项进「⋯」
   const mid = await setWidthAndSettle(send, 1450)
   check('mid: fontFamily/fontSize still visible (SuperDoc default would keep them but hide right tail)',
