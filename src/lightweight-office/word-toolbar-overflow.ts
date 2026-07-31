@@ -6,12 +6,10 @@
  * linkedStyles / clearFormatting / copyFormat / ruler / formattingMarks——
  * 结果是「字体字号先消失、右端按钮反而常驻」，与期望相反，且配置无法改变。
  *
- * 这里在实例层重排：包装公开的 onToolbarResize 实例属性（组件的窗口 resize、
- * 容器 ResizeObserver、应用手动 notify 全部走它），并订阅 toolbar-items-changed
- *（换编辑器/字体变化后的重建）。每次 SuperDoc 重算后，把全部 items 按视觉
- * 顺序做「后缀裁剪」重新分区：从右端向左收，宽度装不下的连续尾段进溢出，
- * 左侧永远最后消失。Vue 组件在 onToolbarResize 之后才 bump key 重渲染，
- * 同步改写 toolbarItems / overflowItems 一定会被下一帧渲染采用。
+ * 这里在实例层包装 onToolbarResize，并订阅 toolbar-items-changed。首次安装或
+ * 字体集合变化时取得完整 item 集；普通容器 resize 只按实测 DOM 宽度重新分区，
+ * 不重复创建控件。可见项始终是视觉顺序的最大前缀，其余连续后缀进入「⋯」。
+ * 分区完成后显式通知 Vue 重绘，因此左右侧栏拖动时能逐帧更新。
  */
 
 interface ToolbarItemLike {
