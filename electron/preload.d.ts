@@ -152,7 +152,7 @@ export interface ElectronAPI {
     close: () => Promise<void>
     quit: () => Promise<void>
   }
-  on: (channel: string, callback: (...args: unknown[]) => void) => void
+  on: (channel: string, callback: (...args: unknown[]) => void) => () => void
   platform: NodeJS.Platform
 }
 

@@ -100,8 +100,11 @@ const api = {
       'office:download-progress', 'lw:agent-command',
     ]
     if (validChannels.includes(channel)) {
-      ipcRenderer.on(channel, (_e, ...args) => callback(...args))
+      const listener = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args)
+      ipcRenderer.on(channel, listener)
+      return () => ipcRenderer.removeListener(channel, listener)
     }
+    return () => {}
   },
   platform: process.platform,
 }
