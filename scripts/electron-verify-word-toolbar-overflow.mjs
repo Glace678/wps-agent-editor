@@ -333,6 +333,7 @@ async function dragPanelDivider(send, side, delta, steps = 72) {
       frames: 0,
       maxFrameGap: 0,
       sawStart: false,
+      toolbarHooked: false,
     }
     const isDragging = () => panelLayout.getAttribute('data-panel-resizing') === 'true'
     const originalQuerySelectorAll = Element.prototype.querySelectorAll
@@ -358,9 +359,16 @@ async function dragPanelDivider(send, side, delta, steps = 72) {
       if (toolbarHost.__vue_app__) { app = toolbarHost.__vue_app__; break }
       toolbarHost = toolbarHost.parentElement
     }
+    if (!app) {
+      const container = document.querySelector('.superdoc-toolbar-container')
+      for (const el of container?.querySelectorAll('*') || []) {
+        if (el.__vue_app__) { app = el.__vue_app__; break }
+      }
+    }
     const toolbar = app?.config?.globalProperties?.$toolbar ?? null
     const originalEmit = toolbar?.emit
     if (toolbar && typeof originalEmit === 'function') {
+      metrics.toolbarHooked = true
       toolbar.emit = function(event, ...args) {
         if (isDragging() && event === 'toolbar-items-changed') metrics.toolbarEmitsDuring += 1
         return originalEmit.call(this, event, ...args)
@@ -611,7 +619,7 @@ try {
     leftDrag.metrics.pageQueriesDuring === 0 && leftDrag.metrics.pageRectsDuring === 0,
     `queries=${leftDrag.metrics.pageQueriesDuring} rects=${leftDrag.metrics.pageRectsDuring}`)
   check('drag: toolbar redraws only when an item crosses the overflow boundary',
-    leftDrag.metrics.toolbarEmitsDuring <= leftVisibleDelta + 2,
+    leftDrag.metrics.toolbarHooked && leftDrag.metrics.toolbarEmitsDuring <= leftVisibleDelta + 2,
     `moves=${leftDrag.steps} emits=${leftDrag.metrics.toolbarEmitsDuring} item delta=${leftVisibleDelta}`)
   check('drag: release performs a bounded trailing page-gap refresh',
     leftDrag.metrics.pageQueriesAfter >= 1 && leftDrag.metrics.pageQueriesAfter <= 4,
