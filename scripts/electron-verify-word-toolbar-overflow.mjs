@@ -475,7 +475,6 @@ try {
 
   // 2) 中窗（容器 ~860px）：字体字号仍可见；标尺/格式标记/文档模式等右端项进「⋯」
   const mid = await setWidthAndSettle(send, 1450)
-  console.log('[STATE] mid', JSON.stringify(mid))
   check('mid: fontFamily/fontSize still visible (SuperDoc default would keep them but hide right tail)',
     ['fontFamily', 'fontSize'].every((n) => mid.visible.includes(n)),
     `visible=[${mid.visible.join(',')}]`)
@@ -485,6 +484,9 @@ try {
     `overflow=[${mid.overflow.join(',')}]`)
   check('mid: overflow is a right-end suffix of the visual order', isSuffixPartition(mid),
     '')
+  check('mid: visible DOM order matches the menu order', isDomOrderCorrect(mid), '')
+  const midFill = maximalFill(mid, widthByName)
+  check('mid: no room remains for the next ellipsis item', midFill.pass, midFill.detail)
   check('mid: toolbar row does not clip horizontally',
     mid.rowScrollWidth <= mid.rowClientWidth + 2,
     `scroll=${mid.rowScrollWidth} client=${mid.rowClientWidth}`)
@@ -492,7 +494,6 @@ try {
   // 3) 窄窗（容器 ~560px）：核心验收——字体字号保留（SuperDoc 默认在此宽度强制隐藏），
   //    右端项全部在「⋯」里，左端 undo/redo/zoom 全可见
   const narrow = await setWidthAndSettle(send, 1150)
-  console.log('[STATE] narrow', JSON.stringify(narrow))
   check('narrow: fontFamily/fontSize REMAIN visible (the user-reported bug)',
     ['fontFamily', 'fontSize'].every((n) => narrow.visible.includes(n)),
     `visible=[${narrow.visible.join(',')}]`)
@@ -504,6 +505,9 @@ try {
       narrow.overflow.includes(n)),
     `overflow=[${narrow.overflow.join(',')}]`)
   check('narrow: overflow is a right-end suffix of the visual order', isSuffixPartition(narrow), '')
+  check('narrow: visible DOM order matches the menu order', isDomOrderCorrect(narrow), '')
+  const narrowFill = maximalFill(narrow, widthByName)
+  check('narrow: no room remains for the next ellipsis item', narrowFill.pass, narrowFill.detail)
   check('narrow: toolbar row does not clip horizontally',
     narrow.rowScrollWidth <= narrow.rowClientWidth + 2,
     `scroll=${narrow.rowScrollWidth} client=${narrow.rowClientWidth}`)
