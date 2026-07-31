@@ -114,6 +114,13 @@ async function move(cdp, selector) {
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...(await pointFor(cdp, selector)) })
 }
 
+async function stopElectron(process) {
+  if (!process || process.exitCode !== null) return
+  const exited = new Promise((resolve) => process.once('exit', resolve))
+  process.kill()
+  await Promise.race([exited, sleep(5_000)])
+}
+
 let child
 let cdp
 try {
@@ -159,6 +166,10 @@ try {
   console.log(`PASS app menu light theme, hover switching, and no opening animation\n${screenshotPath}`)
 } finally {
   cdp?.close()
-  child?.kill()
-  fs.rmSync(profilePath, { recursive: true, force: true })
+  await stopElectron(child)
+  try {
+    fs.rmSync(profilePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  } catch {
+    // Windows can release the Electron profile a moment after the main process exits.
+  }
 }

@@ -77,6 +77,7 @@ async function syncSnapshot() {
     }
 
     await git(['push', 'origin', 'HEAD'])
+    await git(['push', 'origin', 'HEAD:main'])
     console.log('[git-sync] Pushed the snapshot to GitHub.')
   } catch (error) {
     const detail = error && typeof error === 'object' && 'stderr' in error ? error.stderr : error
