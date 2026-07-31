@@ -19,6 +19,7 @@
     "git:sync": "node scripts/auto-git-sync.mjs --once",
     "git:watch": "node scripts/auto-git-sync.mjs",
     "verify:i18n-ui": "node scripts/electron-verify-language-menu.mjs",
+    "verify:app-menu": "node scripts/electron-verify-app-menu.mjs",
     "postinstall": "node -e \"try{require('fs').readFileSync('node_modules/electron/path.txt')}catch(e){console.log('Run: npm run install:electron')}\"",
     "install:electron": "powershell -ExecutionPolicy Bypass -File scripts/install-electron.ps1"
   },
