@@ -113,6 +113,7 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     const el = containerRef.current
     if (!el) return
     const measure = () => {
+      if (el.closest('[data-panel-resizing="true"]')) return
       const next = el.clientWidth >= TWO_PAGE_BASE_WIDTH * zoom
       if (next === fitsTwoPagesRef.current) return
       fitsTwoPagesRef.current = next
@@ -121,7 +122,18 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
-    return () => observer.disconnect()
+    const panelLayout = el.closest('[data-panel="document-editor"]')?.parentElement ?? null
+    const panelResizeObserver = panelLayout ? new MutationObserver(measure) : null
+    if (panelLayout) {
+      panelResizeObserver?.observe(panelLayout, {
+        attributes: true,
+        attributeFilter: ['data-panel-resizing'],
+      })
+    }
+    return () => {
+      observer.disconnect()
+      panelResizeObserver?.disconnect()
+    }
   }, [zoom])
 
   // 页数未知（事件未到）时保持 vertical，避免在超大文档上误关虚拟化
