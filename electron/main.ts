@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { createAppMenu } from './menu/menu'
+import { createAppMenu, executeAppMenuAction } from './menu/menu'
 import { registerFileHandlers } from './ipc/file.handlers'
 import { registerOnlyOfficeHandlers } from './ipc/onlyoffice.handlers'
 import { registerAgentHandlers, setAgentMainWindowGetter } from './ipc/agent.handlers'
@@ -13,10 +13,23 @@ import { stopLocalBridge } from './services/local-bridge.service'
 import { closeAllAgentWindows } from './windows/agent-editor.window'
 import { IPC } from './ipc/channels'
 import { languages, setLanguage, type LanguageCode } from './i18n/types'
+import { isAppMenuAction } from '../src/types/app-menu'
 
 let mainWindow: BrowserWindow | null = null
 
 const isMac = process.platform === 'darwin'
+type ThemePreference = 'system' | 'light' | 'dark'
+
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'system' || value === 'light' || value === 'dark'
+}
+
+function updateWindowBackgroundColors(): void {
+  const color = nativeTheme.shouldUseDarkColors ? '#161a1f' : '#ffffff'
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.setBackgroundColor(color)
+  }
+}
 
 // Windows 的原生遮挡检测会误判（虚拟机窗口、录屏层等场景），把可见窗口当作
 // 被完全遮挡 → 渲染进程停止出帧，用户看到定格的白/黑窗口。禁用该检测。
