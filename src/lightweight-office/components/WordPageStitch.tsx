@@ -184,6 +184,9 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
   }, [])
 
   const scheduleRefresh = useCallback(() => {
+    // Computing page hit bands requires several forced layout reads. Their
+    // invisible geometry can be refreshed once after the sidebar drag ends.
+    if (overlayRef.current?.closest('[data-panel-resizing="true"]')) return
     if (rafRef.current != null) return
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null
@@ -220,6 +223,18 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
     const container = overlay?.parentElement
     if (!overlay || !container) return
     scheduleRefresh()
+    const panelLayout = container.closest('[data-panel="document-editor"]')?.parentElement ?? null
+    const panelResizeObserver = panelLayout
+      ? new MutationObserver(() => {
+          if (panelLayout.getAttribute('data-panel-resizing') !== 'true') scheduleRefresh()
+        })
+      : null
+    if (panelLayout) {
+      panelResizeObserver?.observe(panelLayout, {
+        attributes: true,
+        attributeFilter: ['data-panel-resizing'],
+      })
+    }
     const ro = new ResizeObserver(scheduleRefresh)
     ro.observe(container)
     // scroll 不冒泡但可捕获：在容器上捕获内部 .superdoc__sub-document 的滚动
@@ -240,6 +255,7 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
     return () => {
       ro.disconnect()
       mo.disconnect()
+      panelResizeObserver?.disconnect()
       container.removeEventListener('scroll', scheduleRefresh, { capture: true })
       window.removeEventListener('resize', scheduleRefresh)
       presentation?.off?.('zoomChange', scheduleRefresh)
