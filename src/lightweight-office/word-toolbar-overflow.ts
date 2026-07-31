@@ -23,10 +23,12 @@ interface ToolbarItemLike {
 export interface SuperToolbarLike {
   toolbarItems?: ToolbarItemLike[]
   overflowItems?: ToolbarItemLike[]
+  toolbarContainer?: HTMLElement | null
   getAvailableWidth?: () => number
   onToolbarResize?: () => void
   on?: (event: string, handler: () => void) => void
   off?: (event: string, handler: () => void) => void
+  emit?: (event: string) => void
 }
 
 /**
@@ -66,34 +68,28 @@ const VISUAL_ORDER = [
   'documentMode',
 ] as const
 
-/**
- * 各控件占位宽度：实测 DOM 宽度（普通按钮 30、zoom 71、fontFamily 116+20、
- * fontSize 59+20、documentMode 77 等）再加约 6px 项间距余量。宁可略收早
- * 一点也不允许溢出裁切。
- */
-const ITEM_WIDTHS: Record<string, number> = {
-  zoom: 78,
-  fontFamily: 142,
-  fontSize: 66,
-  textAlign: 42,
-  list: 45,
-  numberedlist: 45,
-  lineHeight: 38,
-  linkedStyles: 150,
-  documentMode: 85,
+/** 首次出现前的兜底值；出现后会被当前主题下的 DOM 实测宽度替代。 */
+const FALLBACK_ITEM_WIDTHS: Record<string, number> = {
+  zoom: 75,
+  fontFamily: 116,
+  fontSize: 63,
+  textAlign: 38,
+  list: 41,
+  numberedlist: 41,
+  linkedStyles: 144,
+  documentMode: 81,
 }
-const DEFAULT_ITEM_WIDTH = 38
-/** 容器内边距 + 三段分组间距 + 「⋯」按钮自身的常驻预算 */
-const RESERVED_WIDTH = 96
+const DEFAULT_ITEM_WIDTH = 34
+const DEFAULT_ROW_HORIZONTAL_PADDING = 16
+/** 34px 三点按钮 + 3px 与最后一个可见按钮的间距。 */
+const DEFAULT_OVERFLOW_SLOT_WIDTH = 37
+const WIDTH_EPSILON = 0.75
 
 const itemName = (item: ToolbarItemLike): string => item.name?.value ?? ''
 
-function sameNames(a: ToolbarItemLike[], b: ToolbarItemLike[] | undefined): boolean {
-  if (!b || a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (itemName(a[i]) !== itemName(b[i])) return false
-  }
-  return true
+function numericStyle(value: string): number {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 /**
