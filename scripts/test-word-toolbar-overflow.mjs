@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const toolbar = fs.readFileSync(path.join(root, 'src/lightweight-office/word-toolbar.ts'), 'utf8')
+const overflowPolicy = fs.readFileSync(
+  path.join(root, 'src/lightweight-office/word-toolbar-overflow.ts'),
+  'utf8',
+)
 const css = fs.readFileSync(path.join(root, 'src/lightweight-office/word-editor.css'), 'utf8')
 const wordEditor = fs.readFileSync(
   path.join(root, 'src/lightweight-office/editors/WordEditor.tsx'),
@@ -59,7 +63,7 @@ test('CSS no longer forces max-content / horizontal scroll for all buttons', () 
     css,
     /\.superdoc-toolbar\s*\{[^}]*width:\s*max-content\s*!important/,
   )
-  assert.match(css, /\.superdoc-toolbar\s*\{[\s\S]*?width:\s*100%\s*!important/)
+  assert.match(css, /\.superdoc-toolbar\s*\{[\s\S]*?width:\s*100%/)
   // Container is width-bounded; overflow visible so ⋯ dropdown can paint below
   assert.match(
     css,
@@ -71,7 +75,22 @@ test('CSS no longer forces max-content / horizontal scroll for all buttons', () 
 test('overflow / three-dots chrome is styled and not zero-width', () => {
   assert.match(css, /superdoc-toolbar-overflow/)
   assert.match(css, /overflow-menu/)
-  assert.match(css, /flex-shrink:\s*0\s*!important/)
+  assert.match(css, /padding-right:\s*37px/)
+  assert.match(css, /\.sd-toolbar-button\s*\{[\s\S]*?min-width:\s*28px/)
+  assert.match(css, /position:\s*absolute/)
+})
+
+test('overflow policy measures rendered controls and avoids the old fixed 96px reserve', () => {
+  assert.match(overflowPolicy, /getBoundingClientRect\(\)\.width/)
+  assert.match(overflowPolicy, /data-item\^='btn-'/)
+  assert.match(overflowPolicy, /measuredItemWidths/)
+  assert.doesNotMatch(overflowPolicy, /RESERVED_WIDTH\s*=\s*96/)
+})
+
+test('resize reuses the complete item set and explicitly refreshes the Vue toolbar', () => {
+  assert.match(overflowPolicy, /orderedItems\.length === 0/)
+  assert.match(overflowPolicy, /toolbar\.emit\('toolbar-items-changed'\)/)
+  assert.match(overflowPolicy, /documentMode\.group\.value = 'center'/)
 })
 
 test('WordEditor still mounts full modules from createFullWordEditorModules', () => {
