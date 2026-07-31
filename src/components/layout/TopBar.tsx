@@ -19,6 +19,7 @@ export function TopBar() {
   const { agents, activeAgentId } = useAgentStore()
   const activeAgent = agents.find((a) => a.id === activeAgentId)
   const { t } = useTranslation()
+  const showAppMenu = window.api.platform !== 'darwin'
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference)
   const [isDark, setIsDark] = useState(() => resolveDarkTheme(theme))
 
@@ -53,8 +54,10 @@ export function TopBar() {
   return (
     <div className="flex h-10 items-center justify-between border-b bg-card px-3">
       <div className="flex min-w-0 items-center gap-3">
-        <AppMenuBar />
-        <div className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+        {showAppMenu && <>
+          <AppMenuBar />
+          <div className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+        </>}
         <FileText className="h-5 w-5 text-muted-foreground" />
         <span className="truncate text-sm font-medium">
           {fileName || t('appShell.noFile')}
