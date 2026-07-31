@@ -229,6 +229,7 @@ const TOOLBAR_STATE = `(() => {
       itemRects.push({
         name: groupItems[index]?.name || '',
         group: position,
+        domItem: element.querySelector('[data-item]')?.getAttribute('data-item') || '',
         left: Math.round(rect.left * 10) / 10,
         right: Math.round(rect.right * 10) / 10,
         width: Math.round(rect.width * 10) / 10,
