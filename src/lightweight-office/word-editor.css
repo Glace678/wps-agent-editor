@@ -134,7 +134,7 @@
  */
 .word-editor-panel .superdoc-toolbar > [data-toolbar-position='center']:has(.overflow-menu) {
   overflow: hidden;
-  padding-right: 46px;
+  padding-right: 37px;
 }
 
 .word-editor-panel .superdoc-toolbar [data-toolbar-position='center']
@@ -231,5 +231,4 @@
 .word-editor-panel .word-document-layout[data-word-stitched='true'] .superdoc-page {
   box-shadow: none !important;
 }
-
 
