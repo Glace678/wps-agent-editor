@@ -99,66 +99,47 @@ function numericStyle(value: string): number {
 export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | null | undefined): () => void {
   if (!toolbar || typeof toolbar.onToolbarResize !== 'function') return () => {}
 
-  const repartition = () => {
-    try {
-      const available = toolbar.getAvailableWidth?.() ?? 0
-      const currentVisible = toolbar.toolbarItems ?? []
-      const currentOverflow = toolbar.overflowItems ?? []
-      if (!available || currentVisible.length + currentOverflow.length === 0) return
+  const original = toolbar.onToolbarResize
+  const measuredItemWidths = new Map<string, number>()
+  let rowHorizontalPadding = DEFAULT_ROW_HORIZONTAL_PADDING
+  let overflowSlotWidth = DEFAULT_OVERFLOW_SLOT_WIDTH
+  let orderedItems: ToolbarItemLike[] = []
+  let overflowControl: ToolbarItemLike | null = null
+  let emittingChange = false
+  let rebuilding = false
 
-      const all = [...currentVisible, ...currentOverflow]
-      const byName = new Map<string, ToolbarItemLike>()
-      const extras: ToolbarItemLike[] = []
-      let overflowControl: ToolbarItemLike | null = null
-      for (const item of all) {
-        const name = itemName(item)
-        if (item.type === 'overflow' || name === 'overflow') {
-          overflowControl = item
-          continue
-        }
-        if ((VISUAL_ORDER as readonly string[]).includes(name)) byName.set(name, item)
-        else extras.push(item)
+  const toolbarRow = (): HTMLElement | null => {
+    const container = toolbar.toolbarContainer
+    if (!container) return null
+    if (container.matches('.superdoc-toolbar')) return container
+    return container.querySelector<HTMLElement>('.superdoc-toolbar')
+  }
+
+  const measureRenderedToolbar = () => {
+    const row = toolbarRow()
+    if (!row) return
+
+    const rowStyle = getComputedStyle(row)
+    const measuredPadding = numericStyle(rowStyle.paddingLeft) + numericStyle(rowStyle.paddingRight)
+    if (measuredPadding > 0) rowHorizontalPadding = measuredPadding
+
+    const center = row.querySelector<HTMLElement>(":scope > [data-toolbar-position='center']")
+    const measuredOverflowSlot = center ? numericStyle(getComputedStyle(center).paddingRight) : 0
+    if (measuredOverflowSlot > 0) overflowSlotWidth = measuredOverflowSlot
+
+    for (const wrapper of row.querySelectorAll<HTMLElement>('.sd-toolbar-item-ctn')) {
+      const marker = wrapper.querySelector<HTMLElement>("[data-item^='btn-']")
+      const markerName = marker?.dataset.item
+      const width = wrapper.getBoundingClientRect().width
+      if (markerName?.startsWith('btn-') && width > 0) {
+        measuredItemWidths.set(markerName.slice(4), width)
       }
-      // 未知项（未来 SuperDoc 新增/自定义按钮）排在已知序列之后，最先被收纳
-      const ordered = VISUAL_ORDER.flatMap((name) => {
-        const item = byName.get(name)
-        return item ? [item] : []
-      }).concat(extras)
-
-      const budget = available - RESERVED_WIDTH
-      let acc = 0
-      let cut = ordered.length
-      for (let i = 0; i < ordered.length; i++) {
-        const width = ITEM_WIDTHS[itemName(ordered[i])] ?? DEFAULT_ITEM_WIDTH
-        if (acc + width > budget) {
-          cut = i
-          break
-        }
-        acc += width
-      }
-      // 至少保留 undo，避免极端窄时工具栏只剩「⋯」都放不下的抖动
-      if (cut < 1 && ordered.length > 0) cut = 1
-
-      const visible = ordered.slice(0, cut)
-      const overflowed = ordered.slice(cut)
-      // 「⋯」控件常驻可见（溢出为空时 SuperDoc 自行隐藏该按钮）
-      if (overflowControl) visible.push(overflowControl)
-
-      if (sameNames(visible, toolbar.toolbarItems) && sameNames(overflowed, toolbar.overflowItems)) return
-      toolbar.toolbarItems = visible
-      toolbar.overflowItems = overflowed
-    } catch (err) {
-      console.warn('[word-toolbar-overflow] 重分区失败，保留 SuperDoc 默认分配:', err)
     }
   }
 
-  const original = toolbar.onToolbarResize
-  const patched = () => {
-    // SuperDoc 内部重算期间让它看到「无限宽」：其硬编码降级清单与贪心
-    // 全部不触发，保证生成完整 item 集（真实窄宽下它还有一个坏 splice：
-    // < 1024px 分隔符已被过滤时，linkedStyles 进溢出会误删紧随其后的
-    // ruler，令其从两个数组中蒸发）。真实宽度的取舍完全由 repartition 做；
-    // finally 恢复原方法，组件随后的紧凑样式计算仍读真实宽度。
+  const rebuildCompleteItemSet = () => {
+    // SuperDoc 在窄宽下会按硬编码清单丢项目。仅在首次安装或项目集合变化时，
+    // 临时提供无限宽来取得完整集合；侧栏拖动只重分区，不反复重建控件。
     const realGetAvailableWidth = toolbar.getAvailableWidth
     toolbar.getAvailableWidth = () => 100000
     try {
@@ -167,23 +148,97 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
       if (realGetAvailableWidth) toolbar.getAvailableWidth = realGetAvailableWidth
       else delete toolbar.getAvailableWidth
     }
-    repartition()
+
+    const all = [...(toolbar.toolbarItems ?? []), ...(toolbar.overflowItems ?? [])]
+    const byName = new Map<string, ToolbarItemLike>()
+    const extras: ToolbarItemLike[] = []
+    overflowControl = null
+    for (const item of all) {
+      const name = itemName(item)
+      if (item.type === 'overflow' || name === 'overflow') {
+        overflowControl = item
+        continue
+      }
+      if ((VISUAL_ORDER as readonly string[]).includes(name)) byName.set(name, item)
+      else extras.push(item)
+    }
+
+    orderedItems = VISUAL_ORDER.flatMap((name) => {
+      const item = byName.get(name)
+      return item ? [item] : []
+    }).concat(extras)
+
+    // groups 只过滤名称，不重设 SuperDoc 的内置 group。documentMode 默认在
+    // right 组，会被 CSS 插到 zoom 前；归入 center 后 DOM 才与菜单顺序一致。
+    const documentMode = byName.get('documentMode')
+    if (documentMode?.group) documentMode.group.value = 'center'
   }
-  // 换编辑器/字体变化会绕过 onToolbarResize 直接重建 items（同样带降级清单），
-  // 收到事件后走一遍完整重算 + 重分区；#makeToolbarItems 不会再发该事件，无循环
-  let applying = false
-  const reapply = () => {
-    if (applying) return
-    applying = true
+
+  const repartition = () => {
+    const available = toolbar.getAvailableWidth?.() ?? 0
+    if (!available || orderedItems.length === 0) return
+
+    const widths = orderedItems.map((item) => (
+      measuredItemWidths.get(itemName(item))
+      ?? FALLBACK_ITEM_WIDTHS[itemName(item)]
+      ?? DEFAULT_ITEM_WIDTH
+    ))
+    const totalWidth = widths.reduce((sum, width) => sum + width, 0)
+    const fullBudget = Math.max(0, available - rowHorizontalPadding)
+    const needsOverflow = totalWidth > fullBudget + WIDTH_EPSILON
+    const budget = Math.max(0, fullBudget - (needsOverflow ? overflowSlotWidth : 0))
+
+    let used = 0
+    let cut = orderedItems.length
+    for (let i = 0; i < orderedItems.length; i++) {
+      if (used + widths[i] > budget + WIDTH_EPSILON) {
+        cut = i
+        break
+      }
+      used += widths[i]
+    }
+    if (cut < 1) cut = 1
+
+    const visible = orderedItems.slice(0, cut)
+    const overflowed = orderedItems.slice(cut)
+    if (overflowControl) visible.push(overflowControl)
+    toolbar.toolbarItems = visible
+    toolbar.overflowItems = overflowed
+  }
+
+  const notifyVueToolbar = () => {
+    if (!toolbar.emit) return
+    emittingChange = true
     try {
-      patched()
+      toolbar.emit('toolbar-items-changed')
     } finally {
-      applying = false
+      emittingChange = false
+    }
+  }
+
+  const patched = () => {
+    measureRenderedToolbar()
+    if (orderedItems.length === 0) rebuildCompleteItemSet()
+    repartition()
+    notifyVueToolbar()
+  }
+
+  // 换编辑器或字体变化会绕过 onToolbarResize 重建 items；此时刷新完整集合。
+  const reapply = () => {
+    if (emittingChange || rebuilding) return
+    rebuilding = true
+    try {
+      measureRenderedToolbar()
+      rebuildCompleteItemSet()
+      repartition()
+      notifyVueToolbar()
+    } finally {
+      rebuilding = false
     }
   }
   toolbar.onToolbarResize = patched
   toolbar.on?.('toolbar-items-changed', reapply)
-  patched()
+  reapply()
 
   return () => {
     if (toolbar.onToolbarResize === patched) toolbar.onToolbarResize = original
