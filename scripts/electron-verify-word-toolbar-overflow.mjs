@@ -202,12 +202,41 @@ const TOOLBAR_STATE = `(() => {
   if (!tb) return null
   const names = (items) => (items || []).map((i) => i.name?.value).filter(Boolean)
   const row = container.querySelector('.superdoc-toolbar')
+  const visibleItems = (tb.toolbarItems || []).map((item) => ({
+    name: item.name?.value || '',
+    group: item.group?.value || 'center',
+  }))
+  const itemRects = []
+  for (const group of row?.querySelectorAll(':scope > [data-toolbar-position]') || []) {
+    const position = group.getAttribute('data-toolbar-position') || 'center'
+    const groupItems = visibleItems.filter((item) => item.group === position)
+    const children = Array.from(group.querySelectorAll(':scope > .sd-toolbar-item-ctn'))
+    children.forEach((element, index) => {
+      const rect = element.getBoundingClientRect()
+      itemRects.push({
+        name: groupItems[index]?.name || '',
+        left: Math.round(rect.left * 10) / 10,
+        right: Math.round(rect.right * 10) / 10,
+        width: Math.round(rect.width * 10) / 10,
+      })
+    })
+  }
+  const overflowRect = itemRects.find((item) => item.name === 'overflow')
+  const lastBeforeOverflow = overflowRect
+    ? itemRects
+        .filter((item) => item.name !== 'overflow' && item.right <= overflowRect.left + 0.5)
+        .sort((a, b) => b.right - a.right)[0]
+    : null
   return {
     width: tb.getAvailableWidth(),
     visible: names(tb.toolbarItems),
     overflow: names(tb.overflowItems),
     rowScrollWidth: row ? row.scrollWidth : null,
     rowClientWidth: row ? row.clientWidth : null,
+    itemRects,
+    rightGapBeforeOverflow: overflowRect && lastBeforeOverflow
+      ? Math.round((overflowRect.left - lastBeforeOverflow.right) * 10) / 10
+      : null,
   }
 })()`
 
@@ -351,6 +380,7 @@ try {
 
   // 1) 宽窗（容器 ~1300px）：字体字号可见；溢出（若有）只含右端后缀项
   const wide = await setWidthAndSettle(send, 1900)
+  console.log('[STATE] wide', JSON.stringify(wide))
   check('wide: fontFamily/fontSize/zoom visible',
     ['fontFamily', 'fontSize', 'zoom'].every((n) => wide.visible.includes(n)),
     `visible=[${wide.visible.join(',')}]`)
@@ -362,6 +392,7 @@ try {
 
   // 2) 中窗（容器 ~860px）：字体字号仍可见；标尺/格式标记/文档模式等右端项进「⋯」
   const mid = await setWidthAndSettle(send, 1450)
+  console.log('[STATE] mid', JSON.stringify(mid))
   check('mid: fontFamily/fontSize still visible (SuperDoc default would keep them but hide right tail)',
     ['fontFamily', 'fontSize'].every((n) => mid.visible.includes(n)),
     `visible=[${mid.visible.join(',')}]`)
@@ -378,6 +409,7 @@ try {
   // 3) 窄窗（容器 ~560px）：核心验收——字体字号保留（SuperDoc 默认在此宽度强制隐藏），
   //    右端项全部在「⋯」里，左端 undo/redo/zoom 全可见
   const narrow = await setWidthAndSettle(send, 1150)
+  console.log('[STATE] narrow', JSON.stringify(narrow))
   check('narrow: fontFamily/fontSize REMAIN visible (the user-reported bug)',
     ['fontFamily', 'fontSize'].every((n) => narrow.visible.includes(n)),
     `visible=[${narrow.visible.join(',')}]`)
