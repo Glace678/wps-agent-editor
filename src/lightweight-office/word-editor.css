@@ -2,8 +2,8 @@
    Word 顶部工具栏 —— 与 Excel（FortuneSheet）工具栏同风格。
    superdoc 1.44.0 结构约束：
    - .button-group 的 justify-content / min-width 是内联样式，覆盖需 !important
-   - documentMode 固定渲染在 right 组、溢出 ⋯ 固定在 center 组（配置搬不动）
-     → 用 flex order 把 center 排到最后 + 给 ⋯ margin-left:auto 钉在最右
+   - 溢出策略会把 documentMode 校正到 center 组，保证 DOM 与菜单顺序一致
+   - 溢出 ⋯ 固定在 center 组并绝对定位到最右
    - 字体/字号等下拉被 Teleport 到 <body>，面板作用域样式够不到
      → 暗色 --sd-ui-dropdown-* 令牌挂在 .dark 根上（--sd-ui-* 仅 SuperDoc 消费）
    ========================================================================== */
@@ -97,9 +97,8 @@
 }
 
 /*
- * 分组排序：DOM 顺序 left→center→right，而 ⋯ 只能在 center 组。
- * 视觉顺序改为 left → right(文档模式) → center(格式工具… ⋯)，
- * ⋯ 因此永远是最右一项（同 Excel「更多」）。
+ * 分组排序：保留 left 组的撤销/重做/修订按钮，其他可回填项统一在 center。
+ * right 仅作为初始化兜底；策略安装后为空，⋯ 始终是最右一项。
  */
 .word-editor-panel .superdoc-toolbar > .button-group {
   display: flex;
@@ -127,9 +126,8 @@
 }
 
 /*
- * ⋯ 溢出按钮钉在最右：绝对定位脱离文档流。SuperDoc 的可见项按估算宽度
- * 计算，实测宽度偏大时流式布局会把末尾的 ⋯ 挤出容器（甚至滑入侧栏）；
- * 绝对定位保证它永远贴右。center 组预留 ⋯ 的位置并裁掉意外溢出的项
+ * ⋯ 溢出按钮钉在最右：绝对定位脱离文档流，保证它不会被末尾项目挤出容器。
+ * center 组按按钮实测宽度预留 ⋯ 的位置并裁掉意外溢出的项
  *（center 组 position 保持 static，不会裁到 ⋯ 及其下拉层）。
  */
 .word-editor-panel .superdoc-toolbar > [data-toolbar-position='center']:has(.overflow-menu) {
@@ -231,4 +229,3 @@
 .word-editor-panel .word-document-layout[data-word-stitched='true'] .superdoc-page {
   box-shadow: none !important;
 }
-
