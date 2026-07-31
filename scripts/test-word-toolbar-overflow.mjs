@@ -69,7 +69,7 @@ test('CSS no longer forces max-content / horizontal scroll for all buttons', () 
     css,
     /\.superdoc-toolbar-container[\s\S]{0,400}(?:overflow:\s*visible|max-width:\s*100%)/,
   )
-  assert.match(css, /\.superdoc-toolbar\s*\{[\s\S]*?max-width:\s*100%\s*!important/)
+  assert.match(css, /\.superdoc-toolbar\s*\{[\s\S]*?min-width:\s*0/)
 })
 
 test('overflow / three-dots chrome is styled and not zero-width', () => {
