@@ -190,6 +190,7 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
     if (rafRef.current != null) return
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null
+      if (overlayRef.current?.closest('[data-panel-resizing="true"]')) return
       refresh()
     })
   }, [refresh])
