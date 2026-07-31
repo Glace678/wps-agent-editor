@@ -269,6 +269,25 @@ function isSuffixPartition(state) {
   return maxVisible < minOverflow
 }
 
+function visibleNames(state) {
+  return state.visible.filter((name) => name !== 'overflow')
+}
+
+function isDomOrderCorrect(state) {
+  return JSON.stringify(state.domOrder) === JSON.stringify(visibleNames(state))
+}
+
+function maximalFill(state, widthByName) {
+  const next = state.overflow[0]
+  if (!next) return { pass: true, detail: 'all items visible' }
+  const nextWidth = widthByName.get(next)
+  const gap = state.rightGapBeforeOverflow
+  return {
+    pass: Number.isFinite(gap) && Number.isFinite(nextWidth) && gap + 0.75 < nextWidth,
+    detail: `gap=${gap}px next=${next}(${nextWidth}px)`,
+  }
+}
+
 async function setWidthAndSettle(send, width) {
   await send('Emulation.setDeviceMetricsOverride', {
     width, height: 900, deviceScaleFactor: 0, mobile: false,
@@ -276,6 +295,24 @@ async function setWidthAndSettle(send, width) {
   // 组件的 onWindowResized 节流 300ms，再等一拍渲染
   await sleep(900)
   return waitFor(send, TOOLBAR_STATE, `toolbar state at window width ${width}`, 10_000)
+}
+
+async function setPanelWidthsAndSettle(send, leftWidth, rightWidth) {
+  const panelState = await evaluate(send, `(() => {
+    const left = document.querySelector('[data-panel="file-manager"]')
+    const right = document.querySelector('[data-panel="agent-assistant"]')
+    if (!left || !right) return null
+    const previous = { left: left.style.width, right: right.style.width }
+    if (${JSON.stringify(leftWidth)} !== null) left.style.width = ${JSON.stringify(leftWidth)}
+    if (${JSON.stringify(rightWidth)} !== null) right.style.width = ${JSON.stringify(rightWidth)}
+    return previous
+  })()`)
+  if (!panelState) throw new Error('Resizable side panels were not found')
+  // WordEditor has its own container observer and should update before SuperDoc's 300ms throttle.
+  await sleep(180)
+  const state = await evaluate(send, TOOLBAR_STATE)
+  if (!state) throw new Error('Toolbar state disappeared after resizing side panels')
+  return { panelState, state }
 }
 
 if (!fs.existsSync(rendererEntry)) {
