@@ -394,6 +394,9 @@ try {
   )
   await sleep(1500)
 
+  const full = await setWidthAndSettle(send, 2600)
+  console.log('[STATE] full', JSON.stringify(full))
+
   // 1) 宽窗（容器 ~1300px）：字体字号可见；溢出（若有）只含右端后缀项
   const wide = await setWidthAndSettle(send, 1900)
   console.log('[STATE] wide', JSON.stringify(wide))
