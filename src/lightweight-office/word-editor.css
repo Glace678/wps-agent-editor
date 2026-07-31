@@ -1,0 +1,235 @@
+/* ==========================================================================
+   Word 顶部工具栏 —— 与 Excel（FortuneSheet）工具栏同风格。
+   superdoc 1.44.0 结构约束：
+   - .button-group 的 justify-content / min-width 是内联样式，覆盖需 !important
+   - documentMode 固定渲染在 right 组、溢出 ⋯ 固定在 center 组（配置搬不动）
+     → 用 flex order 把 center 排到最后 + 给 ⋯ margin-left:auto 钉在最右
+   - 字体/字号等下拉被 Teleport 到 <body>，面板作用域样式够不到
+     → 暗色 --sd-ui-dropdown-* 令牌挂在 .dark 根上（--sd-ui-* 仅 SuperDoc 消费）
+   ========================================================================== */
+
+/* SuperDoc contained 模式：父级必须有确定高度，内部 .superdoc__sub-document 才会滚动 */
+.word-editor-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  /* SuperDoc 设计令牌：取值对齐 Excel 浅色工具栏 */
+  --sd-ui-font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
+  --sd-ui-toolbar-bg: #fafafc;
+  --sd-ui-toolbar-height: 28px;          /* 按钮 28×28，同 Excel */
+  /* 间距略小于 Excel 的 8px：SuperDoc 按每项 ~32px 估宽决定可见数，
+     间距过大会让实际宽度超出估算、挤出末尾按钮 */
+  --sd-ui-toolbar-item-gap: 4px;
+  --sd-ui-toolbar-item-padding: 2px;
+  --sd-ui-toolbar-button-text: #535a68;  /* Excel 图标灰 */
+  --sd-ui-toolbar-button-hover-bg: rgb(0 0 0 / 6%);
+  --sd-ui-toolbar-button-active-bg: rgb(0 0 0 / 12%);
+  --sd-ui-border: #e0e0e0;               /* 分隔线，同 Excel divider */
+  --sd-ui-radius: 4px;
+  --sd-ui-font-size-400: 12px;
+  --sd-ui-font-size-500: 12px;
+}
+
+.dark .word-editor-panel {
+  --sd-ui-toolbar-bg: #000;
+  --sd-ui-toolbar-button-text: #e8e8e8;
+  --sd-ui-toolbar-button-hover-bg: #171717;
+  --sd-ui-toolbar-button-active-bg: #242424;
+  --sd-ui-border: #2a2a2a;
+}
+
+/* 暗色下拉/悬浮层令牌（对照 Excel 暗色弹层）。挂根级以覆盖 body 传送门菜单。 */
+.dark {
+  --sd-ui-dropdown-bg: #000;
+  --sd-ui-dropdown-border: #2a2a2a;
+  --sd-ui-dropdown-text: #f5f5f5;
+  --sd-ui-dropdown-hover-bg: #171717;
+  --sd-ui-dropdown-hover-text: #f5f5f5;
+  --sd-ui-dropdown-active-bg: #242424;
+  --sd-ui-dropdown-selected-text: #f5f5f5;
+  --sd-ui-dropdown-shadow: 0 8px 24px rgb(0 0 0 / 70%);
+}
+
+.word-editor-panel .superdoc-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+
+.word-editor-panel .word-editor-chrome {
+  flex-shrink: 0;
+}
+
+/* 工具栏容器：⋯ 下拉从工具栏下方弹出，不可纵向裁切；不参与正文缩放 */
+.word-editor-panel .superdoc-toolbar-container {
+  position: relative;
+  z-index: 30;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* 工具栏本体：Excel = 28px 按钮 + 上5/下3内边距 + 1px 下边框 = 41px */
+.word-editor-panel .superdoc-toolbar {
+  position: relative; /* ⋯ 绝对定位的包含块 */
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 41px;
+  padding: 5px 8px 3px;
+  overflow: visible;
+  border-bottom: 1px solid #d4d4d4;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.dark .word-editor-panel .superdoc-toolbar {
+  border-bottom-color: #2a2a2a;
+}
+
+/*
+ * 分组排序：DOM 顺序 left→center→right，而 ⋯ 只能在 center 组。
+ * 视觉顺序改为 left → right(文档模式) → center(格式工具… ⋯)，
+ * ⋯ 因此永远是最右一项（同 Excel「更多」）。
+ */
+.word-editor-panel .superdoc-toolbar > .button-group {
+  display: flex;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  min-width: 0 !important;
+}
+
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='left'] {
+  order: 0;
+  flex: 0 0 auto;
+}
+
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='right'] {
+  order: 1;
+  flex: 0 0 auto;
+  justify-content: flex-start !important;
+}
+
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='center'] {
+  order: 2;
+  flex: 1 1 auto;
+  justify-content: flex-start !important;
+  overflow: visible;
+}
+
+/*
+ * ⋯ 溢出按钮钉在最右：绝对定位脱离文档流。SuperDoc 的可见项按估算宽度
+ * 计算，实测宽度偏大时流式布局会把末尾的 ⋯ 挤出容器（甚至滑入侧栏）；
+ * 绝对定位保证它永远贴右。center 组预留 ⋯ 的位置并裁掉意外溢出的项
+ *（center 组 position 保持 static，不会裁到 ⋯ 及其下拉层）。
+ */
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='center']:has(.overflow-menu) {
+  overflow: hidden;
+  padding-right: 46px;
+}
+
+.word-editor-panel .superdoc-toolbar [data-toolbar-position='center']
+  > .sd-toolbar-item-ctn:has(> .overflow-menu) {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  margin: 0;
+  transform: translateY(-50%);
+}
+
+/* 按钮形状：28×28、4px 圆角（颜色走上方令牌） */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-button {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 4px;
+}
+
+/* FontAwesome 图标铺满视框，16px ≈ Excel 24px 雪碧图的墨量 */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-icon__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 字体下拉保持紧凑，避免挤掉格式按钮 */
+.word-editor-panel .superdoc-toolbar .sd-font-combobox {
+  max-width: 130px;
+}
+
+/* ⋯ 弹层：贴工具栏右下、按行折行，规格同 Excel「更多」菜单 */
+.word-editor-panel .overflow-menu {
+  position: relative;
+}
+
+.word-editor-panel .overflow-menu_items {
+  z-index: 10050;
+  width: max-content;
+  max-width: 348px;
+  max-height: min(70vh, 420px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.word-editor-panel .superdoc-toolbar-overflow {
+  flex-flow: row wrap;
+  max-width: 100%;
+}
+
+.dark .word-editor-panel .overflow-menu_items {
+  border: 1px solid #2a2a2a; /* 背景/阴影走 --sd-ui-dropdown-* 令牌 */
+}
+
+/*
+ * 缩放不在这里做：外部 CSS zoom/transform 会破坏 SuperDoc PresentationEditor
+ * 的指针坐标换算（点击错位 → 无法编辑），标尺也会随之错乱。
+ * 缩放、双页布局一律走原生 API（superdoc.setZoom / setLayoutMode），
+ * 见 WordEditor.tsx / WordDocumentLayout.tsx。
+ */
+.word-editor-panel .superdoc-editor-container {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: hidden !important;
+}
+
+/* 高倍缩放时页面比容器宽，需要横向滚动（原生缩放会把视口撑到缩放后尺寸） */
+.word-editor-panel .superdoc--contained .superdoc__sub-document {
+  overflow-y: auto !important;
+  overflow-x: auto;
+}
+
+/*
+ * 文档列水平居中：superdoc 的多层容器都按内容收缩（shrink-to-fit），
+ * 在收缩链的每一层都加 margin auto——对已是全宽的层是无操作，对收缩层
+ * 生效居中；超宽（高倍缩放）时限宽为窗格宽度，改在列内横向滚动。
+ * 只是整体平移演示层，指针换算基于 client rect，不受影响。
+ */
+.word-editor-panel .superdoc,
+.word-editor-panel .superdoc__layers,
+.word-editor-panel .superdoc__document,
+.word-editor-panel .superdoc__sub-document {
+  margin-left: auto !important;
+  margin-right: auto !important;
+  max-width: 100%;
+}
+
+/*
+ * 页面拼接（双击页间黑边隐藏空白，见 WordPageStitch.tsx）：
+ * 间距本身走引擎原生通道归零；这里只做装饰——页面投影会在接缝处
+ * 形成断层感，拼接时移除（页面自带的 1px 边框保留，充当接缝细线）。
+ * 阴影是 painter 写的内联样式，需 !important 覆盖。
+ */
+.word-editor-panel .word-document-layout[data-word-stitched='true'] .superdoc-page {
+  box-shadow: none !important;
+}
+
+

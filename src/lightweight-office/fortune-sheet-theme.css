@@ -1,0 +1,794 @@
+/* Fortune Sheet has no theme API. Keep every override scoped to the Excel editor. */
+.excel-editor-shell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+  /* Containment to limit repaint scope during animations */
+  contain: layout paint size;
+  /* IMPORTANT: no transform / will-change in the steady state. A permanently
+     promoted layer skips Chromium's device-pixel snapping, so at fractional
+     DPR the worksheet canvas lands on sub-pixel offsets and every glyph is
+     bilinearly resampled (blurry until the next layout luckily re-aligns).
+     GPU promotion is applied only while a panel animation is running, via the
+     data-animating / panel-animating rules below. */
+}
+
+/* 🔴 动画期间超激进的渲染冻结 */
+[data-animating="true"] .excel-editor-shell,
+.panel-animating .excel-editor-shell {
+  /* 强制使用合成层渲染，完全禁止重排重绘 */
+  contain: strict !important;
+  will-change: transform !important;
+  transform: translateZ(0) scale(1) !important;
+  backface-visibility: hidden !important;
+  perspective: 1000px !important;
+  /* 禁止任何可能触发重排的样式变化 */
+  width: auto !important;
+  height: 100% !important;
+  /* 禁用鼠标事件，避免悬停触发重绘 */
+  pointer-events: none !important;
+}
+
+/* 动画期间冻结 Canvas 渲染 */
+[data-animating="true"] .excel-editor-shell canvas,
+.panel-animating .excel-editor-shell canvas {
+  will-change: transform !important;
+  transform: translateZ(0) !important;
+  backface-visibility: hidden !important;
+  /* Canvas 特殊优化：忽略大小变化，只做位图拉伸 */
+  image-rendering: -webkit-optimize-contrast !important;
+  image-rendering: crisp-edges !important;
+}
+
+/* Word 编辑器动画优化 */
+[data-animating="true"] .word-editor-panel,
+.panel-animating .word-editor-panel {
+  contain: strict !important;
+  will-change: transform !important;
+  transform: translateZ(0) !important;
+  pointer-events: none !important;
+}
+
+/* Text 编辑器动画优化 */
+[data-animating="true"] [data-notepad-editor],
+.panel-animating [data-notepad-editor] {
+  contain: strict !important;
+  will-change: transform !important;
+  transform: translateZ(0) !important;
+  pointer-events: none !important;
+}
+
+/* PDF 查看器动画优化 */
+[data-animating="true"] .PdfViewer,
+.panel-animating .PdfViewer {
+  contain: strict !important;
+  will-change: transform !important;
+  transform: translateZ(0) !important;
+  pointer-events: none !important;
+}
+
+.excel-editor-shell > .fortune-container,
+.excel-editor-shell .fortune-sheet-container,
+.excel-editor-shell .fortune-col-body,
+.excel-editor-shell .fortune-sheet-area {
+  min-width: 0;
+  min-height: 0;
+}
+
+.excel-editor-shell > .fortune-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* Use the platform's hinted UI fonts. Forced grayscale smoothing and
+     geometricPrecision make small Windows text look thin and hazy. */
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
+}
+
+.excel-editor-shell .fortune-workarea,
+.excel-editor-shell .luckysheet-sheet-area {
+  flex: 0 0 auto;
+}
+
+.excel-editor-shell .fortune-sheet-container {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.dark .excel-editor-shell {
+  --fortune-dark-bg: #000;
+  --fortune-dark-hover: #171717;
+  --fortune-dark-active: #242424;
+  --fortune-dark-border: #2a2a2a;
+  --fortune-dark-text: #f5f5f5;
+  --fortune-dark-muted: #a3a3a3;
+  background: #000;
+  color-scheme: dark;
+}
+
+.dark .excel-editor-shell .fortune-container {
+  background: var(--fortune-dark-bg);
+  color: var(--fortune-dark-text);
+  color-scheme: dark;
+}
+
+/* Fortune already draws at the monitor's native DPR. Dark pixels are produced
+   directly in the canvas backing store; a CSS filter here would resample the
+   finished bitmap and soften small numbers. */
+.dark .excel-editor-shell .fortune-sheet-canvas {
+  filter: none;
+  background: #000;
+}
+
+/* Match the live DOM editor to the native black worksheet. */
+.dark .excel-editor-shell .luckysheet-input-box-inner,
+.dark .excel-editor-shell .luckysheet-cell-input {
+  background: #000 !important;
+  color: #f5f5f5 !important;
+  caret-color: #f5f5f5;
+  filter: none !important;
+}
+
+.dark .excel-editor-shell .fortune-workarea,
+.dark .excel-editor-shell .fortune-sheet-container,
+.dark .excel-editor-shell .fortune-col-body,
+.dark .excel-editor-shell .fortune-sheet-area {
+  background: #000;
+}
+
+/* These transparent hit-test layers sit above the canvas. Giving either one
+   an opaque background hides the worksheet glyphs and makes cells look blank. */
+.dark .excel-editor-shell .fortune-row-body,
+.dark .excel-editor-shell .fortune-cell-area {
+  background: transparent;
+}
+
+/* Main Excel chrome: toolbar, formula bar and sheet tabs. */
+.dark .excel-editor-shell .fortune-toolbar,
+.dark .excel-editor-shell .fortune-fx-editor,
+.dark .excel-editor-shell .fortune-name-box,
+.dark .excel-editor-shell .fortune-fx-input,
+.dark .excel-editor-shell .luckysheet-sheet-area,
+.dark .excel-editor-shell #luckysheet-bottom-pager,
+.dark .excel-editor-shell .fortune-left-top,
+.dark .excel-editor-shell .fortune-add-row-button {
+  background: var(--fortune-dark-bg);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell .fortune-toolbar,
+.dark .excel-editor-shell .fortune-fx-editor {
+  border-bottom-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell .fortune-name-box-container,
+.dark .excel-editor-shell .fortune-fx-input-container {
+  border-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell .fortune-toolbar-divider,
+.dark .excel-editor-shell .fortune-toolbar-menu-divider,
+.dark .excel-editor-shell .fortune-context-menu-divider,
+.dark .excel-editor-shell .fortune-link-modify-modal .divider,
+.dark .excel-editor-shell .horizontal-line {
+  background-color: var(--fortune-dark-border);
+  border-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell .fortune-toolbar-button:hover,
+.dark .excel-editor-shell .fortune-toolbar-combo:hover,
+.dark .excel-editor-shell .fortune-toolbar-combo-arrow:hover,
+.dark .excel-editor-shell .fortune-sheettab-button:hover,
+.dark .excel-editor-shell .fortune-sheettab-scroll:hover,
+.dark .excel-editor-shell .fortune-zoom-button:hover {
+  background: var(--fortune-dark-hover);
+}
+
+.dark .excel-editor-shell .fortune-toolbar-button:active,
+.dark .excel-editor-shell .fortune-toolbar-combo:active {
+  background: var(--fortune-dark-active);
+}
+
+/* Menus, popovers and dialogs, including the font-family picker. */
+.dark .excel-editor-shell .fortune-toolbar-select,
+.dark .excel-editor-shell .fortune-toolbar-color-picker,
+.dark .excel-editor-shell .fortune-toolbar-more-container,
+.dark .excel-editor-shell .toolbar-item-sub-menu,
+.dark .excel-editor-shell .condition-format-sub-menu,
+.dark .excel-editor-shell .fortune-context-menu,
+.dark .excel-editor-shell .fortune-filter-menu,
+.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu,
+.dark .excel-editor-shell .fortune-zoom-ratio-menu,
+.dark .excel-editor-shell .fortune-sheet-list,
+.dark .excel-editor-shell .fortune-dialog,
+.dark .excel-editor-shell .fortune-link-modify-modal,
+.dark .excel-editor-shell .luckysheet-formula-search-c,
+.dark .excel-editor-shell .luckysheet-formula-help-c,
+.dark .excel-editor-shell #fortune-custom-color,
+.dark .excel-editor-shell #fortune-change-color,
+.dark .excel-editor-shell #range-dialog,
+.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List,
+.dark .excel-editor-shell #luckysheet-dataVerification-showHintBox {
+  background: var(--fortune-dark-bg);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-border);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 70%);
+}
+
+.dark .excel-editor-shell .fortune-modal-container {
+  background: rgb(0 0 0 / 72%);
+}
+
+.dark .excel-editor-shell .fortune-toolbar-select-option,
+.dark .excel-editor-shell .fortune-border-select-option,
+.dark .excel-editor-shell .fortune-border-style-picker-menu,
+.dark .excel-editor-shell .condition-format-item,
+.dark .excel-editor-shell .fortune-menuitem-row,
+.dark .excel-editor-shell .fortune-sheet-list-item,
+.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List .dropdown-List-item {
+  color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .fortune-toolbar-select-option:hover,
+.dark .excel-editor-shell .fortune-border-select-option:hover,
+.dark .excel-editor-shell .fortune-border-style-picker-menu:hover,
+.dark .excel-editor-shell .condition-format-item:hover,
+.dark .excel-editor-shell .fortune-zoom-ratio-item:hover,
+.dark .excel-editor-shell .fortune-sheet-list :hover,
+.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List .dropdown-List-item:hover,
+.dark .excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem:hover,
+.dark .excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem-hover {
+  background: var(--fortune-dark-hover);
+  color: var(--fortune-dark-text);
+}
+
+/* Fortune Sheet ships static font and size menus. Excel upgrades these two
+   menus into Word-style editable pickers: a pinned search field, filtered
+   choices, arrow-key focus, and Enter to apply the highlighted/custom value.
+   Search sits ABOVE the scrollable list (not sticky inside it) so options
+   cannot scroll through / paint under the search chrome. */
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind] {
+  display: flex;
+  flex-direction: column;
+  max-height: min(75vh, 360px);
+  /* Clip any residual overflow so the shell's black background never peeks. */
+  overflow: hidden;
+  isolation: isolate;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind] .fortune-toolbar-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Fortune default padding; keep list scrollable under a fixed header. */
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+}
+
+/* Font / size / format popup width is set by JS from text metrics
+   (placeholder vs longest list label). Do not force a large min-width —
+   it creates a trailing black/empty strip. Override Fortune nowrap. */
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font'],
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'],
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='format'] {
+  min-width: 0;
+  white-space: normal;
+}
+
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font'] .fortune-toolbar-select,
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'] .fortune-toolbar-select,
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='format'] .fortune-toolbar-select {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font'] .fortune-toolbar-select-option,
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'] .fortune-toolbar-select-option,
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='format'] .fortune-toolbar-select-option {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.excel-editor-shell .excel-toolbar-picker-search {
+  position: relative;
+  z-index: 5;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px 7px;
+  overflow: hidden;
+  /* Fully opaque so scrolling options never show through */
+  background: #fff;
+  border-bottom: 1px solid #d8dce3;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 4%);
+}
+
+.excel-editor-shell .excel-toolbar-picker-search-input {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 30px;
+  margin: 0;
+  padding: 5px 8px;
+  color: #20242c;
+  font: inherit;
+  /* Menu-scale type; popup width is computed from text length in JS. */
+  font-size: 12px;
+  line-height: 18px;
+  /* No horizontal scrollbar gutter (looks like a black edge on the right). */
+  overflow-x: hidden;
+  overflow-y: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  -webkit-text-fill-color: currentColor;
+  caret-color: currentColor;
+  /* Match the search chrome — never pure black (avoids trailing “black edge”). */
+  background: #fff;
+  border: 1px solid #aeb6c2;
+  border-radius: 4px;
+  outline: none;
+}
+
+.excel-editor-shell .excel-toolbar-picker-search-input::placeholder {
+  color: #68707d;
+  opacity: 1;
+  /* Full text is intended to fit; never ellipsize into a dark trailing band. */
+  text-overflow: clip;
+}
+
+/* Empty field: show the full placeholder without ellipsis. */
+.excel-editor-shell .excel-toolbar-picker-search-input:placeholder-shown {
+  text-overflow: clip;
+}
+
+/* Typed values may scroll horizontally inside the field (not the popup). */
+.excel-editor-shell .excel-toolbar-picker-search-input:not(:placeholder-shown) {
+  overflow-x: auto;
+  text-overflow: clip;
+}
+
+.excel-editor-shell .excel-toolbar-picker-search-input:focus {
+  border-color: #5b63d3;
+  box-shadow: 0 0 0 2px rgb(91 99 211 / 20%);
+}
+
+.excel-editor-shell .excel-toolbar-picker-option-active {
+  color: #151a28;
+  background: #e7eafd;
+}
+
+.excel-editor-shell .excel-toolbar-picker-empty {
+  min-width: 148px;
+  padding: 9px 12px;
+  color: #68707d;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.dark .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind] {
+  background: var(--fortune-dark-bg, #2c2c2c);
+}
+
+.dark .excel-editor-shell .excel-toolbar-picker-search {
+  background: var(--fortune-dark-bg, #2c2c2c);
+  border-bottom-color: var(--fortune-dark-border);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 35%);
+}
+
+.dark .excel-editor-shell .excel-toolbar-picker-search-input {
+  color: var(--fortune-dark-text);
+  /* Same as popup/header so residual field space is not a pure-black strip. */
+  background: var(--fortune-dark-bg, #2c2c2c);
+  border-color: #4a4a4a;
+}
+
+.dark .excel-editor-shell .excel-toolbar-picker-search-input::placeholder {
+  color: var(--fortune-dark-muted, #a3a3a3);
+  opacity: 1;
+}
+
+.dark .excel-editor-shell .excel-toolbar-picker-search-input:focus {
+  border-color: #918cff;
+  box-shadow: 0 0 0 2px rgb(145 140 255 / 25%);
+}
+
+.dark .excel-editor-shell .excel-toolbar-picker-option-active {
+  color: var(--fortune-dark-text);
+  background: var(--fortune-dark-active);
+}
+
+.dark .excel-editor-shell .excel-toolbar-picker-empty {
+  color: var(--fortune-dark-muted);
+}
+
+/* Native controls and content-editable overlays otherwise retain a white UA background. */
+.dark .excel-editor-shell .fortune-container input,
+.dark .excel-editor-shell .fortune-container select,
+.dark .excel-editor-shell .fortune-container textarea,
+.dark .excel-editor-shell .fortune-container option,
+.dark .excel-editor-shell .fortune-container [contenteditable="true"]:not(.luckysheet-cell-input) {
+  background-color: #050505;
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-border);
+  caret-color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .fortune-container input::placeholder,
+.dark .excel-editor-shell .fortune-container textarea::placeholder {
+  color: var(--fortune-dark-muted);
+}
+
+/* Dialog surfaces and secondary commands. */
+.dark .excel-editor-shell .fortune-message-box-button.button-default,
+.dark .excel-editor-shell .fortune-link-modify-modal .button-default,
+.dark .excel-editor-shell .fortune-filter-menu .button-default,
+.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .button-default,
+.dark .excel-editor-shell #fortune-data-verification .button-close,
+.dark .excel-editor-shell #fortune-split-column .button-close,
+.dark .excel-editor-shell #fortune-location-condition .button-close,
+.dark .excel-editor-shell #range-dialog .button-close,
+.dark .excel-editor-shell .condition-rules .button-close {
+  background: var(--fortune-dark-hover);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell #fortune-custom-color .color-reset,
+.dark .excel-editor-shell #fortune-custom-color .custom-color,
+.dark .excel-editor-shell #fortune-change-color .color-reset,
+.dark .excel-editor-shell #fortune-change-color .custom-color,
+.dark .excel-editor-shell #fortune-search-replace #searchAllbox .boxTitle,
+.dark .excel-editor-shell #range-dialog .dialog-title,
+.dark .excel-editor-shell #fortune-location-condition .title,
+.dark .excel-editor-shell .fortune-sort-title {
+  background: var(--fortune-dark-bg);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell #fortune-custom-color .color-reset:hover,
+.dark .excel-editor-shell #fortune-change-color .color-reset:hover,
+.dark .excel-editor-shell .fortune-filter-menu .button-default:hover,
+.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .button-default:hover {
+  background: var(--fortune-dark-active);
+}
+
+/* Formula help and search results. */
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item,
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item-active,
+.dark .excel-editor-shell .luckysheet-formula-help-title {
+  background: var(--fortune-dark-bg);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item-active,
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item:hover {
+  background: var(--fortune-dark-hover);
+}
+
+.dark .excel-editor-shell .luckysheet-formula-search-detail,
+.dark .excel-editor-shell .luckysheet-formula-search-func,
+.dark .excel-editor-shell .luckysheet-arguments-help-section,
+.dark .excel-editor-shell .luckysheet-arguments-help-section-title,
+.dark .excel-editor-shell .fortune-toolbar-subtext,
+.dark .excel-editor-shell .fortune-link-modify-title,
+.dark .excel-editor-shell .fortune-link-modify-modal .modal-title,
+.dark .excel-editor-shell .condition-rules-title,
+.dark .excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem,
+.dark .excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem-content {
+  color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .luckysheet-arguments-help-parameter-active {
+  background: #292400;
+  color: #fff2a8;
+}
+
+.dark .excel-editor-shell .luckysheet-formula-text-color {
+  color: var(--fortune-dark-text);
+}
+
+/* Sheet tabs and status controls. */
+.dark .excel-editor-shell .fortune-sheettab-container .boundary,
+.dark .excel-editor-shell .luckysheet-sheet-area div.luckysheet-sheets-item,
+.dark .excel-editor-shell .luckysheet-sheet-area div.luckysheet-sheets-item-active {
+  background: var(--fortune-dark-bg);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell .luckysheet-sheet-area div.luckysheet-sheets-item:hover,
+.dark .excel-editor-shell .luckysheet-sheet-area div.luckysheet-sheets-item-active,
+.dark .excel-editor-shell .luckysheet-sheet-area div.luckysheet-sheets-item-active:hover {
+  background: var(--fortune-dark-hover);
+  color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .fortune-zoom-ratio,
+.dark .excel-editor-shell .luckysheet-sheet-selection-calInfo {
+  color: var(--fortune-dark-text);
+}
+
+/* Inline validation and filter controls are positioned over the canvas. */
+.dark .excel-editor-shell .luckysheet-filter-options,
+.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-btn {
+  background: var(--fortune-dark-bg);
+  border-color: #897bff;
+}
+
+.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .title,
+.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .item {
+  background: var(--fortune-dark-bg);
+  color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .item:hover {
+  background: var(--fortune-dark-hover);
+}
+
+.dark .excel-editor-shell .filter-caret.right {
+  border-left-color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .filter-caret.down {
+  border-top-color: var(--fortune-dark-text);
+}
+
+/* Fortune's icons use fixed dark presentation attributes instead of currentColor. */
+.dark .excel-editor-shell .fortune-container svg {
+  color: #e8e8e8;
+}
+
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[fill="#000" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[fill="#000000" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[fill="#394259" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[fill="#424a59" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[fill="#525c6f" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[fill="#535b68" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[fill="black" i] {
+  fill: currentColor;
+}
+
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[stroke="#000" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[stroke="#000000" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[stroke="#394259" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[stroke="#424a59" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[stroke="#525c6f" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[stroke="#535a68" i],
+.dark .excel-editor-shell .fortune-container :is(svg, svg *)[stroke="black" i] {
+  stroke: currentColor;
+}
+
+.dark .excel-editor-shell .fortune-container ::-webkit-scrollbar-track {
+  background: var(--fortune-dark-bg);
+}
+
+.dark .excel-editor-shell .fortune-container ::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+}
+
+/* Keep every Fortune Sheet dialog exit visible and keyboard accessible. */
+.excel-editor-shell .fortune-dialog {
+  position: relative;
+}
+
+.excel-editor-shell .fortune-modal-container .fortune-modal-dialog-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px;
+  background: #fff;
+  border-bottom: 1px solid #d8dce3;
+}
+
+.excel-editor-shell [data-fortune-dialog-kind='screenshot-preview'] .fortune-modal-dialog-header::before {
+  content: attr(data-excel-dialog-title);
+  margin-right: auto;
+  padding-left: 10px;
+  color: #252a34;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 25px 0;
+  padding: 8px 10px;
+  border: 1px solid;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status::before {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-weight: 700;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status[data-status='copying'] {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status[data-status='copying']::before {
+  content: '…';
+  color: #fff;
+  background: #2563eb;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status[data-status='copied'] {
+  color: #166534;
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status[data-status='copied']::before {
+  content: '✓';
+  color: #fff;
+  background: #16a34a;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status[data-status='error'] {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.excel-editor-shell .excel-screenshot-clipboard-status[data-status='error']::before {
+  content: '!';
+  color: #fff;
+  background: #dc2626;
+}
+
+.excel-editor-shell .fortune-modal-dialog-icon-close {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: #252a34;
+  background: #f3f4f6;
+  border: 1px solid #b9c0ca;
+  border-radius: 8px;
+  opacity: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.excel-editor-shell .fortune-modal-dialog-icon-close:hover {
+  color: #fff;
+  background: #c93232;
+  border-color: #b52a2a;
+  opacity: 1;
+}
+
+.excel-editor-shell .fortune-modal-dialog-icon-close:focus-visible,
+.excel-editor-shell #fortune-search-replace .close-button:focus-visible {
+  outline: 3px solid #726efe;
+  outline-offset: 2px;
+}
+
+.excel-editor-shell .fortune-modal-dialog-icon-close svg {
+  width: 30px;
+  height: 30px;
+  color: inherit;
+}
+
+.excel-editor-shell .fortune-modal-dialog-icon-close svg :is(path, line, polyline) {
+  stroke: currentColor !important;
+  stroke-opacity: 1 !important;
+}
+
+/* Fortune renders the close glyph through <use>, so recolor its source symbol too. */
+.excel-editor-shell .fortune-container symbol#close :is(path, line, polyline) {
+  stroke: currentColor !important;
+  stroke-opacity: 1 !important;
+}
+
+.excel-editor-shell .fortune-modal-dialog-icon-close:hover svg,
+.dark .excel-editor-shell .fortune-modal-dialog-icon-close svg {
+  filter: brightness(0) invert(1);
+}
+
+.excel-editor-shell #fortune-search-replace {
+  padding-top: 52px;
+}
+
+.excel-editor-shell #fortune-search-replace .icon-close {
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+}
+
+.excel-editor-shell #fortune-search-replace .close-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  color: #252a34;
+  background: #f3f4f6;
+  border: 1px solid #b9c0ca;
+  border-radius: 6px;
+}
+
+.excel-editor-shell #fortune-search-replace .close-button::before {
+  content: '×';
+  font-size: 18px;
+  line-height: 1;
+}
+
+.excel-editor-shell #fortune-search-replace .close-button:hover {
+  color: #fff;
+  background: #c93232;
+  border-color: #b52a2a;
+}
+
+.dark .excel-editor-shell .fortune-modal-container .fortune-modal-dialog-header {
+  background: var(--fortune-dark-bg);
+  border-bottom-color: var(--fortune-dark-border);
+}
+
+.dark .excel-editor-shell [data-fortune-dialog-kind='screenshot-preview'] .fortune-modal-dialog-header::before {
+  color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .excel-screenshot-clipboard-status[data-status='copying'] {
+  color: #bfdbfe;
+  background: #172554;
+  border-color: #1e40af;
+}
+
+.dark .excel-editor-shell .excel-screenshot-clipboard-status[data-status='copied'] {
+  color: #bbf7d0;
+  background: #052e16;
+  border-color: #166534;
+}
+
+.dark .excel-editor-shell .excel-screenshot-clipboard-status[data-status='error'] {
+  color: #fecaca;
+  background: #450a0a;
+  border-color: #991b1b;
+}
+
+.dark .excel-editor-shell .fortune-modal-dialog-icon-close,
+.dark .excel-editor-shell #fortune-search-replace .close-button {
+  color: #fff;
+  background: #30303a;
+  border-color: #71717f;
+}
+
+.dark .excel-editor-shell .fortune-modal-dialog-icon-close:hover,
+.dark .excel-editor-shell #fortune-search-replace .close-button:hover {
+  color: #fff;
+  background: #c93232;
+  border-color: #ef5b5b;
+}

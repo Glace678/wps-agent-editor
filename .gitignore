@@ -1,0 +1,17 @@
+node_modules/
+out/
+release/
+dist/
+.oo-cache/
+*.log
+.env
+.agents/
+.cache/
+.claude/
+.DS_Store
+Thumbs.db
+
+# OfficeCLI 二进制（体积大，用 npm run download:officecli 获取）
+resources/office-cli/*.exe
+resources/office-cli/officecli-*
+!resources/office-cli/README.md
