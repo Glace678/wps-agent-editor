@@ -85,6 +85,11 @@ const WIDTH_EPSILON = 0.75
 
 const itemName = (item: ToolbarItemLike): string => item.name?.value ?? ''
 
+function sameItems(a: ToolbarItemLike[] | undefined, b: ToolbarItemLike[]): boolean {
+  if (!a || a.length !== b.length) return false
+  return a.every((item, index) => item === b[index])
+}
+
 function numericStyle(value: string): number {
   const parsed = Number.parseFloat(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -172,9 +177,9 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
     if (documentMode?.group) documentMode.group.value = 'center'
   }
 
-  const repartition = () => {
+  const repartition = (force = false): boolean => {
     const available = toolbar.getAvailableWidth?.() ?? 0
-    if (!available || orderedItems.length === 0) return
+    if (!available || orderedItems.length === 0) return false
 
     const widths = orderedItems.map((item) => (
       measuredItemWidths.get(itemName(item))
@@ -200,8 +205,18 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
     const visible = orderedItems.slice(0, cut)
     const overflowed = orderedItems.slice(cut)
     if (overflowControl) visible.push(overflowControl)
+
+    if (
+      !force
+      && sameItems(toolbar.toolbarItems, visible)
+      && sameItems(toolbar.overflowItems, overflowed)
+    ) {
+      return false
+    }
+
     toolbar.toolbarItems = visible
     toolbar.overflowItems = overflowed
+    return true
   }
 
   const notifyVueToolbar = () => {
@@ -215,10 +230,12 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
   }
 
   const patched = () => {
-    measureRenderedToolbar()
+    // Item widths stay stable while a sidebar is dragged. Cached values avoid
+    // forcing layout reads for every pixel of movement.
+    const panelResizing = toolbar.toolbarContainer?.closest('[data-panel-resizing="true"]')
+    if (!panelResizing) measureRenderedToolbar()
     if (orderedItems.length === 0) rebuildCompleteItemSet()
-    repartition()
-    notifyVueToolbar()
+    if (repartition()) notifyVueToolbar()
   }
 
   // 换编辑器或字体变化会绕过 onToolbarResize 重建 items；此时刷新完整集合。
@@ -228,7 +245,7 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
     try {
       measureRenderedToolbar()
       rebuildCompleteItemSet()
-      repartition()
+      repartition(true)
       notifyVueToolbar()
     } finally {
       rebuilding = false
