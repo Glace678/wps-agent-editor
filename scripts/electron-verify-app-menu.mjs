@@ -134,10 +134,12 @@ try {
   cdp = await connectCdp(page.webSocketDebuggerUrl)
 
   await waitFor(cdp, "Boolean(document.querySelector('[data-testid=app-menu-file]'))", 'renderer menu')
-  if (await evaluate(cdp, "document.documentElement.classList.contains('dark')")) {
-    await click(cdp, '[data-testid=theme-toggle]')
-    await waitFor(cdp, "!document.documentElement.classList.contains('dark')", 'light theme')
-  }
+  assert.equal(await evaluate(cdp, `(() => {
+    localStorage.setItem('app-theme', 'light')
+    window.dispatchEvent(new CustomEvent('app-theme-change', { detail: 'light' }))
+    return window.api.theme.setPreference('light').then((result) => result.success)
+  })()`), true, 'native theme bridge must accept the light preference')
+  await waitFor(cdp, "!document.documentElement.classList.contains('dark')", 'light theme')
 
   await click(cdp, '[data-testid=app-menu-file]')
   await waitFor(cdp, "Boolean(document.querySelector('[data-testid=app-menu-content-file]'))", 'File menu')
@@ -159,6 +161,16 @@ try {
     'none',
     'top-level menu switching must not replay an opening animation',
   )
+
+  for (const top of ['agent', 'help']) {
+    await move(cdp, `[data-testid=app-menu-${top}]`)
+    await waitFor(cdp, `Boolean(document.querySelector('[data-testid=app-menu-content-${top}]'))`, `${top} menu after hover`)
+    assert.equal(
+      await evaluate(cdp, `getComputedStyle(document.querySelector('[data-testid=app-menu-content-${top}]')).backgroundColor`),
+      'rgb(255, 255, 255)',
+      `light ${top} menu must be white`,
+    )
+  }
 
   const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
   fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
