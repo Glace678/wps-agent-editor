@@ -91,7 +91,8 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
   const { t } = useTranslation()
   const { zoom } = useDocumentZoom()
   const containerRef = useRef<HTMLDivElement>(null)
-  const [containerWidth, setContainerWidth] = useState(0)
+  const [fitsTwoPages, setFitsTwoPages] = useState(true)
+  const fitsTwoPagesRef = useRef(true)
   const [hint, setHint] = useState<string | null>(null)
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const appliedRef = useRef<{ superdoc: SuperDocInstance | null; mode: WordPageLayoutMode | null }>({
@@ -111,14 +112,18 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const measure = () => setContainerWidth(el.clientWidth)
+    const measure = () => {
+      const next = el.clientWidth >= TWO_PAGE_BASE_WIDTH * zoom
+      if (next === fitsTwoPagesRef.current) return
+      fitsTwoPagesRef.current = next
+      setFitsTwoPages(next)
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
+  }, [zoom])
 
-  const fitsTwoPages = containerWidth === 0 || containerWidth >= TWO_PAGE_BASE_WIDTH * zoom
   // 页数未知（事件未到）时保持 vertical，避免在超大文档上误关虚拟化
   const bookEligible =
     totalPages !== null && totalPages >= 2 && totalPages <= BOOK_MODE_MAX_PAGES
