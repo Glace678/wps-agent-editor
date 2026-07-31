@@ -315,6 +315,130 @@ async function setPanelWidthsAndSettle(send, leftWidth, rightWidth) {
   return { panelState, state }
 }
 
+async function dragPanelDivider(send, side, delta, steps = 72) {
+  const startState = await evaluate(send, TOOLBAR_STATE)
+  const handle = await evaluate(send, `(() => {
+    const handles = Array.from(document.querySelectorAll('[role="separator"][aria-orientation="vertical"]'))
+    const handle = handles[${JSON.stringify(side)} === 'left' ? 0 : handles.length - 1]
+    const panelLayout = document.querySelector('[data-panel="document-editor"]')?.parentElement
+    if (!handle || !panelLayout) return null
+
+    const metrics = {
+      markerStarts: 0,
+      markerEnds: 0,
+      pageQueriesDuring: 0,
+      pageQueriesAfter: 0,
+      pageRectsDuring: 0,
+      toolbarEmitsDuring: 0,
+      frames: 0,
+      maxFrameGap: 0,
+      sawStart: false,
+    }
+    const isDragging = () => panelLayout.getAttribute('data-panel-resizing') === 'true'
+    const originalQuerySelectorAll = Element.prototype.querySelectorAll
+    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect
+
+    Element.prototype.querySelectorAll = function(selector) {
+      if (selector === '.superdoc-page[data-page-index]') {
+        if (isDragging()) metrics.pageQueriesDuring += 1
+        else if (metrics.sawStart) metrics.pageQueriesAfter += 1
+      }
+      return originalQuerySelectorAll.call(this, selector)
+    }
+    Element.prototype.getBoundingClientRect = function() {
+      if (isDragging() && this instanceof Element && this.matches('.superdoc-page')) {
+        metrics.pageRectsDuring += 1
+      }
+      return originalGetBoundingClientRect.call(this)
+    }
+
+    let app = null
+    let toolbarHost = document.querySelector('.superdoc-toolbar-container')
+    while (toolbarHost) {
+      if (toolbarHost.__vue_app__) { app = toolbarHost.__vue_app__; break }
+      toolbarHost = toolbarHost.parentElement
+    }
+    const toolbar = app?.config?.globalProperties?.$toolbar ?? null
+    const originalEmit = toolbar?.emit
+    if (toolbar && typeof originalEmit === 'function') {
+      toolbar.emit = function(event, ...args) {
+        if (isDragging() && event === 'toolbar-items-changed') metrics.toolbarEmitsDuring += 1
+        return originalEmit.call(this, event, ...args)
+      }
+    }
+
+    const markerObserver = new MutationObserver(() => {
+      if (isDragging()) {
+        metrics.markerStarts += 1
+        metrics.sawStart = true
+      } else if (metrics.sawStart) {
+        metrics.markerEnds += 1
+      }
+    })
+    markerObserver.observe(panelLayout, {
+      attributes: true,
+      attributeFilter: ['data-panel-resizing'],
+    })
+
+    let frameId = 0
+    let lastFrame = null
+    const monitorFrame = (now) => {
+      if (isDragging()) {
+        metrics.frames += 1
+        if (lastFrame !== null) metrics.maxFrameGap = Math.max(metrics.maxFrameGap, now - lastFrame)
+        lastFrame = now
+      } else {
+        lastFrame = null
+      }
+      frameId = requestAnimationFrame(monitorFrame)
+    }
+    frameId = requestAnimationFrame(monitorFrame)
+
+    window.__finishWordPanelDragProbe = () => {
+      cancelAnimationFrame(frameId)
+      markerObserver.disconnect()
+      Element.prototype.querySelectorAll = originalQuerySelectorAll
+      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect
+      if (toolbar && typeof originalEmit === 'function') toolbar.emit = originalEmit
+      delete window.__finishWordPanelDragProbe
+      return metrics
+    }
+
+    const rect = handle.getBoundingClientRect()
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+  })()`)
+  if (!handle) throw new Error(`${side} resize handle was not found`)
+
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved', x: handle.x, y: handle.y, button: 'none', pointerType: 'mouse',
+  })
+  await send('Input.dispatchMouseEvent', {
+    type: 'mousePressed', x: handle.x, y: handle.y, button: 'left', buttons: 1,
+    clickCount: 1, pointerType: 'mouse',
+  })
+  for (let i = 1; i <= steps; i++) {
+    await send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: handle.x + delta * (i / steps),
+      y: handle.y,
+      button: 'left',
+      buttons: 1,
+      pointerType: 'mouse',
+    })
+    await sleep(4)
+  }
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x: handle.x + delta, y: handle.y, button: 'left', buttons: 0,
+    clickCount: 1, pointerType: 'mouse',
+  })
+  await sleep(250)
+
+  const metrics = await evaluate(send, `window.__finishWordPanelDragProbe?.()`)
+  const endState = await evaluate(send, TOOLBAR_STATE)
+  if (!metrics || !endState) throw new Error(`Could not collect ${side} drag metrics`)
+  return { startState, endState, metrics, steps }
+}
+
 if (!fs.existsSync(rendererEntry)) {
   console.error('Built renderer is missing. Run `npm run build` before this verifier.')
   process.exit(1)
@@ -472,6 +596,45 @@ try {
     JSON.stringify(restored.visible) === JSON.stringify(wide.visible)
       && JSON.stringify(restored.overflow) === JSON.stringify(wide.overflow),
     `visible=${visibleNames(restored).length}`)
+
+  // Real divider drags: many pointer moves must not cause a full page scan or
+  // a Vue toolbar redraw on every frame. One trailing page refresh realigns the
+  // invisible page-gap hit areas after mouseup.
+  const leftDrag = await dragPanelDivider(send, 'left', 320)
+  const leftVisibleDelta = Math.abs(
+    visibleNames(leftDrag.endState).length - visibleNames(leftDrag.startState).length,
+  )
+  check('drag: left divider updates the toolbar while the pointer is moving',
+    leftVisibleDelta > 0 && isSuffixPartition(leftDrag.endState),
+    `visible delta=${leftVisibleDelta}`)
+  check('drag: page-gap geometry is not rescanned during left-panel movement',
+    leftDrag.metrics.pageQueriesDuring === 0 && leftDrag.metrics.pageRectsDuring === 0,
+    `queries=${leftDrag.metrics.pageQueriesDuring} rects=${leftDrag.metrics.pageRectsDuring}`)
+  check('drag: toolbar redraws only when an item crosses the overflow boundary',
+    leftDrag.metrics.toolbarEmitsDuring <= leftVisibleDelta + 2,
+    `moves=${leftDrag.steps} emits=${leftDrag.metrics.toolbarEmitsDuring} item delta=${leftVisibleDelta}`)
+  check('drag: release performs a bounded trailing page-gap refresh',
+    leftDrag.metrics.pageQueriesAfter >= 1 && leftDrag.metrics.pageQueriesAfter <= 4,
+    `post-release queries=${leftDrag.metrics.pageQueriesAfter}`)
+  check('drag: left resize marker and animation frames complete normally',
+    leftDrag.metrics.markerStarts === 1
+      && leftDrag.metrics.markerEnds === 1
+      && leftDrag.metrics.frames >= 8
+      && leftDrag.metrics.maxFrameGap < 80,
+    `markers=${leftDrag.metrics.markerStarts}/${leftDrag.metrics.markerEnds} frames=${leftDrag.metrics.frames} maxGap=${leftDrag.metrics.maxFrameGap.toFixed(1)}ms`)
+
+  const rightDrag = await dragPanelDivider(send, 'right', -220)
+  const rightVisibleDelta = Math.abs(
+    visibleNames(rightDrag.endState).length - visibleNames(rightDrag.startState).length,
+  )
+  check('drag: right divider also avoids per-frame page scans',
+    rightVisibleDelta > 0
+      && rightDrag.metrics.pageQueriesDuring === 0
+      && rightDrag.metrics.pageRectsDuring === 0,
+    `visible delta=${rightVisibleDelta} queries=${rightDrag.metrics.pageQueriesDuring}`)
+  check('drag: right divider keeps frame delivery responsive',
+    rightDrag.metrics.frames >= 8 && rightDrag.metrics.maxFrameGap < 80,
+    `frames=${rightDrag.metrics.frames} maxGap=${rightDrag.metrics.maxFrameGap.toFixed(1)}ms`)
 
   // 2) 中窗（容器 ~860px）：字体字号仍可见；标尺/格式标记/文档模式等右端项进「⋯」
   const mid = await setWidthAndSettle(send, 1450)
