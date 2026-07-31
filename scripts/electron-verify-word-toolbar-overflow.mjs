@@ -207,21 +207,8 @@ const TOOLBAR_STATE = `(() => {
     group: item.group?.value || 'center',
   }))
   const itemRects = []
-  const groupRects = []
   for (const group of row?.querySelectorAll(':scope > [data-toolbar-position]') || []) {
     const position = group.getAttribute('data-toolbar-position') || 'center'
-    const groupRect = group.getBoundingClientRect()
-    const groupStyle = getComputedStyle(group)
-    groupRects.push({
-      position,
-      left: Math.round(groupRect.left * 10) / 10,
-      right: Math.round(groupRect.right * 10) / 10,
-      width: Math.round(groupRect.width * 10) / 10,
-      paddingLeft: parseFloat(groupStyle.paddingLeft) || 0,
-      paddingRight: parseFloat(groupStyle.paddingRight) || 0,
-      clientWidth: group.clientWidth,
-      scrollWidth: group.scrollWidth,
-    })
     const groupItems = visibleItems.filter((item) => item.group === position)
     const children = Array.from(group.querySelectorAll(':scope > .sd-toolbar-item-ctn'))
     children.forEach((element, index) => {
@@ -249,7 +236,10 @@ const TOOLBAR_STATE = `(() => {
     rowScrollWidth: row ? row.scrollWidth : null,
     rowClientWidth: row ? row.clientWidth : null,
     itemRects,
-    groupRects,
+    domOrder: itemRects
+      .filter((item) => item.name && item.name !== 'overflow' && item.width > 0)
+      .sort((a, b) => a.left - b.left)
+      .map((item) => item.name),
     rightGapBeforeOverflow: overflowRect && lastBeforeOverflow
       ? Math.round((overflowRect.left - lastBeforeOverflow.right) * 10) / 10
       : null,
