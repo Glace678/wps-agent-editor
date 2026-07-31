@@ -422,19 +422,56 @@ try {
   await sleep(1500)
 
   const full = await setWidthAndSettle(send, 2600)
-  console.log('[STATE] full', JSON.stringify(full))
+  const widthByName = new Map(full.itemRects.map((item) => [item.name, item.width]))
+  check('full: every configured item is visible and the ellipsis is empty',
+    full.overflow.length === 0 && VISUAL_ORDER.every((name) => full.visible.includes(name)),
+    `visible=${visibleNames(full).length} overflow=${full.overflow.length}`)
+  check('full: DOM follows the same left-to-right order as the overflow menu',
+    isDomOrderCorrect(full),
+    `dom=[${full.domOrder.join(',')}]`)
 
   // 1) 宽窗（容器 ~1300px）：字体字号可见；溢出（若有）只含右端后缀项
   const wide = await setWidthAndSettle(send, 1900)
-  console.log('[STATE] wide', JSON.stringify(wide))
   check('wide: fontFamily/fontSize/zoom visible',
     ['fontFamily', 'fontSize', 'zoom'].every((n) => wide.visible.includes(n)),
     `visible=[${wide.visible.join(',')}]`)
   check('wide: overflow is a right-end suffix of the visual order', isSuffixPartition(wide),
     `overflow=[${wide.overflow.join(',')}]`)
+  check('wide: visible DOM order matches the menu order', isDomOrderCorrect(wide), '')
+  const wideFill = maximalFill(wide, widthByName)
+  check('wide: no room remains for the next ellipsis item', wideFill.pass, wideFill.detail)
   check('wide: toolbar row does not clip horizontally',
     wide.rowScrollWidth <= wide.rowClientWidth + 2,
     `scroll=${wide.rowScrollWidth} client=${wide.rowClientWidth}`)
+
+  // Directly change both panel widths: this is the same width path used while dragging the two dividers.
+  const tightenedPanels = await setPanelWidthsAndSettle(send, '500px', '500px')
+  const tightened = tightenedPanels.state
+  check('panels: widening both sidebars immediately reduces visible toolbar items',
+    tightened.width < wide.width && visibleNames(tightened).length < visibleNames(wide).length,
+    `toolbar=${wide.width}->${tightened.width}, visible=${visibleNames(wide).length}->${visibleNames(tightened).length}`)
+  const tightenedFill = maximalFill(tightened, widthByName)
+  check('panels: tightened toolbar remains maximally filled', tightenedFill.pass, tightenedFill.detail)
+
+  const expandedPanels = await setPanelWidthsAndSettle(send, '180px', '220px')
+  const expanded = expandedPanels.state
+  check('panels: narrowing both sidebars refills items from the ellipsis head',
+    expanded.width > tightened.width
+      && visibleNames(expanded).length > visibleNames(tightened).length
+      && isSuffixPartition(expanded),
+    `toolbar=${tightened.width}->${expanded.width}, visible=${visibleNames(tightened).length}->${visibleNames(expanded).length}`)
+  check('panels: refilled DOM order still matches the menu order', isDomOrderCorrect(expanded), '')
+
+  const restoredPanels = await setPanelWidthsAndSettle(
+    send,
+    tightenedPanels.panelState.left,
+    tightenedPanels.panelState.right,
+  )
+  const restored = restoredPanels.state
+  check('panels: restoring sidebar widths restores the same partition',
+    JSON.stringify(restored.visible) === JSON.stringify(wide.visible)
+      && JSON.stringify(restored.overflow) === JSON.stringify(wide.overflow),
+    `visible=${visibleNames(restored).length}`)
 
   // 2) 中窗（容器 ~860px）：字体字号仍可见；标尺/格式标记/文档模式等右端项进「⋯」
   const mid = await setWidthAndSettle(send, 1450)
