@@ -114,6 +114,8 @@ function createWindow(initialFile?: string): BrowserWindow {
     },
   })
 
+  if (!isMac) window.setMenuBarVisibility(false)
+
   attachRendererRecovery(window)
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -154,6 +156,8 @@ function createWindow(initialFile?: string): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
+  nativeTheme.on('updated', updateWindowBackgroundColors)
+
   try {
     await initOfflineOffice()
   } catch (error) {
@@ -193,6 +197,21 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle(IPC.WINDOW_QUIT, () => {
     app.quit()
+  })
+  ipcMain.handle(IPC.THEME_SET_PREFERENCE, (_event, preference: unknown) => {
+    if (!isThemePreference(preference)) {
+      throw new Error(`Unsupported theme preference: ${String(preference)}`)
+    }
+    nativeTheme.themeSource = preference
+    updateWindowBackgroundColors()
+    return { success: true as const }
+  })
+  ipcMain.handle(IPC.APP_MENU_PERFORM, (event, action: unknown) => {
+    if (!isAppMenuAction(action)) {
+      throw new Error(`Unsupported application menu action: ${String(action)}`)
+    }
+    executeAppMenuAction(action, BrowserWindow.fromWebContents(event.sender))
+    return { success: true as const }
   })
   ipcMain.handle(IPC.I18N_SET_LANGUAGE, (_event, language: LanguageCode) => {
     if (!languages.some(({ code }) => code === language)) {
