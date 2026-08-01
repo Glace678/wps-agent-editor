@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   Maximize2,
   Minimize2,
+  MoveHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
@@ -24,8 +25,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { cn } from '@/lib/utils'
@@ -38,6 +41,13 @@ const MAX_ZOOM = 250
 const ZOOM_STEP = 25
 const DEFAULT_ASPECT_RATIO = 16 / 9
 const PRESENTATION_CONTROLS_HIDE_MS = 1_800
+const MIN_THUMBNAIL_PANE_WIDTH = 168
+const DEFAULT_THUMBNAIL_PANE_WIDTH = 194
+const MAX_THUMBNAIL_PANE_WIDTH = 420
+const MIN_PRESENTATION_STAGE_WIDTH = 360
+const THUMBNAIL_RESIZER_WIDTH = 6
+const THUMBNAIL_RENDER_WIDTH = 372
+const THUMBNAIL_PANE_STORAGE_KEY = 'presentation-thumbnail-pane-width'
 
 interface PresentationViewerProps {
   filePath: string
@@ -52,6 +62,22 @@ interface ViewportSize {
 
 type LoadError = 'legacy' | 'document' | null
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function readStoredThumbnailPaneWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_THUMBNAIL_PANE_WIDTH
+  const stored = Number.parseFloat(window.localStorage.getItem(THUMBNAIL_PANE_STORAGE_KEY) ?? '')
+  return Number.isFinite(stored)
+    ? clamp(stored, MIN_THUMBNAIL_PANE_WIDTH, MAX_THUMBNAIL_PANE_WIDTH)
+    : DEFAULT_THUMBNAIL_PANE_WIDTH
+}
+
+function estimatedThumbnailScale(paneWidth: number): number {
+  return Math.max(0.1, (paneWidth - 50) / THUMBNAIL_RENDER_WIDTH)
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
@@ -62,12 +88,14 @@ function SlideThumbnail({
   index,
   active,
   label,
+  aspectRatio,
   onSelect,
 }: {
   viewer: PptxViewer
   index: number
   active: boolean
   label: string
+  aspectRatio: number
   onSelect: (index: number) => void
 }) {
   const itemRef = useRef<HTMLButtonElement>(null)
@@ -88,7 +116,7 @@ function SlideThumbnail({
     const render = () => {
       if (handleRef.current) return
       setRenderFailed(false)
-      const handle = viewer.renderThumbnailToContainer(index, host, { width: 136 })
+      const handle = viewer.renderThumbnailToContainer(index, host, { width: THUMBNAIL_RENDER_WIDTH })
       if (!handle) {
         setRenderFailed(true)
         return
@@ -113,7 +141,7 @@ function SlideThumbnail({
       observer.disconnect()
       dispose()
     }
-  }, [index, viewer])
+  }, [aspectRatio, index, viewer])
 
   useEffect(() => {
     if (active) itemRef.current?.scrollIntoView({ block: 'nearest' })
@@ -139,12 +167,13 @@ function SlideThumbnail({
       </span>
       <span
         className={cn(
-          'presentation-thumbnail-frame relative block aspect-video w-[136px] shrink-0 overflow-hidden bg-white shadow-sm',
+          'presentation-thumbnail-frame relative block min-w-0 flex-1 overflow-hidden bg-white shadow-sm',
           active ? 'ring-2 ring-[#d24726]' : 'ring-1 ring-black/15 dark:ring-white/20',
         )}
+        style={{ aspectRatio }}
         aria-hidden="true"
       >
-        <span ref={hostRef} className="presentation-thumbnail-host block h-full w-full" />
+        <span ref={hostRef} className="presentation-thumbnail-host block" />
         {renderFailed ? (
           <span className="absolute inset-0 flex items-center justify-center bg-[#f4f4f4] text-[#888]">
             <Presentation className="h-5 w-5" />
@@ -162,11 +191,13 @@ export function PresentationViewer({
 }: PresentationViewerProps) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
+  const thumbnailPaneRef = useRef<HTMLElement>(null)
   const stageRef = useRef<HTMLElement>(null)
   const slideHostRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<PptxViewer | null>(null)
   const controlsTimerRef = useRef<number | null>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const thumbnailResizeCleanupRef = useRef<(() => void) | null>(null)
 
   const [viewer, setViewer] = useState<PptxViewer | null>(null)
   const [loading, setLoading] = useState(true)
@@ -180,8 +211,11 @@ export function PresentationViewer({
   const [zoom, setZoom] = useState(100)
   const [pageInput, setPageInput] = useState('1')
   const [showThumbnails, setShowThumbnails] = useState(true)
+  const [thumbnailPaneWidth, setThumbnailPaneWidth] = useState(readStoredThumbnailPaneWidth)
   const [isPresenting, setIsPresenting] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
+  const thumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
+  const preferredThumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
 
   useEffect(() => {
     onRegisterSave?.(null)
@@ -192,14 +226,91 @@ export function PresentationViewer({
     const stage = stageRef.current
     if (!stage) return
 
+    let animationFrame: number | null = null
     const update = () => {
-      setViewportSize({ width: stage.clientWidth, height: stage.clientHeight })
+      if (animationFrame !== null) return
+      animationFrame = requestAnimationFrame(() => {
+        animationFrame = null
+        const width = stage.clientWidth
+        const height = stage.clientHeight
+        setViewportSize((current) => (
+          current.width === width && current.height === height
+            ? current
+            : { width, height }
+        ))
+      })
     }
     update()
     const observer = new ResizeObserver(update)
     observer.observe(stage)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame)
+    }
   }, [])
+
+  const getThumbnailPaneMaxWidth = useCallback(() => {
+    const rootWidth = rootRef.current?.clientWidth ?? 0
+    if (rootWidth <= 0) return MAX_THUMBNAIL_PANE_WIDTH
+    return Math.max(
+      MIN_THUMBNAIL_PANE_WIDTH,
+      Math.min(
+        MAX_THUMBNAIL_PANE_WIDTH,
+        rootWidth - MIN_PRESENTATION_STAGE_WIDTH - THUMBNAIL_RESIZER_WIDTH,
+      ),
+    )
+  }, [])
+
+  const commitThumbnailPaneWidth = useCallback((requestedWidth: number) => {
+    const nextWidth = clamp(
+      requestedWidth,
+      MIN_THUMBNAIL_PANE_WIDTH,
+      getThumbnailPaneMaxWidth(),
+    )
+    thumbnailPaneWidthRef.current = nextWidth
+    preferredThumbnailPaneWidthRef.current = nextWidth
+    setThumbnailPaneWidth(nextWidth)
+    window.localStorage.setItem(THUMBNAIL_PANE_STORAGE_KEY, String(Math.round(nextWidth)))
+  }, [getThumbnailPaneMaxWidth])
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+
+    const update = () => {
+      if (thumbnailResizeCleanupRef.current) return
+      const nextWidth = clamp(
+        preferredThumbnailPaneWidthRef.current,
+        MIN_THUMBNAIL_PANE_WIDTH,
+        getThumbnailPaneMaxWidth(),
+      )
+      thumbnailPaneWidthRef.current = nextWidth
+      setThumbnailPaneWidth((current) => current === nextWidth ? current : nextWidth)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [getThumbnailPaneMaxWidth])
+
+  useEffect(() => {
+    if (!showThumbnails || isPresenting) return
+    const pane = thumbnailPaneRef.current
+    if (!pane) return
+
+    const updateScale = () => {
+      const frame = pane.querySelector<HTMLElement>('.presentation-thumbnail-frame')
+      const previewWidth = frame?.clientWidth ?? Math.max(1, pane.clientWidth - 50)
+      pane.style.setProperty(
+        '--presentation-thumbnail-scale',
+        String(previewWidth / THUMBNAIL_RENDER_WIDTH),
+      )
+    }
+    updateScale()
+    const observer = new ResizeObserver(updateScale)
+    observer.observe(pane)
+    return () => observer.disconnect()
+  }, [aspectRatio, isPresenting, showThumbnails, viewer])
 
   const slideSize = useMemo(() => {
     const padding = isPresenting ? 24 : 48
