@@ -52,7 +52,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     setBaseURL(selected?.api || '')
     setBaseURLError('')
     setBaseURLSaved(false)
-  }, [selectedId, selected?.api])
+  }, [selectedId, providers.length])
 
   const handleSaveBaseURL = async () => {
     const value = baseURL.trim()
