@@ -9,6 +9,10 @@
   color: inherit;
 }
 
+.presentation-toolbar {
+  container-type: inline-size;
+}
+
 .presentation-icon-button:hover:not(:disabled) {
   background: rgb(0 0 0 / 7%);
 }
@@ -169,5 +173,24 @@
 
   .presentation-viewer--presenting .presentation-toolbar {
     transition: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .presentation-slideshow-button span,
+  .presentation-slideshow-button > svg:last-child {
+    display: none;
+  }
+
+  .presentation-slideshow-button {
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+  }
+}
+
+@container (max-width: 420px) {
+  .presentation-zoom-controls {
+    display: none;
   }
 }

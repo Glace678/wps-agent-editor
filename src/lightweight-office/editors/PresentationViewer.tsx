@@ -6,7 +6,6 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  Columns2,
   LoaderCircle,
   Maximize2,
   Minimize2,
@@ -89,7 +88,7 @@ function SlideThumbnail({
     const render = () => {
       if (handleRef.current) return
       setRenderFailed(false)
-      const handle = viewer.renderThumbnailToContainer(index, host, { width: 148 })
+      const handle = viewer.renderThumbnailToContainer(index, host, { width: 136 })
       if (!handle) {
         setRenderFailed(true)
         return
@@ -140,7 +139,7 @@ function SlideThumbnail({
       </span>
       <span
         className={cn(
-          'presentation-thumbnail-frame relative block aspect-video w-[148px] shrink-0 overflow-hidden bg-white shadow-sm',
+          'presentation-thumbnail-frame relative block aspect-video w-[136px] shrink-0 overflow-hidden bg-white shadow-sm',
           active ? 'ring-2 ring-[#d24726]' : 'ring-1 ring-black/15 dark:ring-white/20',
         )}
         aria-hidden="true"
@@ -499,6 +498,7 @@ export function PresentationViewer({
             className="presentation-icon-button"
             aria-label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
             title={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
+            data-testid="presentation-thumbnail-toggle"
             onClick={() => setShowThumbnails((visible) => !visible)}
           >
             {showThumbnails ? <PanelLeftClose /> : <PanelLeftOpen />}
@@ -512,6 +512,7 @@ export function PresentationViewer({
           disabled={loading || currentSlide <= 0}
           aria-label={t('presentationViewer.previousSlide')}
           title={t('presentationViewer.previousSlide')}
+          data-testid="presentation-previous-slide"
           onClick={() => void goToSlide(currentSlide - 1)}
         >
           <ChevronLeft />
@@ -524,6 +525,7 @@ export function PresentationViewer({
             aria-label={t('presentationViewer.slideNumber')}
             value={pageInput}
             disabled={loading || slideCount === 0}
+            data-testid="presentation-page-input"
             onChange={(event) => setPageInput(event.target.value.replace(/\D/g, '').slice(0, 5))}
             onBlur={commitPageInput}
             onKeyDown={onPageInputKeyDown}
@@ -536,13 +538,14 @@ export function PresentationViewer({
           disabled={loading || currentSlide >= slideCount - 1}
           aria-label={t('presentationViewer.nextSlide')}
           title={t('presentationViewer.nextSlide')}
+          data-testid="presentation-next-slide"
           onClick={() => void goToSlide(currentSlide + 1)}
         >
           <ChevronRight />
         </button>
 
         {!isPresenting ? (
-          <>
+          <div className="presentation-zoom-controls contents">
             <div className="presentation-toolbar-separator" />
             <button
               type="button"
@@ -550,6 +553,7 @@ export function PresentationViewer({
               disabled={zoom <= MIN_ZOOM}
               aria-label={t('menu.zoomOut')}
               title={t('menu.zoomOut')}
+              data-testid="presentation-zoom-out"
               onClick={() => setClampedZoom(zoom - ZOOM_STEP)}
             >
               <ZoomOut />
@@ -558,6 +562,7 @@ export function PresentationViewer({
               type="button"
               className="presentation-zoom-value"
               title={t('presentationViewer.fitSlide')}
+              data-testid="presentation-zoom-value"
               onClick={() => setZoom(100)}
             >
               {zoom}%
@@ -568,6 +573,7 @@ export function PresentationViewer({
               disabled={zoom >= MAX_ZOOM}
               aria-label={t('menu.zoomIn')}
               title={t('menu.zoomIn')}
+              data-testid="presentation-zoom-in"
               onClick={() => setClampedZoom(zoom + ZOOM_STEP)}
             >
               <ZoomIn />
@@ -577,11 +583,12 @@ export function PresentationViewer({
               className="presentation-icon-button"
               aria-label={t('presentationViewer.fitSlide')}
               title={t('presentationViewer.fitSlide')}
+              data-testid="presentation-fit-slide"
               onClick={() => setZoom(100)}
             >
               <Scan />
             </button>
-          </>
+          </div>
         ) : null}
 
         <div className="flex-1" />
@@ -591,6 +598,7 @@ export function PresentationViewer({
             className="presentation-icon-button"
             aria-label={t('presentationViewer.exitSlideshow')}
             title={t('presentationViewer.exitSlideshow')}
+            data-testid="presentation-exit-slideshow"
             onClick={() => void stopPresentation()}
           >
             <Minimize2 />
@@ -598,9 +606,10 @@ export function PresentationViewer({
         ) : (
           <button
             type="button"
-            className="presentation-command-button"
+            className="presentation-command-button presentation-slideshow-button"
             disabled={loading || slideCount === 0}
             title={t('presentationViewer.startSlideshow')}
+            data-testid="presentation-start-slideshow"
             onClick={() => void startPresentation(false)}
           >
             <Play className="h-4 w-4 fill-current" />
