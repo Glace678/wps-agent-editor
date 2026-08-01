@@ -263,7 +263,12 @@ export const de = {
     errorFileOpen: 'Die Datei ist derzeit im Editor geöffnet. Schließen Sie sie und versuchen Sie es erneut.',
   },
   fileHandler: {
+    supportedFiles: 'Unterstutzte Dateien',
     codeDocuments: 'Code Files',
+    cCppFiles: 'C/C++-Quelldateien',
+    pythonFiles: 'Python-Dateien',
+    javascriptTypescriptFiles: 'JavaScript/TypeScript-Dateien',
+    javaJvmFiles: 'Java/JVM-Quelldateien',
     officeDocuments: 'Office-Dokumente',
     text: 'Textdateien',
     allFiles: 'Alle Dateien',

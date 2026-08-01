@@ -263,7 +263,12 @@ export const ar = {
     errorFileOpen: 'الملف مفتوح حاليًا في المحرر. أغلقه ثم حاول مرة أخرى.',
   },
   fileHandler: {
+    supportedFiles: 'الملفات المدعومة',
     codeDocuments: 'Code Files',
+    cCppFiles: 'ملفات مصدر C/C++',
+    pythonFiles: 'ملفات Python',
+    javascriptTypescriptFiles: 'ملفات JavaScript/TypeScript',
+    javaJvmFiles: 'ملفات مصدر Java/JVM',
     officeDocuments: 'مستندات Office',
     text: 'ملفات نصية',
     allFiles: 'كل الملفات',

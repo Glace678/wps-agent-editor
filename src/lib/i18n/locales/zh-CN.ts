@@ -263,7 +263,12 @@ export const zhCN = {
     errorFileOpen: '该文件正在编辑器中打开，请先关闭后再试',
   },
   fileHandler: {
+    supportedFiles: '支持的文件',
     codeDocuments: '代码文件',
+    cCppFiles: 'C/C++ 源代码',
+    pythonFiles: 'Python 源代码',
+    javascriptTypescriptFiles: 'JavaScript/TypeScript 源代码',
+    javaJvmFiles: 'Java/JVM 源代码',
     officeDocuments: 'Office 文档',
     text: '文本文件',
     allFiles: '所有文件',

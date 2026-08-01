@@ -263,7 +263,12 @@ export const ru = {
     errorFileOpen: 'Файл открыт в редакторе. Закройте его и повторите попытку.',
   },
   fileHandler: {
+    supportedFiles: 'Поддерживаемые файлы',
     codeDocuments: 'Code Files',
+    cCppFiles: 'Исходные файлы C/C++',
+    pythonFiles: 'Файлы Python',
+    javascriptTypescriptFiles: 'Файлы JavaScript/TypeScript',
+    javaJvmFiles: 'Исходные файлы Java/JVM',
     officeDocuments: 'Документы Office',
     text: 'Текстовые файлы',
     allFiles: 'Все файлы',

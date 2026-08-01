@@ -263,7 +263,12 @@ export const fr = {
     errorFileOpen: "Le fichier est ouvert dans l'éditeur. Fermez-le et réessayez.",
   },
   fileHandler: {
+    supportedFiles: 'Fichiers pris en charge',
     codeDocuments: 'Code Files',
+    cCppFiles: 'Fichiers source C/C++',
+    pythonFiles: 'Fichiers Python',
+    javascriptTypescriptFiles: 'Fichiers JavaScript/TypeScript',
+    javaJvmFiles: 'Fichiers source Java/JVM',
     officeDocuments: 'Documents Office',
     text: 'Fichiers texte',
     allFiles: 'Tous les fichiers',

@@ -263,7 +263,12 @@ export const ja = {
     errorFileOpen: 'このファイルはエディターで開かれています。閉じてからもう一度お試しください。',
   },
   fileHandler: {
+    supportedFiles: '対応ファイル',
     codeDocuments: 'Code Files',
+    cCppFiles: 'C/C++ ソースファイル',
+    pythonFiles: 'Python ファイル',
+    javascriptTypescriptFiles: 'JavaScript/TypeScript ファイル',
+    javaJvmFiles: 'Java/JVM ソースファイル',
     officeDocuments: 'Office 文書',
     text: 'テキストファイル',
     allFiles: 'すべてのファイル',
