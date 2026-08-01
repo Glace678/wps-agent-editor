@@ -104,13 +104,13 @@ interface ModelsDevProvider {
 }
 
 interface ProviderCatalogCache {
-  version: 2
+  version: 3
   providers: ProviderDefinition[]
 }
 
-const PROVIDER_CACHE_VERSION = 2
+const PROVIDER_CACHE_VERSION = 3
 const NON_CHAT_DESCRIPTION = /\b(?:embedding model|reranking model|image model|video model|speech generation model|speech transcription model|speech-to-text model|text-to-speech model|audio-to-audio model|safety model|moderation model|classification model|ocr model|translation model)\b/i
-const NON_CHAT_ID = /embed|rerank|(?:^|[\s/._:-])ocr(?:$|[\s/._:-])|transcrib|whisper|(?:^|[\s/._:-])tts(?:$|[\s/._:-])|safeguard|prompt[-_ ]?guard|llama[-_ ]?guard|content[-_ ]?safety|moderation|classifier|reward[-_ ]?model/i
+const NON_CHAT_ID = /embed|rerank|ocr|transcrib|whisper|tts|studiovoice|(?:^|[\s/._:-])bge(?:$|[\s/._:-])|(?:^|[\s/._:-])(?:e5|gte|all[-_ ]?minilm)(?:$|[\s/._:-])|gliner|gliguard|qwen\d*guard|guardrails?|safeguard|prompt[-_ ]?guard|llama[-_ ]?guard|content[-_ ]?safety|moderation|classifier|reward[-_ ]?model|esm(?:fold|\d)|usdvalidate|translat/i
 const NON_CHAT_FAMILIES = new Set([
   'text-embedding',
   'cohere-embed',
@@ -251,14 +251,16 @@ export async function detectOllama(baseURL = 'http://127.0.0.1:11434'): Promise<
           body: JSON.stringify({ model: name }),
           signal: AbortSignal.timeout(3000),
         })
-        if (!show.ok) return { name, isChat: !NON_CHAT_ID.test(name) }
+        if (!show.ok) return { name, isChat: false }
         const details = await show.json() as { capabilities?: string[] }
-        if (!Array.isArray(details.capabilities)) {
-          return { name, isChat: !NON_CHAT_ID.test(name) }
+        return {
+          name,
+          isChat: Array.isArray(details.capabilities)
+            && details.capabilities.includes('completion')
+            && !NON_CHAT_ID.test(name),
         }
-        return { name, isChat: details.capabilities.includes('completion') }
       } catch {
-        return { name, isChat: !NON_CHAT_ID.test(name) }
+        return { name, isChat: false }
       }
     }))
     return {
