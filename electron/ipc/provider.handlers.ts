@@ -4,14 +4,7 @@ import * as authStorage from '../services/auth-storage.service'
 import * as providerRegistry from '../services/provider-registry.service'
 import * as customProvider from '../services/custom-provider.service'
 import * as providerBaseURL from '../services/provider-base-url.service'
-
-function validateBaseURL(baseURL: string): void {
-  if (!baseURL) return
-  const parsed = new URL(baseURL)
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('INVALID_PROVIDER_BASE_URL')
-  }
-}
+import { normalizeProviderBaseURL } from '../services/provider-base-url.util'
 
 export function registerProviderHandlers(): void {
   ipcMain.handle(IPC.PROVIDER_LIST, async (_e, forceRefresh?: boolean) => {
@@ -48,10 +41,17 @@ export function registerProviderHandlers(): void {
     if (!payload || typeof payload.providerId !== 'string' || typeof payload.baseURL !== 'string') {
       throw new Error('INVALID_PROVIDER_BASE_URL')
     }
-    const baseURL = payload.baseURL.trim()
-    validateBaseURL(baseURL)
+    const customs = payload.providerId.startsWith('custom-')
+      ? await customProvider.getCustomProviders()
+      : []
+    const provider = payload.providerId.startsWith('custom-')
+      ? customs.find((item) => item.id === payload.providerId)
+      : await providerRegistry.getProviderById(payload.providerId)
+    if (!provider) throw new Error('UNKNOWN_PROVIDER')
+
+    const baseURL = normalizeProviderBaseURL(provider.protocol, payload.baseURL)
     await providerBaseURL.setProviderBaseURL(payload.providerId, baseURL)
-    return { success: true }
+    return { success: true, baseURL }
   })
 
   ipcMain.handle(IPC.AUTH_GET_ALL, async () => authStorage.getAllAuth())
@@ -69,7 +69,10 @@ export function registerProviderHandlers(): void {
   ipcMain.handle(IPC.CUSTOM_PROVIDER_LIST, async () => customProvider.getCustomProviders())
 
   ipcMain.handle(IPC.CUSTOM_PROVIDER_SAVE, async (_e, provider) => {
-    return customProvider.saveCustomProvider(provider)
+    return customProvider.saveCustomProvider({
+      ...provider,
+      baseURL: normalizeProviderBaseURL(provider.protocol, provider.baseURL),
+    })
   })
 
   ipcMain.handle(IPC.CUSTOM_PROVIDER_DELETE, async (_e, id: string) => {

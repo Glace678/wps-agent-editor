@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { app } from 'electron'
 import type { ProviderDefinition } from './provider-registry.service'
+import { normalizeProviderBaseURL } from './provider-base-url.util'
 
 interface ProviderBaseURLStore {
   version: 1
@@ -65,7 +66,15 @@ export async function applyProviderBaseURLs(
   const store = await readStore()
   return providers.map((provider) => {
     const defaultApi = provider.defaultApi ?? provider.api
-    const override = store.providers[normalizeProviderId(provider.id)]
+    const storedOverride = store.providers[normalizeProviderId(provider.id)]
+    let override: string | undefined
+    try {
+      override = storedOverride
+        ? normalizeProviderBaseURL(provider.protocol, storedOverride)
+        : undefined
+    } catch {
+      override = undefined
+    }
     return {
       ...provider,
       api: override || defaultApi,
