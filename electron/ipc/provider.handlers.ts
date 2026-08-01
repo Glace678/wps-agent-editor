@@ -45,6 +45,9 @@ export function registerProviderHandlers(): void {
     _e,
     payload: { providerId: string; baseURL: string },
   ) => {
+    if (!payload || typeof payload.providerId !== 'string' || typeof payload.baseURL !== 'string') {
+      throw new Error('INVALID_PROVIDER_BASE_URL')
+    }
     const baseURL = payload.baseURL.trim()
     validateBaseURL(baseURL)
     await providerBaseURL.setProviderBaseURL(payload.providerId, baseURL)

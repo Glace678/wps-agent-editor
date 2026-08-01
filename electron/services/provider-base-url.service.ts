@@ -49,7 +49,7 @@ export async function setProviderBaseURL(providerId: string, baseURL: string): P
   const normalizedId = normalizeProviderId(providerId)
   const normalizedURL = baseURL.trim().replace(/\/+$/, '')
 
-  writeQueue = writeQueue.then(async () => {
+  writeQueue = writeQueue.catch(() => undefined).then(async () => {
     const store = await readStore()
     if (normalizedURL) store.providers[normalizedId] = normalizedURL
     else delete store.providers[normalizedId]
