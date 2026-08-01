@@ -13,6 +13,7 @@ const electronPath = require('electron')
 const rendererEntry = path.join(root, 'out', 'renderer', 'index.html')
 const cacheDirectory = path.join(root, '.cache')
 const screenshotPath = path.join(cacheDirectory, 'electron-verify-presentation.png')
+const resizerScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-resizer.png')
 const fullscreenScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-fullscreen.png')
 const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-profile-'))
 const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-fixture-'))
@@ -369,6 +370,39 @@ async function pressKey(send, { key, code, keyCode, modifiers = 0 }) {
   })
 }
 
+async function dragMouse(send, start, end, steps = 8) {
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: start.x,
+    y: start.y,
+  })
+  await send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: start.x,
+    y: start.y,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  })
+  for (let step = 1; step <= steps; step += 1) {
+    await send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: start.x + ((end.x - start.x) * step) / steps,
+      y: start.y + ((end.y - start.y) * step) / steps,
+      button: 'left',
+      buttons: 1,
+    })
+  }
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: end.x,
+    y: end.y,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  })
+}
+
 async function captureScreenshot(send, outputPath) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true })
   const screenshot = await send('Page.captureScreenshot', {
@@ -476,6 +510,80 @@ try {
   check('first slide renders real text and layout nodes', initial.text.includes('Presentation playback') && initial.renderedNodes > 10, `${initial.renderedNodes} nodes`)
   check('slide is fitted inside a stable visible stage', initial.width > 350 && initial.height > 190 && initial.width <= initial.stageWidth && initial.height <= initial.stageHeight, JSON.stringify(initial))
   check('toolbar fits without horizontal clipping', initial.toolbarScrollWidth <= initial.toolbarClientWidth + 1, `${initial.toolbarScrollWidth}/${initial.toolbarClientWidth}`)
+
+  const initialResizeLayout = await evaluate(send, `(() => {
+    const pane = document.querySelector('[data-testid=presentation-thumbnails]').getBoundingClientRect();
+    const handle = document.querySelector('[data-testid=presentation-thumbnail-resizer]').getBoundingClientRect();
+    const stage = document.querySelector('[data-testid=presentation-stage]').getBoundingClientRect();
+    const slide = document.querySelector('[data-testid=presentation-slide-host]').getBoundingClientRect();
+    return {
+      paneWidth: pane.width,
+      handle: { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 },
+      stageWidth: stage.width,
+      slideWidth: slide.width,
+    };
+  })()`)
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: initialResizeLayout.handle.x,
+    y: initialResizeLayout.handle.y,
+  })
+  await sleep(180)
+  const resizeHover = await evaluate(send, `(() => {
+    const handle = document.querySelector('[data-testid=presentation-thumbnail-resizer]');
+    const indicator = handle.querySelector('.presentation-thumbnail-resizer-indicator');
+    return {
+      cursor: getComputedStyle(handle).cursor,
+      opacity: Number.parseFloat(getComputedStyle(indicator).opacity),
+      label: handle.getAttribute('aria-label'),
+      min: Number(handle.getAttribute('aria-valuemin')),
+      now: Number(handle.getAttribute('aria-valuenow')),
+    };
+  })()`)
+  check('thumbnail divider exposes a visible horizontal resize affordance',
+    resizeHover.cursor === 'col-resize' && resizeHover.opacity > 0.9 && resizeHover.label,
+    JSON.stringify(resizeHover))
+  const resizerScreenshotSize = await captureScreenshot(send, resizerScreenshotPath)
+  check('thumbnail divider hover screenshot captured', resizerScreenshotSize > 20_000, resizerScreenshotPath)
+
+  await dragMouse(
+    send,
+    initialResizeLayout.handle,
+    { x: initialResizeLayout.handle.x + 72, y: initialResizeLayout.handle.y },
+  )
+  const expandedLayout = await waitFor(send, `(() => {
+    const pane = document.querySelector('[data-testid=presentation-thumbnails]').getBoundingClientRect();
+    if (pane.width < ${initialResizeLayout.paneWidth + 50}) return null;
+    const stage = document.querySelector('[data-testid=presentation-stage]').getBoundingClientRect();
+    const slide = document.querySelector('[data-testid=presentation-slide-host]').getBoundingClientRect();
+    return { paneWidth: pane.width, stageWidth: stage.width, slideWidth: slide.width };
+  })()`, 'expanded thumbnail pane')
+  check('dragging right expands thumbnails and refits the main slide live',
+    expandedLayout.stageWidth < initialResizeLayout.stageWidth - 40
+      && expandedLayout.slideWidth < initialResizeLayout.slideWidth - 30,
+    JSON.stringify({ initial: initialResizeLayout, expanded: expandedLayout }))
+
+  const expandedHandle = await evaluate(send, `(() => {
+    const rect = document.querySelector('[data-testid=presentation-thumbnail-resizer]').getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`)
+  await dragMouse(send, expandedHandle, { x: 0, y: expandedHandle.y })
+  const minimumWidth = await waitFor(send, `(() => {
+    const pane = document.querySelector('[data-testid=presentation-thumbnails]').getBoundingClientRect();
+    return pane.width <= 169 ? pane.width : 0;
+  })()`, 'minimum thumbnail pane width')
+  check('dragging left stops at the usable minimum width', minimumWidth >= 167 && minimumWidth <= 169, `${minimumWidth}px`)
+
+  await evaluate(send, `(() => {
+    const handle = document.querySelector('[data-testid=presentation-thumbnail-resizer]');
+    handle.focus();
+    handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    return true;
+  })()`)
+  await waitFor(send,
+    `Math.abs(document.querySelector('[data-testid=presentation-thumbnails]').getBoundingClientRect().width - 194) < 2`,
+    'default thumbnail pane width')
+  check('double-click restores the default thumbnail width', true)
 
   await waitFor(
     send,
