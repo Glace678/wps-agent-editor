@@ -471,8 +471,12 @@ export function PresentationViewer({
     void goToSlide(currentSlide + 1)
   }
 
-  const surfaceWidth = Math.max(viewportSize.width, slideSize.width + (isPresenting ? 24 : 48))
-  const surfaceHeight = Math.max(viewportSize.height, slideSize.height + (isPresenting ? 24 : 48))
+  const surfaceInset = isPresenting ? 12 : 24
+  // clientWidth is integer-rounded while the flex track may be fractional. Keep
+  // the fitted surface just inside that track so a sub-pixel does not create a
+  // meaningless scrollbar at 100% zoom.
+  const surfaceWidth = Math.max(viewportSize.width - 2, slideSize.width + surfaceInset)
+  const surfaceHeight = Math.max(viewportSize.height - 2, slideSize.height + surfaceInset)
 
   return (
     <div
@@ -643,7 +647,7 @@ export function PresentationViewer({
 
         <main
           ref={stageRef}
-          className="presentation-stage relative min-h-0 flex-1 overflow-auto bg-[#d8dadd] dark:bg-[#0c0d0e]"
+          className="presentation-stage relative min-h-0 min-w-0 flex-1 overflow-auto bg-[#d8dadd] dark:bg-[#0c0d0e]"
           data-testid="presentation-stage"
           onClick={onStageClick}
           onWheel={(event) => {

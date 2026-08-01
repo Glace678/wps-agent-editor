@@ -388,7 +388,7 @@ try {
     const stageRect = stage.getBoundingClientRect();
     return {
       state: viewer.dataset.presentationState,
-      slides: Number(document.querySelector('[data-testid=presentation-page-input]').nextElementSibling.textContent.replace(/\D/g, '')),
+      slides: Number(document.querySelector('[data-testid=presentation-page-input]').nextElementSibling.textContent.replace(/\\D/g, '')),
       text: host.textContent,
       renderedNodes: host.querySelectorAll('*').length,
       width: rect.width,
@@ -461,6 +461,13 @@ try {
   await pressKey(send, { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 })
   await waitFor(send, "document.querySelector('[data-testid=presentation-page-input]').value === '2'", 'fullscreen arrow navigation')
   check('slideshow advances with the arrow key', true)
+
+  await waitFor(
+    send,
+    "document.querySelector('[data-testid=presentation-slide-host]').getBoundingClientRect().width > innerWidth * 0.8",
+    'fullscreen slide fit',
+  )
+  await sleep(1_200)
 
   const fullscreenLayout = await evaluate(send, `(() => {
     const root = document.querySelector('[data-testid=presentation-viewer]').getBoundingClientRect();
