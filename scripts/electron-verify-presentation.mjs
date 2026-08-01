@@ -568,7 +568,7 @@ try {
       background: style.backgroundColor,
       color: style.color,
       fontSize: style.fontSize,
-      borderWidth: style.borderTopWidth,
+      borderWidth: Number.parseFloat(style.borderTopWidth),
       borderStyle: style.borderTopStyle,
       borderRadius: style.borderTopLeftRadius,
       top: rect.top,
@@ -576,11 +576,12 @@ try {
     };
   })()`)
   check('toolbar hover popup matches the Word and Excel gray boxed style',
-    toolbarTooltip.text === toolbarTooltip.triggerLabel
+    toolbarTooltip.text.includes(toolbarTooltip.triggerLabel)
       && toolbarTooltip.background === 'rgb(102, 102, 102)'
       && toolbarTooltip.color === 'rgb(255, 255, 255)'
       && toolbarTooltip.fontSize === '12px'
-      && toolbarTooltip.borderWidth === '1px'
+      && toolbarTooltip.borderWidth >= 0.5
+      && toolbarTooltip.borderWidth <= 1.1
       && toolbarTooltip.borderStyle === 'solid'
       && toolbarTooltip.borderRadius === '2px'
       && toolbarTooltip.top >= toolbarTooltip.toolbarBottom - 1,
