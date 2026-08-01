@@ -523,8 +523,8 @@ try {
   check('thumbnail number and preview use compact left spacing',
     initial.thumbnailNumberLeftInset <= 5 && initial.thumbnailFrameLeftInset <= 27,
     `${initial.thumbnailNumberLeftInset}px / ${initial.thumbnailFrameLeftInset}px`)
-  check('thumbnail rail reserves no more than a 4px scrollbar',
-    initial.thumbnailScrollbarWidth <= 4,
+  check('thumbnail rail reserves no more than an 8px scrollbar',
+    initial.thumbnailScrollbarWidth <= 8,
     `${initial.thumbnailScrollbarWidth}px`)
 
   const initialResizeLayout = await evaluate(send, `(() => {

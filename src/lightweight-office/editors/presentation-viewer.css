@@ -116,8 +116,8 @@
 }
 
 .presentation-thumbnail-pane::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 8px;
+  height: 8px;
 }
 
 .presentation-thumbnail-pane::-webkit-scrollbar-track {
@@ -125,7 +125,7 @@
 }
 
 .presentation-thumbnail-pane::-webkit-scrollbar-thumb {
-  border-radius: 2px;
+  border-radius: 4px;
   background: rgb(95 95 95 / 38%);
 }
 
