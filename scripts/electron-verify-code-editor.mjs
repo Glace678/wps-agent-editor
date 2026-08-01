@@ -26,7 +26,7 @@ const fixtures = [
     name: 'syntax.cpp',
     label: 'C++',
     expectedOutput: 'C++',
-    source: '#include <iostream>\nclass Greeter { public: void run() { std::cout << "C++"; } };\n',
+    source: '#include <iostream>\nclass Greeter { public: void run() { std::cout << "C++"; } };\nint main() { Greeter greeter; greeter.run(); return 0; }\n',
   },
   {
     name: 'Syntax.java',
