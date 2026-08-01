@@ -50,9 +50,12 @@ export function registerProviderHandlers(): void {
     if (!provider) throw new Error('UNKNOWN_PROVIDER')
 
     const baseURL = normalizeProviderBaseURL(provider.protocol, payload.baseURL)
+    const providerDefaultApi = 'baseURL' in provider
+      ? provider.baseURL
+      : provider.defaultApi ?? provider.api
     const defaultBaseURL = normalizeProviderBaseURL(
       provider.protocol,
-      provider.defaultApi ?? provider.api,
+      providerDefaultApi,
     )
     const override = baseURL === defaultBaseURL ? '' : baseURL
     await providerBaseURL.setProviderBaseURL(payload.providerId, override)
