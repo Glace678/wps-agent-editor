@@ -40,6 +40,12 @@ const fixtures = [
     expectedOutput: 'Hello Monaco',
     source: "const language: string = 'Monaco';\nfunction greet(name: string): string { return `Hello ${name}`; }\nconsole.log(greet(language));\n",
   },
+  {
+    name: 'syntax.py',
+    label: 'Python',
+    expectedOutput: 'Python',
+    source: "language: str = 'Python'\nprint(language)\n",
+  },
 ]
 
 for (const fixture of fixtures) {
@@ -215,6 +221,29 @@ try {
     mobile: false,
   })
   await waitFor(send, "document.getElementById('root')?.childElementCount > 0", 'React application')
+
+  await evaluate(send, `(() => {
+    localStorage.setItem('last-browse-dir', ${JSON.stringify(fixturePath)});
+    location.reload();
+    return true;
+  })()`)
+  await waitFor(send, "document.getElementById('root')?.childElementCount > 0", 'reloaded React application')
+  const visibleCodeFiles = await waitFor(
+    send,
+    `(() => {
+      const names = [...document.querySelectorAll('button')]
+        .map((button) => button.textContent?.trim())
+        .filter(Boolean);
+      const expected = ${JSON.stringify(fixtures.map((fixture) => fixture.name))};
+      return expected.every((name) => names.includes(name)) ? names : null;
+    })()`,
+    'source files in the Browse tab',
+  )
+  check(
+    'file manager Browse tab lists C, C++, Java, TypeScript and Python files',
+    fixtures.every((fixture) => visibleCodeFiles.includes(fixture.name)),
+    JSON.stringify(visibleCodeFiles),
+  )
 
   for (const fixture of fixtures) {
     check(`${fixture.label} file opened through the application`, await openFile(send, fixture.filePath))
