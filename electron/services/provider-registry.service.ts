@@ -82,7 +82,7 @@ function getCachePath(): string {
   return path.join(app.getPath('userData'), 'provider-catalog.json')
 }
 
-interface ModelsDevModel {
+export interface ModelsDevModel {
   id: string
   name?: string
   description?: string
