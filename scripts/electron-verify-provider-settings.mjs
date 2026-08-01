@@ -1,0 +1,180 @@
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import net from 'node:net'
+import os from 'node:os'
+import path from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+const require = createRequire(import.meta.url)
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const electronPath = require('electron')
+const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-provider-settings-verify-'))
+const screenshotPath = path.join(root, '.cache', 'electron-verify-provider-settings.png')
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      server.close((error) => error
+        ? reject(error)
+        : resolve(typeof address === 'object' && address ? address.port : 0))
+    })
+  })
+}
+
+async function waitForPage(port) {
+  const deadline = Date.now() + 25_000
+  while (Date.now() < deadline) {
+    try {
+      const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+      const page = pages.find((target) => target.type === 'page' && target.webSocketDebuggerUrl)
+      if (page) return page
+    } catch {
+      // Electron has not enabled the inspector endpoint yet.
+    }
+    await sleep(100)
+  }
+  throw new Error('Timed out waiting for Electron renderer')
+}
+
+function connectCdp(url) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url)
+    const pending = new Map()
+    let nextId = 1
+    socket.addEventListener('open', () => resolve({
+      send(method, params = {}) {
+        return new Promise((resolveCall, rejectCall) => {
+          const id = nextId++
+          pending.set(id, { resolve: resolveCall, reject: rejectCall })
+          socket.send(JSON.stringify({ id, method, params }))
+        })
+      },
+      close() { socket.close() },
+    }))
+    socket.addEventListener('message', ({ data }) => {
+      const message = JSON.parse(data)
+      const call = pending.get(message.id)
+      if (!call) return
+      pending.delete(message.id)
+      if (message.error) call.reject(new Error(message.error.message))
+      else call.resolve(message)
+    })
+    socket.addEventListener('error', reject)
+  })
+}
+
+async function evaluate(cdp, expression) {
+  const response = await cdp.send('Runtime.evaluate', {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+    userGesture: true,
+  })
+  if (response.result.exceptionDetails) {
+    throw new Error(response.result.exceptionDetails.exception?.description ?? response.result.exceptionDetails.text)
+  }
+  return response.result.result.value
+}
+
+async function waitFor(cdp, expression, label, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await evaluate(cdp, expression)) return
+    await sleep(40)
+  }
+  throw new Error(`Timed out waiting for ${label}`)
+}
+
+async function stopElectron(process) {
+  if (!process || process.exitCode !== null) return
+  const exited = new Promise((resolve) => process.once('exit', resolve))
+  process.kill()
+  await Promise.race([exited, sleep(5_000)])
+}
+
+let child
+let cdp
+try {
+  const port = await getFreePort()
+  child = spawn(electronPath, [root, `--remote-debugging-port=${port}`, `--user-data-dir=${profilePath}`], {
+    cwd: root,
+    env: { ...process.env, WPS_ALLOW_MULTI_INSTANCE: '1' },
+    stdio: 'ignore',
+  })
+  const page = await waitForPage(port)
+  cdp = await connectCdp(page.webSocketDebuggerUrl)
+
+  await waitFor(cdp, "Boolean(document.querySelector('button[aria-label] .lucide-key'))", 'provider settings button')
+  await evaluate(cdp, `(() => {
+    document.querySelector('button[aria-label] .lucide-key')?.closest('button')?.click()
+    return true
+  })()`)
+  await waitFor(cdp, "Boolean(document.querySelector('[data-testid=provider-option-zhipuai]'))", 'provider catalog', 30_000)
+
+  const catalog = await evaluate(cdp, `window.api.provider.list().then((providers) => {
+    const openai = providers.find((provider) => provider.id === 'openai')
+    return {
+      first: openai?.models[0]?.id,
+      hasImage: openai?.models.some((model) => model.id === 'gpt-image-2'),
+      hasEmbedding: openai?.models.some((model) => model.id === 'text-embedding-3-large'),
+    }
+  })`)
+  assert.equal(catalog.hasImage, false, 'OpenAI image models must be filtered')
+  assert.equal(catalog.hasEmbedding, false, 'OpenAI embedding models must be filtered')
+  assert.notEqual(catalog.first, 'gpt-image-2', 'the first OpenAI model must be a chat model')
+
+  await evaluate(cdp, "document.querySelector('[data-testid=provider-option-zhipuai]').click(); true")
+  await waitFor(cdp, "document.querySelector('[data-testid=provider-documentation]')?.href.includes('docs.bigmodel.cn')", 'Zhipu API documentation')
+
+  const layout = await evaluate(cdp, `(() => {
+    const url = document.querySelector('[data-testid=provider-base-url]').getBoundingClientRect()
+    const key = document.querySelector('[data-testid=provider-api-key]').getBoundingClientRect()
+    return {
+      doc: document.querySelector('[data-testid=provider-documentation]').href,
+      width: url.width,
+      height: url.height,
+      aboveKey: url.bottom < key.top,
+    }
+  })()`)
+  assert.match(layout.doc, /^https:\/\/docs\.bigmodel\.cn\/cn\/api\/introduction/)
+  assert.ok(layout.width >= 350, `Base URL input should be wide, received ${layout.width}px`)
+  assert.ok(layout.height >= 40, `Base URL input should be tall, received ${layout.height}px`)
+  assert.equal(layout.aboveKey, true, 'Base URL input must be above the API key')
+
+  const temporaryURL = 'https://example.test/v1'
+  await evaluate(cdp, `(() => {
+    const input = document.querySelector('[data-testid=provider-base-url]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(temporaryURL)})
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await evaluate(cdp, "document.querySelector('[data-testid=provider-save-base-url]').click(); true")
+  await waitFor(cdp, "Boolean(document.querySelector('[data-testid=provider-base-url-saved]'))", 'saved Base URL')
+  assert.equal(
+    await evaluate(cdp, "window.api.provider.get('zhipuai').then((provider) => provider.api)"),
+    temporaryURL,
+    'saved Base URL must be returned by provider IPC',
+  )
+
+  const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+  fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
+  fs.writeFileSync(screenshotPath, screenshot.result.data, 'base64')
+
+  await evaluate(cdp, "document.querySelector('[data-testid=provider-reset-base-url]').click(); true")
+  await waitFor(cdp, "window.api.provider.get('zhipuai').then((provider) => provider.isApiOverridden === false)", 'default Base URL')
+  console.log(`PASS provider documentation, editable Base URL, chat-only models, and persistence\n${screenshotPath}`)
+} finally {
+  cdp?.close()
+  await stopElectron(child)
+  try {
+    fs.rmSync(profilePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  } catch {
+    // Windows can release the Electron profile shortly after the process exits.
+  }
+}
