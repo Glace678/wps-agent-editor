@@ -86,6 +86,7 @@ const api = {
     setCurrentFile: (filePath: string | null) => ipcRenderer.invoke(IPC.LW_SET_CURRENT_FILE, filePath),
     sendAgentResult: (requestId: string, result: unknown) =>
       ipcRenderer.invoke(IPC.LW_AGENT_RESULT, { requestId, result }),
+    runCode: (filePath: string) => ipcRenderer.invoke(IPC.LW_RUN_CODE, filePath),
   },
   window: {
     minimize: () => ipcRenderer.invoke(IPC.WINDOW_MINIMIZE),

@@ -9,6 +9,7 @@ import type { ProviderDefinition, CustomProviderConfig, AuthStatus } from '../sr
 import type { LanguageCode } from '../src/lib/i18n/types'
 import type { AppMenuAction } from '../src/types/app-menu'
 import type { ThemePreference } from '../src/lib/theme'
+import type { CodeRunResult } from '../src/types/code'
 
 export interface ElectronAPI {
   file: {
@@ -144,6 +145,7 @@ export interface ElectronAPI {
     }>
     setCurrentFile: (filePath: string | null) => Promise<{ success: boolean }>
     sendAgentResult: (requestId: string, result: unknown) => Promise<{ success: boolean }>
+    runCode: (filePath: string) => Promise<CodeRunResult>
   }
   window: {
     minimize: () => Promise<void>

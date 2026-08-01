@@ -11,6 +11,7 @@ import { writeFileWithSnapshot } from '../services/file-history.service'
 import { setCurrentFileForAgent } from '../ipc/agent.handlers'
 import { handleAgentResult } from './agent-bridge.service'
 import { getLanguage, type LanguageCode } from '../i18n/types'
+import { runCodeFile } from '../services/code-runner.service'
 
 interface SystemFontFace {
   familyName: string
@@ -191,6 +192,13 @@ export function registerLightweightOfficeHandlers(
       return { success: true }
     },
   )
+
+  ipcMain.handle(IPC.LW_RUN_CODE, async (_e, filePath: string) => {
+    if (typeof filePath !== 'string' || !filePath.trim()) {
+      throw new TypeError('Invalid code file path')
+    }
+    return runCodeFile(filePath)
+  })
 
   void getMainWindow
 }

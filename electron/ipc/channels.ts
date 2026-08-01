@@ -63,6 +63,7 @@ export const IPC = {
   LW_COPY_IMAGE_TO_CLIPBOARD: 'lw:copy-image-to-clipboard',
   LW_SET_CURRENT_FILE: 'lw:set-current-file',
   LW_AGENT_RESULT: 'lw:agent-result',
+  LW_RUN_CODE: 'lw:run-code',
 
   // 窗口事件
   WINDOW_MINIMIZE: 'window:minimize',
