@@ -244,6 +244,7 @@ export const ar = {
     errorFileOpen: 'الملف مفتوح حاليًا في المحرر. أغلقه ثم حاول مرة أخرى.',
   },
   fileHandler: {
+    codeDocuments: 'Code Files',
     officeDocuments: 'مستندات Office',
     text: 'ملفات نصية',
     allFiles: 'كل الملفات',

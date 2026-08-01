@@ -244,6 +244,7 @@ export const zhCN = {
     errorFileOpen: '该文件正在编辑器中打开，请先关闭后再试',
   },
   fileHandler: {
+    codeDocuments: '代码文件',
     officeDocuments: 'Office 文档',
     text: '文本文件',
     allFiles: '所有文件',

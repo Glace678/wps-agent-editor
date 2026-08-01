@@ -115,7 +115,7 @@ export function registerFileHandlers(): void {
       extensions: ['docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'pdf', 'odt', 'ods'],
     }
     const textFilter = { name: t('fileHandler.text'), extensions: ['txt', 'md', 'markdown', 'json', 'log'] }
-    const codeFilter = { name: 'Code', extensions: [...CODE_FILE_EXTENSIONS] }
+    const codeFilter = { name: t('fileHandler.codeDocuments'), extensions: [...CODE_FILE_EXTENSIONS] }
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: kind === 'text'

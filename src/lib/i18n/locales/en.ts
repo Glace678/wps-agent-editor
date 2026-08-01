@@ -242,6 +242,7 @@ export const en = {
     errorFileOpen: 'The file is currently open in the editor. Close it and try again.',
   },
   fileHandler: {
+    codeDocuments: 'Code Files',
     officeDocuments: 'Office Documents',
     text: 'Text Files',
     allFiles: 'All Files',

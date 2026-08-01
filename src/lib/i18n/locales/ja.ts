@@ -244,6 +244,7 @@ export const ja = {
     errorFileOpen: 'このファイルはエディターで開かれています。閉じてからもう一度お試しください。',
   },
   fileHandler: {
+    codeDocuments: 'Code Files',
     officeDocuments: 'Office 文書',
     text: 'テキストファイル',
     allFiles: 'すべてのファイル',

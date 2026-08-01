@@ -244,6 +244,7 @@ export const es = {
     errorFileOpen: 'El archivo está abierto en el editor. Ciérralo e inténtalo de nuevo.',
   },
   fileHandler: {
+    codeDocuments: 'Code Files',
     officeDocuments: 'Documentos de Office',
     text: 'Archivos de texto',
     allFiles: 'Todos los archivos',

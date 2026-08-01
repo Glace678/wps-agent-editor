@@ -244,6 +244,7 @@ export const ru = {
     errorFileOpen: 'Файл открыт в редакторе. Закройте его и повторите попытку.',
   },
   fileHandler: {
+    codeDocuments: 'Code Files',
     officeDocuments: 'Документы Office',
     text: 'Текстовые файлы',
     allFiles: 'Все файлы',
