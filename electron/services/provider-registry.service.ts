@@ -29,6 +29,8 @@ export interface ProviderDefinition {
   protocol: ProviderProtocol
   doc?: string
   models: ProviderModel[]
+  defaultApi?: string
+  isApiOverridden?: boolean
   isCustom?: boolean
   isLocal?: boolean
 }

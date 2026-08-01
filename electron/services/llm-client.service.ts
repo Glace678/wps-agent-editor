@@ -10,6 +10,7 @@ import type { AgentConfig } from './agent-store.service'
 import { resolveApiKey } from './auth-storage.service'
 import { getProviderById } from './provider-registry.service'
 import { getCustomProviders, toProviderDefinition } from './custom-provider.service'
+import { getProviderBaseURL } from './provider-base-url.service'
 
 export interface LLMRequestConfig {
   providerId: string
@@ -39,7 +40,8 @@ export async function createLLMClient(config: LLMRequestConfig): Promise<BaseCha
   if (!provider) throw new UnknownProviderError(config.providerId)
 
   const apiKey = await resolveApiKey(config.providerId, provider.env)
-  const baseURL = config.baseURL || provider.api
+  const configuredBaseURL = await getProviderBaseURL(config.providerId)
+  const baseURL = configuredBaseURL || config.baseURL || provider.api
   const temperature = config.temperature ?? 0.7
 
   if (provider.id === 'ollama') {
@@ -56,15 +58,23 @@ export async function createLLMClient(config: LLMRequestConfig): Promise<BaseCha
       return new ChatAnthropic({
         modelName: config.model,
         anthropicApiKey: apiKey,
+        anthropicApiUrl: baseURL ? baseURL.replace(/\/v1\/?$/, '') : undefined,
         temperature,
       })
 
-    case 'google':
+    case 'google': {
+      const normalizedGoogleURL = baseURL?.replace(/\/+$/, '')
+      const versionMatch = normalizedGoogleURL?.match(/\/(v\d+(?:beta\d*)?)$/)
       return new ChatGoogleGenerativeAI({
         model: config.model,
         apiKey,
+        baseUrl: versionMatch
+          ? normalizedGoogleURL?.slice(0, -versionMatch[0].length)
+          : normalizedGoogleURL || undefined,
+        apiVersion: versionMatch?.[1],
         temperature,
       })
+    }
 
     case 'openai':
     case 'openai-compatible':

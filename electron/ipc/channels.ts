@@ -41,6 +41,7 @@ export const IPC = {
   PROVIDER_LIST: 'provider:list',
   PROVIDER_GET: 'provider:get',
   PROVIDER_DETECT_OLLAMA: 'provider:detect-ollama',
+  PROVIDER_SET_BASE_URL: 'provider:set-base-url',
   AUTH_GET_ALL: 'auth:get-all',
   AUTH_SET: 'auth:set',
   AUTH_REMOVE: 'auth:remove',

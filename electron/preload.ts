@@ -51,6 +51,8 @@ const api = {
     list: (forceRefresh?: boolean) => ipcRenderer.invoke(IPC.PROVIDER_LIST, forceRefresh),
     get: (providerId: string) => ipcRenderer.invoke(IPC.PROVIDER_GET, providerId),
     detectOllama: (baseURL?: string) => ipcRenderer.invoke(IPC.PROVIDER_DETECT_OLLAMA, baseURL),
+    setBaseURL: (providerId: string, baseURL: string) =>
+      ipcRenderer.invoke(IPC.PROVIDER_SET_BASE_URL, { providerId, baseURL }),
   },
   auth: {
     getAll: () => ipcRenderer.invoke(IPC.AUTH_GET_ALL),

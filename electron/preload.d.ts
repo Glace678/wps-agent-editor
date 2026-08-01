@@ -83,6 +83,7 @@ export interface ElectronAPI {
     list: (forceRefresh?: boolean) => Promise<ProviderDefinition[]>
     get: (providerId: string) => Promise<ProviderDefinition | null>
     detectOllama: (baseURL?: string) => Promise<{ available: boolean; models: string[]; baseURL: string }>
+    setBaseURL: (providerId: string, baseURL: string) => Promise<{ success: boolean }>
   }
   auth: {
     getAll: () => Promise<Record<string, AuthStatus>>
