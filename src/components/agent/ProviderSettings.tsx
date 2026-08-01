@@ -80,6 +80,14 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     setBaseURLSaved(false)
   }
 
+  const handleRefresh = async () => {
+    const list = await window.api.provider.list(true)
+    setProviders(list)
+    setBaseURL(list.find((provider) => provider.id === selectedId)?.api || '')
+    setBaseURLError('')
+    setBaseURLSaved(false)
+  }
+
   const handleSaveKey = async () => {
     if (!apiKey.trim()) return
     await window.api.auth.set(selectedId, apiKey.trim())
@@ -122,7 +130,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                    <Button
                      variant="ghost"
                      size="icon"
-                     onClick={() => window.api.provider.list(true).then(setProviders)}
+                     onClick={() => void handleRefresh()}
                      aria-label={t('providerSettings.refresh')}
                    >
                      <RefreshCw className="h-4 w-4" />
