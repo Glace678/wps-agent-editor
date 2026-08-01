@@ -47,6 +47,7 @@ const MAX_THUMBNAIL_PANE_WIDTH = 420
 const MIN_PRESENTATION_STAGE_WIDTH = 360
 const THUMBNAIL_RESIZER_WIDTH = 6
 const THUMBNAIL_RENDER_WIDTH = 372
+const THUMBNAIL_ROW_CHROME_WIDTH = 36
 const THUMBNAIL_PANE_STORAGE_KEY = 'presentation-thumbnail-pane-width'
 
 interface PresentationViewerProps {
@@ -75,7 +76,7 @@ function readStoredThumbnailPaneWidth(): number {
 }
 
 function estimatedThumbnailScale(paneWidth: number): number {
-  return Math.max(0.1, (paneWidth - 50) / THUMBNAIL_RENDER_WIDTH)
+  return Math.max(0.1, (paneWidth - THUMBNAIL_ROW_CHROME_WIDTH) / THUMBNAIL_RENDER_WIDTH)
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -152,7 +153,7 @@ function SlideThumbnail({
       ref={itemRef}
       type="button"
       className={cn(
-        'presentation-thumbnail group flex w-full items-start gap-2 border-l-2 py-2 pl-2 pr-3 text-left',
+        'presentation-thumbnail group flex w-full items-start gap-1 border-l-2 py-2 pl-0.5 pr-1.5 text-left',
         active
           ? 'border-[#d24726] bg-black/[0.06] dark:bg-white/[0.07]'
           : 'border-transparent hover:bg-black/[0.04] dark:hover:bg-white/[0.05]',
@@ -162,7 +163,7 @@ function SlideThumbnail({
       data-testid={`presentation-thumbnail-${index + 1}`}
       onClick={() => onSelect(index)}
     >
-      <span className="w-5 shrink-0 pt-1 text-right text-[11px] tabular-nums text-muted-foreground">
+      <span className="w-[18px] shrink-0 pt-1 text-right text-[10px] tabular-nums text-muted-foreground">
         {index + 1}
       </span>
       <span
@@ -300,7 +301,8 @@ export function PresentationViewer({
 
     const updateScale = () => {
       const frame = pane.querySelector<HTMLElement>('.presentation-thumbnail-frame')
-      const previewWidth = frame?.clientWidth ?? Math.max(1, pane.clientWidth - 50)
+      const previewWidth = frame?.clientWidth
+        ?? Math.max(1, pane.clientWidth - THUMBNAIL_ROW_CHROME_WIDTH)
       pane.style.setProperty(
         '--presentation-thumbnail-scale',
         String(previewWidth / THUMBNAIL_RENDER_WIDTH),

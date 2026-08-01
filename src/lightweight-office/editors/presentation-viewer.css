@@ -112,8 +112,38 @@
 .presentation-thumbnail-pane {
   min-width: 168px;
   max-width: 420px;
-  scrollbar-color: rgb(120 120 120 / 60%) transparent;
+  scrollbar-color: rgb(95 95 95 / 38%) transparent;
   scrollbar-gutter: stable;
+}
+
+.presentation-thumbnail-pane::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.presentation-thumbnail-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.presentation-thumbnail-pane::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: rgb(95 95 95 / 38%);
+}
+
+.presentation-thumbnail-pane::-webkit-scrollbar-thumb:hover {
+  background: rgb(75 75 75 / 55%);
+}
+
+.dark .presentation-thumbnail-pane {
+  scrollbar-color: rgb(255 255 255 / 28%) transparent;
+}
+
+.dark .presentation-thumbnail-pane::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 28%);
+}
+
+.dark .presentation-thumbnail-pane::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 44%);
 }
 
 .presentation-thumbnail-frame {
