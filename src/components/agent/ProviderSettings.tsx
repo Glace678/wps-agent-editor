@@ -111,7 +111,13 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
       <div
         className="flex h-[82vh] w-full max-w-3xl flex-col rounded-lg bg-card shadow-xl"
         role="dialog"

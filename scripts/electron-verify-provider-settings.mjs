@@ -192,7 +192,26 @@ try {
     window.api.provider.setBaseURL('anthropic', ''),
     window.api.provider.setBaseURL('google', ''),
   ])`)
-  console.log(`PASS provider documentation, editable Base URL, chat-only models, and persistence\n${screenshotPath}`)
+
+  await evaluate(cdp, `(() => {
+    document.querySelector('[data-testid=provider-base-url]')
+      ?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    return true
+  })()`)
+  assert.equal(
+    await evaluate(cdp, "Boolean(document.querySelector('[role=dialog]'))"),
+    true,
+    'clicking inside provider settings must keep the dialog open',
+  )
+
+  await evaluate(cdp, `(() => {
+    document.querySelector('[role=dialog]')?.parentElement
+      ?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    return true
+  })()`)
+  await waitFor(cdp, "!document.querySelector('[role=dialog]')", 'provider settings backdrop dismissal')
+
+  console.log(`PASS provider documentation, editable Base URL, chat-only models, persistence, and backdrop dismissal\n${screenshotPath}`)
 } finally {
   cdp?.close()
   await stopElectron(child)
