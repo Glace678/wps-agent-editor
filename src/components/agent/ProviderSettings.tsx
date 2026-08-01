@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Key, Plus, Trash2, RefreshCw } from 'lucide-react'
+import { Check, ExternalLink, Key, Plus, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-react'
 import type { ProviderDefinition, CustomProviderConfig } from '@/types/provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,9 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   const [authStatus, setAuthStatus] = useState<Record<string, { configured: boolean }>>({})
   const [selectedId, setSelectedId] = useState<string>('deepseek')
   const [apiKey, setApiKey] = useState('')
+  const [baseURL, setBaseURL] = useState('')
+  const [baseURLError, setBaseURLError] = useState('')
+  const [baseURLSaved, setBaseURLSaved] = useState(false)
   const [search, setSearch] = useState('')
   const [showCustomForm, setShowCustomForm] = useState(false)
   const [customForm, setCustomForm] = useState<Partial<CustomProviderConfig>>({
@@ -27,13 +30,14 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     protocol: 'openai-compatible',
   })
 
-  const load = async () => {
+  const load = async (): Promise<ProviderDefinition[]> => {
     const [list, auth] = await Promise.all([
       window.api.provider.list(),
       window.api.auth.getAll(),
     ])
     setProviders(list)
     setAuthStatus(auth)
+    return list
   }
 
   useEffect(() => { void load() }, [language])
@@ -43,6 +47,38 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   )
 
   const selected = providers.find((p) => p.id === selectedId)
+
+  useEffect(() => {
+    setBaseURL(selected?.api || '')
+    setBaseURLError('')
+    setBaseURLSaved(false)
+  }, [selectedId, selected?.api])
+
+  const handleSaveBaseURL = async () => {
+    const value = baseURL.trim()
+    try {
+      const parsed = new URL(value)
+      if (!value || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+        throw new Error('INVALID_PROVIDER_BASE_URL')
+      }
+      await window.api.provider.setBaseURL(selectedId, value)
+      const list = await load()
+      setBaseURL(list.find((provider) => provider.id === selectedId)?.api || value)
+      setBaseURLError('')
+      setBaseURLSaved(true)
+    } catch {
+      setBaseURLError(t('providerSettings.invalidBaseUrl'))
+      setBaseURLSaved(false)
+    }
+  }
+
+  const handleResetBaseURL = async () => {
+    await window.api.provider.setBaseURL(selectedId, '')
+    const list = await load()
+    setBaseURL(list.find((provider) => provider.id === selectedId)?.api || '')
+    setBaseURLError('')
+    setBaseURLSaved(false)
+  }
 
   const handleSaveKey = async () => {
     if (!apiKey.trim()) return
@@ -69,7 +105,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div
-        className="flex h-[80vh] w-full max-w-2xl flex-col rounded-lg bg-card shadow-xl"
+        className="flex h-[82vh] w-full max-w-3xl flex-col rounded-lg bg-card shadow-xl"
         role="dialog"
         aria-modal="true"
         aria-label={t('providerSettings.title')}
@@ -147,7 +183,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
             </div>
           </div>
 
-          <div className="flex flex-1 flex-col p-4">
+          <div className="min-w-0 flex-1 overflow-y-auto p-5">
             {showCustomForm ? (
               <div className="space-y-3">
                 <h3 className="text-sm font-medium">{t('providerSettings.newCompatibleProvider')}</h3>
