@@ -496,12 +496,122 @@ export function PresentationViewer({
     setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next)))
   }, [])
 
+  const startThumbnailResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !event.isPrimary) return
+    const pane = thumbnailPaneRef.current
+    const root = rootRef.current
+    if (!pane || !root) return
+
+    event.preventDefault()
+    thumbnailResizeCleanupRef.current?.()
+
+    const pointerId = event.pointerId
+    const startX = event.clientX
+    const startWidth = pane.getBoundingClientRect().width
+    const maxWidth = getThumbnailPaneMaxWidth()
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    let latestWidth = startWidth
+    let animationFrame: number | null = null
+    let finished = false
+
+    root.setAttribute('data-thumbnail-resizing', 'true')
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const flushWidth = () => {
+      animationFrame = null
+      pane.style.width = `${latestWidth}px`
+      thumbnailPaneWidthRef.current = latestWidth
+    }
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return
+      const nextWidth = clamp(
+        startWidth + moveEvent.clientX - startX,
+        MIN_THUMBNAIL_PANE_WIDTH,
+        maxWidth,
+      )
+      if (nextWidth === latestWidth) return
+      latestWidth = nextWidth
+      if (animationFrame === null) animationFrame = requestAnimationFrame(flushWidth)
+    }
+
+    const finishResize = (commit: boolean) => {
+      if (finished) return
+      finished = true
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
+      document.removeEventListener('pointercancel', onPointerCancel)
+      document.removeEventListener('keydown', onResizeKeyDown, true)
+      window.removeEventListener('blur', onWindowBlur)
+      if (animationFrame !== null) {
+        cancelAnimationFrame(animationFrame)
+        flushWidth()
+      }
+
+      const finalWidth = commit ? latestWidth : startWidth
+      pane.style.width = `${finalWidth}px`
+      thumbnailPaneWidthRef.current = finalWidth
+      setThumbnailPaneWidth(finalWidth)
+      if (commit) {
+        preferredThumbnailPaneWidthRef.current = finalWidth
+        window.localStorage.setItem(THUMBNAIL_PANE_STORAGE_KEY, String(Math.round(finalWidth)))
+      }
+
+      root.removeAttribute('data-thumbnail-resizing')
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      thumbnailResizeCleanupRef.current = null
+    }
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId === pointerId) finishResize(true)
+    }
+    const onPointerCancel = (cancelEvent: PointerEvent) => {
+      if (cancelEvent.pointerId === pointerId) finishResize(false)
+    }
+    const onResizeKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key !== 'Escape') return
+      keyEvent.preventDefault()
+      finishResize(false)
+    }
+    const onWindowBlur = () => finishResize(true)
+
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointercancel', onPointerCancel)
+    document.addEventListener('keydown', onResizeKeyDown, true)
+    window.addEventListener('blur', onWindowBlur)
+    thumbnailResizeCleanupRef.current = () => finishResize(false)
+  }, [getThumbnailPaneMaxWidth])
+
+  const onThumbnailResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    let nextWidth: number | null = null
+    if (event.key === 'ArrowLeft') nextWidth = thumbnailPaneWidthRef.current - 12
+    else if (event.key === 'ArrowRight') nextWidth = thumbnailPaneWidthRef.current + 12
+    else if (event.key === 'Home') nextWidth = MIN_THUMBNAIL_PANE_WIDTH
+    else if (event.key === 'End') nextWidth = getThumbnailPaneMaxWidth()
+    if (nextWidth === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    commitThumbnailPaneWidth(nextWidth)
+  }, [commitThumbnailPaneWidth, getThumbnailPaneMaxWidth])
+
+  useEffect(() => () => {
+    thumbnailResizeCleanupRef.current?.()
+  }, [])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const root = rootRef.current
       if (!root) return
       const isInside = root.contains(event.target as Node)
       if (!isPresenting && !isInside) return
+      if (
+        event.target instanceof HTMLElement
+        && event.target.closest('[data-presentation-thumbnail-resizer]')
+      ) return
 
       if (event.key === 'Escape' && isPresenting) {
         event.preventDefault()
