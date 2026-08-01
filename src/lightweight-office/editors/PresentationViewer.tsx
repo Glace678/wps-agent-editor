@@ -29,8 +29,10 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { cn } from '@/lib/utils'
 import { documentBridge } from '../agent/document-bridge'
@@ -93,6 +95,24 @@ function estimatedThumbnailScale(paneWidth: number): number {
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+}
+
+function PresentationToolbarTooltip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0 items-center">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        sideOffset={7}
+        className="whitespace-nowrap rounded-[2px] border border-[#7a7a7a] bg-[#666] px-[6px] py-[6px] text-center text-[12px] font-normal leading-normal text-white shadow-none"
+        data-testid="presentation-toolbar-tooltip"
+      >
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function SlideThumbnail({
@@ -779,7 +799,8 @@ export function PresentationViewer({
   } as CSSProperties
 
   return (
-    <div
+    <TooltipProvider delayDuration={450}>
+      <div
       ref={rootRef}
       className={cn(
         'presentation-viewer relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#ececec] text-foreground outline-none dark:bg-[#111315]',
@@ -1024,6 +1045,7 @@ export function PresentationViewer({
           ) : null}
         </main>
       </div>
-    </div>
+      </div>
+    </TooltipProvider>
   )
 }
