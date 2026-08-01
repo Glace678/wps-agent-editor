@@ -57,6 +57,7 @@ export const IPC = {
 
   // 轻量 Office 模块
   LW_READ_FILE: 'lw:read-file',
+  LW_READ_PRESENTATION: 'lw:read-presentation',
   LW_SAVE_FILE: 'lw:save-file',
   LW_SAVE_TEXT: 'lw:save-text',
   LW_LIST_FONTS: 'lw:list-fonts',

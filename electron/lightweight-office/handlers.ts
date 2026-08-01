@@ -12,6 +12,7 @@ import { setCurrentFileForAgent } from '../ipc/agent.handlers'
 import { handleAgentResult } from './agent-bridge.service'
 import { getLanguage, type LanguageCode } from '../i18n/types'
 import { runCodeFile } from '../services/code-runner.service'
+import { preparePresentation } from '../services/presentation-converter.service'
 
 interface SystemFontFace {
   familyName: string
@@ -111,6 +112,21 @@ export function registerLightweightOfficeHandlers(
       return { data: buffer, encoding: 'binary' as const }
     } catch (error) {
       console.error('LW_READ_FILE error:', error)
+      throw error
+    }
+  })
+
+  ipcMain.handle(IPC.LW_READ_PRESENTATION, async (_e, filePath: string) => {
+    try {
+      const prepared = await preparePresentation(filePath)
+      return {
+        data: prepared.data,
+        encoding: 'binary' as const,
+        convertedFromLegacy: prepared.convertedFromLegacy,
+        converter: prepared.converter,
+      }
+    } catch (error) {
+      console.error('LW_READ_PRESENTATION error:', error)
       throw error
     }
   })

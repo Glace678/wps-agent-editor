@@ -77,6 +77,7 @@ const api = {
   },
   lw: {
     readFile: (filePath: string) => ipcRenderer.invoke(IPC.LW_READ_FILE, filePath),
+    readPresentation: (filePath: string) => ipcRenderer.invoke(IPC.LW_READ_PRESENTATION, filePath),
     saveFile: (filePath: string, base64: string) => ipcRenderer.invoke(IPC.LW_SAVE_FILE, filePath, base64),
     saveText: (filePath: string, text: string, encoding: string) =>
       ipcRenderer.invoke(IPC.LW_SAVE_TEXT, filePath, text, encoding),

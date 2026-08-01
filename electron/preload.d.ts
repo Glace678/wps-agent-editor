@@ -128,6 +128,12 @@ export interface ElectronAPI {
       data: Uint8Array | ArrayBuffer | string
       encoding?: 'binary' | 'base64'
     }>
+    readPresentation: (filePath: string) => Promise<{
+      data: Uint8Array | ArrayBuffer | string
+      encoding: 'binary' | 'base64'
+      convertedFromLegacy: boolean
+      converter: 'libreoffice' | 'powerpoint' | 'wps' | null
+    }>
     saveFile: (filePath: string, base64: string) => Promise<{ success: boolean }>
     saveText: (filePath: string, text: string, encoding: string) => Promise<{ success: boolean }>
     listFonts: (language?: LanguageCode) => Promise<Array<{

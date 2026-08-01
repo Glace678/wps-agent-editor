@@ -31,6 +31,21 @@ function toArrayBuffer(data: Uint8Array | ArrayBuffer | string): ArrayBuffer {
   return copy.buffer
 }
 
+export interface PresentationFileBuffer {
+  buffer: ArrayBuffer
+  convertedFromLegacy: boolean
+  converter: 'libreoffice' | 'powerpoint' | 'wps' | null
+}
+
+export async function readPresentationBuffer(filePath: string): Promise<PresentationFileBuffer> {
+  const result = await window.api.lw.readPresentation(filePath)
+  return {
+    buffer: toArrayBuffer(result.data),
+    convertedFromLegacy: result.convertedFromLegacy,
+    converter: result.converter,
+  }
+}
+
 /** 读取文件为 ArrayBuffer（主进程已改为二进制传输，不再走 base64） */
 export async function readFileBuffer(filePath: string): Promise<ArrayBuffer> {
   const { data } = await window.api.lw.readFile(filePath)
@@ -64,11 +79,12 @@ export function getExtension(filePath: string): string {
   return name.slice(dot + 1).toLowerCase()
 }
 
-export function getDocKind(filePath: string): 'word' | 'excel' | 'pdf' | 'text' | 'code' | 'unknown' {
+export function getDocKind(filePath: string): 'word' | 'excel' | 'slide' | 'pdf' | 'text' | 'code' | 'unknown' {
   const ext = getExtension(filePath)
   // SuperDoc 对 OOXML .docx 支持最好；旧版 .doc 仍路由到 Word 编辑器并显示明确错误
   if (['docx', 'doc', 'odt'].includes(ext)) return 'word'
   if (['xlsx', 'xls', 'csv', 'ods'].includes(ext)) return 'excel'
+  if (['pptx', 'ppt'].includes(ext)) return 'slide'
   if (ext === 'pdf') return 'pdf'
   if (isCodeFile(filePath)) return 'code'
   if (['txt', 'md', 'markdown', 'log'].includes(ext)) return 'text'
