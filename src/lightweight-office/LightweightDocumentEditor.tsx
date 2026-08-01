@@ -25,6 +25,7 @@ import { WordEditor } from './editors/WordEditor'
 import { ExcelEditor } from './editors/ExcelEditor'
 import { PdfViewer } from './editors/PdfViewer'
 import { TextEditor } from './editors/TextEditor'
+import { CodeEditor } from './editors/CodeEditor'
 
 interface TabItem {
   id: string
@@ -317,6 +318,20 @@ export function LightweightDocumentEditor() {
   )
   useBinaryDocShortcuts(binaryKind, saveRef, tabNav)
 
+  const codeHandlers = useMemo<ShortcutHandlerMap>(() => ({
+    save: () => { void saveRef.current?.() },
+    nextTab: () => switchTabByOffset(1),
+    previousTab: () => switchTabByOffset(-1),
+    close: closeActiveTab,
+    cut: () => false,
+    copy: () => false,
+    paste: () => false,
+    selectAll: () => false,
+    undo: () => false,
+    redo: () => false,
+  }), [closeActiveTab, switchTabByOffset])
+  useOfficeShortcuts('text', codeHandlers, kind === 'code')
+
   // Empty-state still supports open / new window / shortcut settings
   const emptyHandlers = useMemo<ShortcutHandlerMap>(
     () => ({
@@ -419,6 +434,18 @@ export function LightweightDocumentEditor() {
         <div className="min-h-0 flex-1 overflow-hidden">
           <PdfViewer filePath={currentFile} onReady={handleReady} />
         </div>
+      )
+    }
+
+    if (kind === 'code') {
+      return (
+        <CodeEditor
+          filePath={currentFile}
+          onReady={handleReady}
+          onDirty={handleDirty}
+          onSaveSuccess={handleSaveSuccess}
+          onRegisterSave={handleRegisterSave}
+        />
       )
     }
 
