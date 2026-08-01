@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -25,7 +27,11 @@ import { WordEditor } from './editors/WordEditor'
 import { ExcelEditor } from './editors/ExcelEditor'
 import { PdfViewer } from './editors/PdfViewer'
 import { TextEditor } from './editors/TextEditor'
-import { CodeEditor } from './editors/CodeEditor'
+
+const CodeEditor = lazy(async () => {
+  const module = await import('./editors/CodeEditor')
+  return { default: module.CodeEditor }
+})
 
 interface TabItem {
   id: string
@@ -439,16 +445,24 @@ export function LightweightDocumentEditor() {
 
     if (kind === 'code') {
       return (
-        <CodeEditor
-          filePath={currentFile}
-          onReady={handleReady}
-          onDirty={handleDirty}
-          onSaveSuccess={handleSaveSuccess}
-          onRegisterSave={handleRegisterSave}
-          onShellNextTab={() => switchTabByOffset(1)}
-          onShellPreviousTab={() => switchTabByOffset(-1)}
-          onShellCloseTab={closeActiveTab}
-        />
+        <Suspense
+          fallback={(
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
+              {t('codeEditor.loading')}
+            </div>
+          )}
+        >
+          <CodeEditor
+            filePath={currentFile}
+            onReady={handleReady}
+            onDirty={handleDirty}
+            onSaveSuccess={handleSaveSuccess}
+            onRegisterSave={handleRegisterSave}
+            onShellNextTab={() => switchTabByOffset(1)}
+            onShellPreviousTab={() => switchTabByOffset(-1)}
+            onShellCloseTab={closeActiveTab}
+          />
+        </Suspense>
       )
     }
 
