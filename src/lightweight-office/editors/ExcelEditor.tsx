@@ -570,13 +570,16 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       const api = workbookRef.current
       const snapshot = api?.getAllSheets?.() ?? sheetsRef.current
       sheetsRef.current = snapshot
+      lastContentSnapshotRef.current = snapshot
       const buffer = sheetsToXlsxBuffer(snapshot)
       await saveFileBuffer(filePath, buffer)
       // Saved state becomes the new clean baseline (clears the tab dirty dot).
+      cancelPendingDirtyCheck()
       baselineFingerprintRef.current = fingerprintExcelSheets(snapshot)
+      dirtyReportedRef.current = false
       onSaveSuccess()
     })
-  }, [filePath, onRegisterSave, onSaveSuccess])
+  }, [cancelPendingDirtyCheck, filePath, onRegisterSave, onSaveSuccess])
 
   useEffect(() => {
     const shell = shellRef.current
