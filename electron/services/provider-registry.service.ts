@@ -48,6 +48,14 @@ const OPENCODE_PROFILES: Record<string, { name: string; api: string; env: string
   xai: { name: 'xAI', api: 'https://api.x.ai/v1', env: ['XAI_API_KEY'] },
 }
 
+const PROVIDER_DOC_OVERRIDES: Record<string, string> = {
+  evroc: 'https://docs.evroc.com/products/think/concepts.html',
+  inferx: 'https://model.inferx.net/catalog/endpoints',
+  'kimi-for-coding': 'https://www.kimi.com/code/docs/en/',
+  morph: 'https://docs.morphllm.com/models/apply',
+  wandb: 'https://docs.wandb.ai/inference/api-reference',
+}
+
 const LOCAL_OLLAMA_BASE: ProviderDefinition = {
   id: 'ollama',
   name: 'Ollama',
@@ -55,6 +63,7 @@ const LOCAL_OLLAMA_BASE: ProviderDefinition = {
   env: [],
   npm: '@ai-sdk/openai-compatible',
   protocol: 'openai-compatible',
+  doc: 'https://docs.ollama.com/api/openai-compatibility',
   isLocal: true,
   models: [],
 }
@@ -146,7 +155,7 @@ async function fetchModelsDev(): Promise<ProviderDefinition[]> {
     env: p.env || [],
     npm: p.npm || '@ai-sdk/openai-compatible',
     protocol: inferProtocol(p.npm || ''),
-    doc: p.doc,
+    doc: PROVIDER_DOC_OVERRIDES[id] || p.doc,
     models: Object.values(p.models || {})
       .filter(isTextChatModel)
       .map((m) => ({ id: m.id, name: m.name || m.id })),
