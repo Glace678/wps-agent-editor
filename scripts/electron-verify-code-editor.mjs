@@ -35,16 +35,16 @@ const fixtures = [
     source: 'public class Syntax { public static void main(String[] args) { System.out.println("Java"); } }\n',
   },
   {
-    name: 'syntax.ts',
-    label: 'TypeScript',
-    expectedOutput: 'Hello Monaco',
-    source: "const language: string = 'Monaco';\nfunction greet(name: string): string { return `Hello ${name}`; }\nconsole.log(greet(language));\n",
-  },
-  {
     name: 'syntax.py',
     label: 'Python',
     expectedOutput: 'Python',
     source: "language: str = 'Python'\nprint(language)\n",
+  },
+  {
+    name: 'syntax.ts',
+    label: 'TypeScript',
+    expectedOutput: 'Hello Monaco',
+    source: "const language: string = 'Monaco';\nfunction greet(name: string): string { return `Hello ${name}`; }\nconsole.log(greet(language));\n",
   },
 ]
 
