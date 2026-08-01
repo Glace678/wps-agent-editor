@@ -6,10 +6,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
+import excelDirty from '../src/lightweight-office/utils/excel-dirty.ts'
+
+const {
   excelSheetsContentEqual,
+  excelSheetsShareContentReferences,
   fingerprintExcelSheets,
-} from '../src/lightweight-office/utils/excel-dirty.ts'
+} = excelDirty
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const excelSrc = fs.readFileSync(
@@ -84,6 +87,33 @@ test('celldata and equivalent data matrix fingerprint the same', () => {
   assert.equal(fingerprintExcelSheets(viaCelldata), fingerprintExcelSheets(viaMatrix))
 })
 
+test('UI-only sheet updates share content references and take the fast path', () => {
+  const data = [[{ v: 'A', m: 'A' }]]
+  const config = { columnlen: { 0: 120 } }
+  const before = [{ ...baseSheet, data, config }]
+  const afterScroll = [{
+    ...before[0],
+    scrollLeft: 800,
+    scrollTop: 120,
+    luckysheet_select_save: [{ row: [4, 4], column: [7, 7] }],
+  }]
+  assert.equal(excelSheetsShareContentReferences(before, afterScroll), true)
+})
+
+test('cell and track-size changes leave the reference fast path', () => {
+  const data = [[{ v: 'A', m: 'A' }]]
+  const config = { columnlen: { 0: 120 } }
+  const before = [{ ...baseSheet, data, config }]
+  assert.equal(
+    excelSheetsShareContentReferences(before, [{ ...before[0], data: [[{ v: 'B', m: 'B' }]] }]),
+    false,
+  )
+  assert.equal(
+    excelSheetsShareContentReferences(before, [{ ...before[0], config: { columnlen: { 0: 180 } } }]),
+    false,
+  )
+})
+
 test('ExcelEditor wires content fingerprint for dirty (not bare onDirty)', () => {
   assert.match(excelSrc, /fingerprintExcelSheets/)
   assert.match(excelSrc, /baselineFingerprintRef/)
@@ -91,6 +121,8 @@ test('ExcelEditor wires content fingerprint for dirty (not bare onDirty)', () =>
   // Still keeps a settle window after mount
   assert.match(excelSrc, /suppressDirtyRef/)
   assert.match(excelSrc, /setTimeout/)
+  assert.match(excelSrc, /excelSheetsShareContentReferences/)
+  assert.match(excelSrc, /scheduleDirtyCheck/)
 })
 
 if (process.exitCode) {
