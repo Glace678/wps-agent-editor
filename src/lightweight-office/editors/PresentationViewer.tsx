@@ -877,47 +877,52 @@ export function PresentationViewer({
         {!isPresenting ? (
           <div className="presentation-zoom-controls contents">
             <div className="presentation-toolbar-separator" />
-            <button
-              type="button"
-              className="presentation-icon-button"
-              disabled={zoom <= MIN_ZOOM}
-              aria-label={t('menu.zoomOut')}
-              title={t('menu.zoomOut')}
-              data-testid="presentation-zoom-out"
-              onClick={() => setClampedZoom(zoom - ZOOM_STEP)}
-            >
-              <ZoomOut />
-            </button>
-            <button
-              type="button"
-              className="presentation-zoom-value"
-              title={t('presentationViewer.fitSlide')}
-              data-testid="presentation-zoom-value"
-              onClick={() => setZoom(100)}
-            >
-              {zoom}%
-            </button>
-            <button
-              type="button"
-              className="presentation-icon-button"
-              disabled={zoom >= MAX_ZOOM}
-              aria-label={t('menu.zoomIn')}
-              title={t('menu.zoomIn')}
-              data-testid="presentation-zoom-in"
-              onClick={() => setClampedZoom(zoom + ZOOM_STEP)}
-            >
-              <ZoomIn />
-            </button>
-            <button
-              type="button"
-              className="presentation-icon-button"
-              aria-label={t('presentationViewer.fitSlide')}
-              title={t('presentationViewer.fitSlide')}
-              data-testid="presentation-fit-slide"
-              onClick={() => setZoom(100)}
-            >
-              <Scan />
-            </button>
+            <PresentationToolbarTooltip label={t('menu.zoomOut')}>
+              <button
+                type="button"
+                className="presentation-icon-button"
+                disabled={zoom <= MIN_ZOOM}
+                aria-label={t('menu.zoomOut')}
+                data-testid="presentation-zoom-out"
+                onClick={() => setClampedZoom(zoom - ZOOM_STEP)}
+              >
+                <ZoomOut />
+              </button>
+            </PresentationToolbarTooltip>
+            <PresentationToolbarTooltip label={t('presentationViewer.fitSlide')}>
+              <button
+                type="button"
+                className="presentation-zoom-value"
+                aria-label={t('presentationViewer.fitSlide')}
+                data-testid="presentation-zoom-value"
+                onClick={() => setZoom(100)}
+              >
+                {zoom}%
+              </button>
+            </PresentationToolbarTooltip>
+            <PresentationToolbarTooltip label={t('menu.zoomIn')}>
+              <button
+                type="button"
+                className="presentation-icon-button"
+                disabled={zoom >= MAX_ZOOM}
+                aria-label={t('menu.zoomIn')}
+                data-testid="presentation-zoom-in"
+                onClick={() => setClampedZoom(zoom + ZOOM_STEP)}
+              >
+                <ZoomIn />
+              </button>
+            </PresentationToolbarTooltip>
+            <PresentationToolbarTooltip label={t('presentationViewer.fitSlide')}>
+              <button
+                type="button"
+                className="presentation-icon-button"
+                aria-label={t('presentationViewer.fitSlide')}
+                data-testid="presentation-fit-slide"
+                onClick={() => setZoom(100)}
+              >
+                <Scan />
+              </button>
+            </PresentationToolbarTooltip>
           </div>
         ) : null}
 
