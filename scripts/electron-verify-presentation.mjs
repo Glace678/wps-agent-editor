@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -17,6 +17,7 @@ const fullscreenScreenshotPath = path.join(cacheDirectory, 'electron-verify-pres
 const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-profile-'))
 const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-fixture-'))
 const fixturePath = path.join(fixtureDirectory, 'presentation-playback.pptx')
+const legacyFixturePath = path.join(fixtureDirectory, 'presentation-playback-legacy.ppt')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function createFixture() {
@@ -181,6 +182,54 @@ async function createFixture() {
   await pptx.writeFile({ fileName: fixturePath, compression: true })
 }
 
+function createLegacyFixture() {
+  if (process.platform !== 'win32') return false
+  const script = `
+$ErrorActionPreference = 'Stop'
+$sourcePath = $env:WPS_AGENT_PPTX_SOURCE
+$targetPath = $env:WPS_AGENT_PPT_TARGET
+$app = $null
+$presentation = $null
+try {
+  foreach ($progId in @('PowerPoint.Application', 'KWPP.Application')) {
+    $type = [Type]::GetTypeFromProgID($progId)
+    if ($null -eq $type) { continue }
+    $app = [Activator]::CreateInstance($type)
+    try { $app.DisplayAlerts = 1 } catch {}
+    $presentation = $app.Presentations.Open($sourcePath, $true, $false, $false)
+    $presentation.SaveAs($targetPath, 1)
+    $presentation.Close()
+    $presentation = $null
+    $app.Quit()
+    $app = $null
+    exit 0
+  }
+  throw 'No presentation COM converter is registered.'
+} finally {
+  if ($null -ne $presentation) { try { $presentation.Close() } catch {} }
+  if ($null -ne $app) { try { $app.Quit() } catch {} }
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+}
+`
+  try {
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+      env: {
+        ...process.env,
+        WPS_AGENT_PPTX_SOURCE: fixturePath,
+        WPS_AGENT_PPT_TARGET: legacyFixturePath,
+      },
+      windowsHide: true,
+      timeout: 120_000,
+      stdio: 'ignore',
+    })
+    return fs.existsSync(legacyFixturePath) && fs.statSync(legacyFixturePath).size > 10_000
+  } catch (error) {
+    console.log(`[SKIP] Could not generate a legacy PPT fixture: ${error instanceof Error ? error.message : String(error)}`)
+    return false
+  }
+}
+
 function getFreePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer()
@@ -336,10 +385,15 @@ function check(name, pass, detail = '') {
 let child
 let cdp
 const rendererErrors = []
+let hasLegacyFixture = false
 
 try {
   await createFixture()
   check('multi-slide PPTX fixture generated', fs.statSync(fixturePath).size > 10_000, `${fs.statSync(fixturePath).size} bytes`)
+  hasLegacyFixture = createLegacyFixture()
+  if (hasLegacyFixture) {
+    check('genuine legacy PPT fixture generated', true, `${fs.statSync(legacyFixturePath).size} bytes`)
+  }
   if (!fs.existsSync(rendererEntry)) throw new Error('Built renderer is missing; run npm run build first')
 
   const port = await getFreePort()
@@ -370,6 +424,20 @@ try {
     mobile: false,
   })
   await waitFor(send, "document.getElementById('root')?.childElementCount > 0", 'React application')
+
+  if (hasLegacyFixture) {
+    const preparedLegacy = await evaluate(send, `(async () => {
+      const result = await window.api.lw.readPresentation(${JSON.stringify(legacyFixturePath)});
+      return {
+        converted: result.convertedFromLegacy,
+        converter: result.converter,
+        bytes: result.data?.byteLength ?? result.data?.length ?? 0,
+      };
+    })()`)
+    check('legacy PPT is converted through the application IPC',
+      preparedLegacy.converted && preparedLegacy.bytes > 10_000,
+      JSON.stringify(preparedLegacy))
+  }
 
   check('PPTX file opened through the application', await openFile(send, fixturePath))
   await waitFor(
@@ -491,6 +559,19 @@ try {
   await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit slideshow')
   check('Escape exits slideshow mode', true)
+
+  if (hasLegacyFixture) {
+    check('legacy PPT file opened through the application', await openFile(send, legacyFixturePath))
+    await waitFor(
+      send,
+      `document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
+        && document.querySelector('[data-testid=presentation-slide-host]')?.textContent.includes('Presentation playback')
+        && document.body.textContent.includes('presentation-playback-legacy.ppt')`,
+      'legacy PPT presentation viewer',
+      45_000,
+    )
+    check('converted legacy PPT renders in the same slideshow viewer', true)
+  }
 
   const unexpectedErrors = rendererErrors.filter((message) => !/ResizeObserver loop/i.test(String(message)))
   check('renderer completed without uncaught exceptions', unexpectedErrors.length === 0, unexpectedErrors.join(' | '))
