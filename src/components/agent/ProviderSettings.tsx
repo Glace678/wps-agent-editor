@@ -77,11 +77,19 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   }
 
   const handleResetBaseURL = async () => {
-    await window.api.provider.setBaseURL(selectedId, '')
-    const list = await load()
-    setBaseURL(list.find((provider) => provider.id === selectedId)?.api || '')
+    const providerId = selectedId
+    const restoredBaseURL = defaultBaseURL
+
+    setBaseURL(restoredBaseURL)
     setBaseURLError('')
     setBaseURLSaved(false)
+
+    await window.api.provider.setBaseURL(providerId, '')
+    setProviders((current) => current.map((provider) => (
+      provider.id === providerId
+        ? { ...provider, api: restoredBaseURL, isApiOverridden: false }
+        : provider
+    )))
   }
 
   const handleRefresh = async () => {

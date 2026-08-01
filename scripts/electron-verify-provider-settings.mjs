@@ -232,7 +232,13 @@ try {
   fs.writeFileSync(screenshotPath, screenshot.result.data, 'base64')
 
   await evaluate(cdp, "document.querySelector('[data-testid=provider-reset-base-url]').click(); true")
-  await waitFor(cdp, "window.api.provider.get('zhipuai').then((provider) => provider.isApiOverridden === false)", 'default Base URL')
+  await waitFor(
+    cdp,
+    `window.api.provider.get('zhipuai').then((provider) => provider.isApiOverridden === false)
+      && document.querySelector('[data-testid=provider-base-url]')?.value === ${JSON.stringify(defaultURL)}
+      && !document.querySelector('[data-testid=provider-reset-base-url]')`,
+    'saved custom URL restored in the input',
+  )
   const equivalentDefault = await evaluate(cdp, `(async () => {
     await window.api.provider.setBaseURL('zhipuai', ${JSON.stringify(`${defaultURL}/chat/completions`)})
     return window.api.provider.get('zhipuai')
