@@ -1319,11 +1319,15 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   // selection / click / layout onChange must not light the tab dirty dot.
   const handleChange = useCallback((data: Sheet[]) => {
     sheetsRef.current = data
-    if (suppressDirtyRef.current) return
-    const nextFingerprint = fingerprintExcelSheets(data)
-    if (nextFingerprint === baselineFingerprintRef.current) return
-    onDirtyRef.current()
-  }, [])
+    const contentReferencesUnchanged = excelSheetsShareContentReferences(
+      lastContentSnapshotRef.current,
+      data,
+    )
+    lastContentSnapshotRef.current = data
+    if (suppressDirtyRef.current || dirtyReportedRef.current) return
+    if (contentReferencesUnchanged && dirtyCheckTimerRef.current === null) return
+    scheduleDirtyCheck()
+  }, [scheduleDirtyCheck])
 
   const handleWorkbookRef = useCallback((api: WorkbookInstance | null) => {
     workbookRef.current = api
@@ -1335,7 +1339,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     window.setTimeout(() => {
       const snapshot = workbookRef.current?.getAllSheets?.() ?? sheetsRef.current
       sheetsRef.current = snapshot
+      lastContentSnapshotRef.current = snapshot
       baselineFingerprintRef.current = fingerprintExcelSheets(snapshot)
+      dirtyReportedRef.current = false
       suppressDirtyRef.current = false
     }, 500)
     onReadyRef.current()
