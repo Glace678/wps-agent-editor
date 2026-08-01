@@ -13,6 +13,11 @@ const CODE_LANGUAGE_BY_EXTENSION: Record<string, CodeLanguageDefinition> = {
   hh: { language: 'cpp', label: 'C++ Header' },
   hpp: { language: 'cpp', label: 'C++ Header' },
   hxx: { language: 'cpp', label: 'C++ Header' },
+  ipp: { language: 'cpp', label: 'C++ Header' },
+  tpp: { language: 'cpp', label: 'C++ Template' },
+  inl: { language: 'cpp', label: 'C/C++ Inline' },
+  cu: { language: 'cpp', label: 'CUDA C++' },
+  cuh: { language: 'cpp', label: 'CUDA Header' },
   m: { language: 'objective-c', label: 'Objective-C' },
   mm: { language: 'objective-c', label: 'Objective-C++' },
   cs: { language: 'csharp', label: 'C#' },
@@ -26,12 +31,15 @@ const CODE_LANGUAGE_BY_EXTENSION: Record<string, CodeLanguageDefinition> = {
   groovy: { language: 'java', label: 'Groovy' },
   ts: { language: 'typescript', label: 'TypeScript', runnable: true },
   tsx: { language: 'typescript', label: 'TypeScript React', runnable: true },
+  mts: { language: 'typescript', label: 'TypeScript Module', runnable: true },
+  cts: { language: 'typescript', label: 'TypeScript CommonJS', runnable: true },
   js: { language: 'javascript', label: 'JavaScript', runnable: true },
   jsx: { language: 'javascript', label: 'JavaScript React', runnable: true },
   mjs: { language: 'javascript', label: 'JavaScript Module', runnable: true },
   cjs: { language: 'javascript', label: 'CommonJS', runnable: true },
   py: { language: 'python', label: 'Python', runnable: true },
   pyw: { language: 'python', label: 'Python' },
+  pyi: { language: 'python', label: 'Python Type Stub' },
   go: { language: 'go', label: 'Go', runnable: true },
   rs: { language: 'rust', label: 'Rust', runnable: true },
   swift: { language: 'swift', label: 'Swift', runnable: true },
@@ -105,6 +113,17 @@ const CODE_LANGUAGE_BY_FILENAME: Record<string, CodeLanguageDefinition> = {
 }
 
 export const CODE_FILE_EXTENSIONS = Object.freeze(Object.keys(CODE_LANGUAGE_BY_EXTENSION))
+
+export const CODE_FILE_FILTER_GROUPS = Object.freeze({
+  cCpp: Object.freeze([
+    'c', 'h', 'cc', 'cpp', 'cxx', 'hh', 'hpp', 'hxx', 'ipp', 'tpp', 'inl', 'cu', 'cuh',
+  ]),
+  python: Object.freeze(['py', 'pyw', 'pyi']),
+  javascriptTypescript: Object.freeze([
+    'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts',
+  ]),
+  javaJvm: Object.freeze(['java', 'kt', 'kts', 'scala', 'groovy']),
+})
 
 function fileNameOf(filePath: string): string {
   return filePath.split(/[/\\]/).pop()?.toLowerCase() ?? ''

@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { IPC } from './channels'
 import { t } from '../i18n/translate'
-import { CODE_FILE_EXTENSIONS } from '../../src/lib/code-languages'
+import { CODE_FILE_EXTENSIONS, CODE_FILE_FILTER_GROUPS } from '../../src/lib/code-languages'
 import { listDirectory, searchFiles, getHomeDir, normalizePath } from '../services/file.service'
 import {
   getRecentFiles,
@@ -24,6 +24,14 @@ import {
   deleteFileHistory,
 } from '../services/file-history.service'
 
+const OFFICE_FILE_EXTENSIONS = Object.freeze([
+  'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'pdf', 'odt', 'ods',
+])
+const TEXT_FILE_EXTENSIONS = Object.freeze(['txt', 'md', 'markdown', 'json', 'log'])
+
+function uniqueExtensions(...groups: readonly (readonly string[])[]): string[] {
+  return [...new Set(groups.flat())]
+}
 
 export function registerFileHandlers(): void {
   ipcMain.handle(IPC.FILE_LIST, async (_e, dirPath: string) => {
@@ -112,15 +120,35 @@ export function registerFileHandlers(): void {
     const win = BrowserWindow.getFocusedWindow()
     const officeFilter = {
       name: t('fileHandler.officeDocuments'),
-      extensions: ['docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'pdf', 'odt', 'ods'],
+      extensions: [...OFFICE_FILE_EXTENSIONS],
     }
-    const textFilter = { name: t('fileHandler.text'), extensions: ['txt', 'md', 'markdown', 'json', 'log'] }
+    const textFilter = { name: t('fileHandler.text'), extensions: [...TEXT_FILE_EXTENSIONS] }
     const codeFilter = { name: t('fileHandler.codeDocuments'), extensions: [...CODE_FILE_EXTENSIONS] }
+    const supportedFilter = {
+      name: t('fileHandler.supportedFiles'),
+      extensions: uniqueExtensions(OFFICE_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS, CODE_FILE_EXTENSIONS),
+    }
+    const languageFilters = [
+      { name: t('fileHandler.cCppFiles'), extensions: [...CODE_FILE_FILTER_GROUPS.cCpp] },
+      { name: t('fileHandler.pythonFiles'), extensions: [...CODE_FILE_FILTER_GROUPS.python] },
+      {
+        name: t('fileHandler.javascriptTypescriptFiles'),
+        extensions: [...CODE_FILE_FILTER_GROUPS.javascriptTypescript],
+      },
+      { name: t('fileHandler.javaJvmFiles'), extensions: [...CODE_FILE_FILTER_GROUPS.javaJvm] },
+    ]
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: kind === 'text'
         ? [textFilter, { name: t('fileHandler.allFiles'), extensions: ['*'] }]
-        : [officeFilter, codeFilter, textFilter, { name: t('fileHandler.allFiles'), extensions: ['*'] }],
+        : [
+            supportedFilter,
+            ...languageFilters,
+            codeFilter,
+            officeFilter,
+            textFilter,
+            { name: t('fileHandler.allFiles'), extensions: ['*'] },
+          ],
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return normalizePath(result.filePaths[0])
