@@ -461,6 +461,35 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   onReadyRef.current = onReady
   translationRef.current = t
 
+  const cancelPendingDirtyCheck = useCallback(() => {
+    if (dirtyCheckTimerRef.current === null) return
+    window.clearTimeout(dirtyCheckTimerRef.current)
+    dirtyCheckTimerRef.current = null
+  }, [])
+
+  const scheduleDirtyCheck = useCallback(() => {
+    cancelPendingDirtyCheck()
+
+    const run = () => {
+      dirtyCheckTimerRef.current = null
+      const resizeState = shellRef.current?.dataset.excelLiveResize
+      if (resizeState && resizeState !== 'idle' && !resizeState.startsWith('rejected:')) {
+        dirtyCheckTimerRef.current = window.setTimeout(run, DIRTY_CHECK_SETTLE_MS)
+        return
+      }
+      if (suppressDirtyRef.current || dirtyReportedRef.current) return
+
+      const nextFingerprint = fingerprintExcelSheets(sheetsRef.current)
+      if (nextFingerprint === baselineFingerprintRef.current) return
+      dirtyReportedRef.current = true
+      onDirtyRef.current()
+    }
+
+    dirtyCheckTimerRef.current = window.setTimeout(run, DIRTY_CHECK_SETTLE_MS)
+  }, [cancelPendingDirtyCheck])
+
+  useEffect(() => () => cancelPendingDirtyCheck(), [cancelPendingDirtyCheck])
+
   const workbookLanguage = language === 'zh-CN'
     ? 'zh'
     : language === 'es' || language === 'ru'
