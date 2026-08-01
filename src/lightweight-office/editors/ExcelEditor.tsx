@@ -598,6 +598,13 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   useEffect(() => {
     const shell = shellRef.current
     if (!shell || !sheets) return
+    if (localStorage.getItem('wps-smooth-excel-scroll-disabled') === '1') return
+    return attachExcelFrameScroll(shell)
+  }, [sheets, fontLibraryReady])
+
+  useEffect(() => {
+    const shell = shellRef.current
+    if (!shell || !sheets) return
 
     // Fortune Sheet only observes window.resize. Forward container resizes
     // (sidebar dragging, split-pane changes) so its canvas and scrollbars
