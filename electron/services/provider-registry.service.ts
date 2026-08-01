@@ -227,17 +227,36 @@ export async function getProviderById(providerId: string): Promise<ProviderDefin
 }
 
 export async function detectOllama(baseURL = 'http://127.0.0.1:11434'): Promise<{ available: boolean; models: string[]; baseURL: string }> {
-  const url = `${baseURL.replace(/\/$/, '')}/api/tags`
+  const rootURL = baseURL.replace(/\/+$/, '').replace(/\/v1$/, '')
+  const url = `${rootURL}/api/tags`
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) })
-    if (!res.ok) return { available: false, models: [], baseURL: `${baseURL}/v1` }
+    if (!res.ok) return { available: false, models: [], baseURL: `${rootURL}/v1` }
     const data = await res.json() as { models?: Array<{ name: string }> }
+    const inspected = await Promise.all((data.models || []).map(async ({ name }) => {
+      try {
+        const show = await fetch(`${rootURL}/api/show`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ model: name }),
+          signal: AbortSignal.timeout(3000),
+        })
+        if (!show.ok) return { name, isChat: !NON_CHAT_ID.test(name) }
+        const details = await show.json() as { capabilities?: string[] }
+        if (!Array.isArray(details.capabilities)) {
+          return { name, isChat: !NON_CHAT_ID.test(name) }
+        }
+        return { name, isChat: details.capabilities.includes('completion') }
+      } catch {
+        return { name, isChat: !NON_CHAT_ID.test(name) }
+      }
+    }))
     return {
       available: true,
-      models: (data.models || []).map((m) => m.name),
-      baseURL: `${baseURL.replace(/\/$/, '')}/v1`,
+      models: inspected.filter((model) => model.isChat).map((model) => model.name),
+      baseURL: `${rootURL}/v1`,
     }
   } catch {
-    return { available: false, models: [], baseURL: `${baseURL}/v1` }
+    return { available: false, models: [], baseURL: `${rootURL}/v1` }
   }
 }
