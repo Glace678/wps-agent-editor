@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { FolderOpen, Home, PanelLeftClose, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -23,15 +23,18 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     setCurrentDir, setEntries, setRecentFiles, setSearchQuery, setSearchResults, setIsSearching, setLoading,
   } = useFileStore()
   const { setCurrentFile } = useEditorStore()
+  const loadRequestRef = useRef(0)
 
   const loadDir = useCallback(async (dir: string) => {
+    const requestId = ++loadRequestRef.current
     setLoading(true)
     try {
       const list = await window.api.file.list(dir)
+      if (requestId !== loadRequestRef.current) return
       setEntries(list)
       setCurrentDir(dir)
     } finally {
-      setLoading(false)
+      if (requestId === loadRequestRef.current) setLoading(false)
     }
   }, [setCurrentDir, setEntries, setLoading])
 
@@ -44,15 +47,26 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   }, [setCurrentFile, setRecentFiles])
 
   useEffect(() => {
+    let cancelled = false
+    const initialRequestId = loadRequestRef.current
+
     async function init() {
       const home = await window.api.file.getHome()
       const recent = await window.api.file.getRecent()
+      if (cancelled) return
       setRecentFiles(recent)
+      if (
+        loadRequestRef.current !== initialRequestId
+        || useFileStore.getState().currentDir
+      ) return
       const savedDir = localStorage.getItem('last-browse-dir')
       const targetDir = savedDir || (home + (window.api.platform === 'win32' ? '\\Documents' : '/Documents'))
       await loadDir(targetDir)
     }
-    init()
+    void init()
+    return () => {
+      cancelled = true
+    }
   }, [loadDir, setRecentFiles])
 
   useEffect(() => {

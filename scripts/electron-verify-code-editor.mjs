@@ -221,12 +221,15 @@ try {
     mobile: false,
   })
   await waitFor(send, "document.getElementById('root')?.childElementCount > 0", 'React application')
+  await waitFor(send, "localStorage.getItem('last-browse-dir')", 'initial file manager directory')
 
+  const previousTimeOrigin = await evaluate(send, 'performance.timeOrigin')
   await evaluate(send, `(() => {
     localStorage.setItem('last-browse-dir', ${JSON.stringify(fixturePath)});
     location.reload();
     return true;
   })()`)
+  await waitFor(send, `performance.timeOrigin !== ${JSON.stringify(previousTimeOrigin)}`, 'renderer reload')
   await waitFor(send, "document.getElementById('root')?.childElementCount > 0", 'reloaded React application')
   const visibleCodeFiles = await waitFor(
     send,
