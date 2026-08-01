@@ -18,6 +18,9 @@ const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-prof
 const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-fixture-'))
 const fixturePath = path.join(fixtureDirectory, 'presentation-playback.pptx')
 const legacyFixturePath = path.join(fixtureDirectory, 'presentation-playback-legacy.ppt')
+const externalFixturePath = process.env.WPS_PRESENTATION_VERIFY_INPUT
+  ? path.resolve(process.env.WPS_PRESENTATION_VERIFY_INPUT)
+  : null
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function createFixture() {
@@ -571,6 +574,28 @@ try {
       45_000,
     )
     check('converted legacy PPT renders in the same slideshow viewer', true)
+  }
+
+  if (externalFixturePath) {
+    check('external presentation fixture exists', fs.existsSync(externalFixturePath), externalFixturePath)
+    check('external presentation opened through the application', await openFile(send, externalFixturePath))
+    const state = await waitFor(
+      send,
+      `(() => {
+        const viewer = document.querySelector('[data-testid=presentation-viewer]');
+        return ['ready', 'error'].includes(viewer?.dataset.presentationState)
+          ? viewer.dataset.presentationState
+          : '';
+      })()`,
+      'external presentation result',
+      120_000,
+    )
+    const detail = await evaluate(send, `(() => ({
+      state: document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState,
+      text: document.querySelector('[data-testid=presentation-stage]')?.innerText,
+      slideCount: document.querySelectorAll('[data-testid=presentation-thumbnails] button').length,
+    }))()`)
+    check('external presentation renders', state === 'ready', JSON.stringify(detail))
   }
 
   const unexpectedErrors = rendererErrors.filter((message) => !/ResizeObserver loop/i.test(String(message)))
