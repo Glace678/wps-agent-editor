@@ -50,8 +50,13 @@ export function registerProviderHandlers(): void {
     if (!provider) throw new Error('UNKNOWN_PROVIDER')
 
     const baseURL = normalizeProviderBaseURL(provider.protocol, payload.baseURL)
-    await providerBaseURL.setProviderBaseURL(payload.providerId, baseURL)
-    return { success: true, baseURL }
+    const defaultBaseURL = normalizeProviderBaseURL(
+      provider.protocol,
+      provider.defaultApi ?? provider.api,
+    )
+    const override = baseURL === defaultBaseURL ? '' : baseURL
+    await providerBaseURL.setProviderBaseURL(payload.providerId, override)
+    return { success: true, baseURL: override || defaultBaseURL }
   })
 
   ipcMain.handle(IPC.AUTH_GET_ALL, async () => authStorage.getAllAuth())
