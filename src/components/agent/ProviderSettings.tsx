@@ -158,8 +158,9 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
             </div>
             <ScrollArea className="flex-1">
                {filtered.map((p) => (
-                 <button
-                   key={p.id}
+                  <button
+                    key={p.id}
+                    data-testid={`provider-option-${p.id}`}
                    className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-accent ${
                      selectedId === p.id ? 'bg-accent' : ''
                    }`}
@@ -210,6 +211,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                   <p className="text-xs text-muted-foreground">ID: {selected.id} | {selected.protocol}</p>
                   {selected.doc && (
                     <a
+                      data-testid="provider-documentation"
                       href={selected.doc}
                       target="_blank"
                       rel="noreferrer"
@@ -228,6 +230,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                   </label>
                   <Input
                     id="provider-base-url"
+                    data-testid="provider-base-url"
                     type="url"
                     className="h-11 w-full text-sm"
                     placeholder={t('providerSettings.apiBaseUrlPlaceholder')}
@@ -241,12 +244,13 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                   />
                   {baseURLError && <p className="text-xs text-destructive">{baseURLError}</p>}
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" onClick={() => void handleSaveBaseURL()} disabled={!baseURL.trim()}>
+                    <Button data-testid="provider-save-base-url" size="sm" onClick={() => void handleSaveBaseURL()} disabled={!baseURL.trim()}>
                       <Save className="mr-1.5 h-3.5 w-3.5" />
                       {t('providerSettings.saveBaseUrl')}
                     </Button>
                     <Button
                       size="sm"
+                      data-testid="provider-reset-base-url"
                       variant="outline"
                       onClick={() => void handleResetBaseURL()}
                       disabled={!selected.isApiOverridden}
@@ -267,6 +271,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                   <div className="space-y-2">
                     <label className="text-xs font-medium">{t('providerSettings.apiKeyStorage')}</label>
                     <Input
+                      data-testid="provider-api-key"
                       type="password"
                       placeholder={authStatus[selectedId]?.configured
                         ? t('providerSettings.configuredKeyPlaceholder')
