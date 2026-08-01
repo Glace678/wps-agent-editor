@@ -196,11 +196,63 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                 </div>
               </div>
             ) : selected ? (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <h3 className="font-medium">{selected.name}</h3>
-                  <p className="text-xs text-muted-foreground">ID: {selected.id} · {selected.protocol}</p>
-                  {selected.api && <p className="text-xs text-muted-foreground">{selected.api}</p>}
+                  <p className="text-xs text-muted-foreground">ID: {selected.id} | {selected.protocol}</p>
+                  {selected.doc && (
+                    <a
+                      href={selected.doc}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex max-w-full items-start gap-1.5 text-xs text-primary hover:underline"
+                      title={t('providerSettings.apiDocumentation')}
+                    >
+                      <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span className="break-all">{selected.doc}</span>
+                    </a>
+                  )}
+                </div>
+                <Separator />
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="provider-base-url">
+                    {t('providerSettings.apiBaseUrl')}
+                  </label>
+                  <Input
+                    id="provider-base-url"
+                    type="url"
+                    className="h-11 w-full text-sm"
+                    placeholder={t('providerSettings.apiBaseUrlPlaceholder')}
+                    value={baseURL}
+                    aria-invalid={Boolean(baseURLError)}
+                    onChange={(event) => {
+                      setBaseURL(event.target.value)
+                      setBaseURLError('')
+                      setBaseURLSaved(false)
+                    }}
+                  />
+                  {baseURLError && <p className="text-xs text-destructive">{baseURLError}</p>}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => void handleSaveBaseURL()} disabled={!baseURL.trim()}>
+                      <Save className="mr-1.5 h-3.5 w-3.5" />
+                      {t('providerSettings.saveBaseUrl')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleResetBaseURL()}
+                      disabled={!selected.isApiOverridden}
+                    >
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                      {t('providerSettings.resetBaseUrl')}
+                    </Button>
+                    {baseURLSaved && (
+                      <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                        <Check className="h-3.5 w-3.5" />
+                        {t('providerSettings.baseUrlSaved')}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <Separator />
                 {!selected.isLocal && (
