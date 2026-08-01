@@ -147,7 +147,8 @@ try {
   assert.ok(layout.height >= 40, `Base URL input should be tall, received ${layout.height}px`)
   assert.equal(layout.aboveKey, true, 'Base URL input must be above the API key')
 
-  const temporaryURL = 'https://example.test/v1'
+  const temporaryURL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions?key=do-not-persist'
+  const normalizedTemporaryURL = 'https://open.bigmodel.cn/api/paas/v4'
   await evaluate(cdp, `(() => {
     const input = document.querySelector('[data-testid=provider-base-url]')
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(temporaryURL)})
@@ -158,9 +159,28 @@ try {
   await waitFor(cdp, "Boolean(document.querySelector('[data-testid=provider-base-url-saved]'))", 'saved Base URL')
   assert.equal(
     await evaluate(cdp, "window.api.provider.get('zhipuai').then((provider) => provider.api)"),
-    temporaryURL,
-    'saved Base URL must be returned by provider IPC',
+    normalizedTemporaryURL,
+    'a full chat endpoint must be normalized before it is returned by provider IPC',
   )
+
+  const protocolURLs = await evaluate(cdp, `(async () => {
+    await window.api.provider.setBaseURL('anthropic', 'https://api.anthropic.com/v1/messages')
+    await window.api.provider.setBaseURL(
+      'google',
+      'https://generativelanguage.googleapis.com/v1alpha/models/gemini-test:generateContent?key=do-not-persist',
+    )
+    const [anthropic, google] = await Promise.all([
+      window.api.provider.get('anthropic'),
+      window.api.provider.get('google'),
+    ])
+    return { anthropic: anthropic.api, google: google.api }
+  })()`)
+  assert.equal(protocolURLs.anthropic, 'https://api.anthropic.com')
+  assert.equal(protocolURLs.google, 'https://generativelanguage.googleapis.com/v1alpha')
+
+  const storePath = path.join(profilePath, 'provider-base-urls.json')
+  const storeContents = fs.readFileSync(storePath, 'utf8')
+  assert.equal(storeContents.includes('do-not-persist'), false, 'URL query API keys must not be persisted')
 
   const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
   fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
@@ -168,6 +188,10 @@ try {
 
   await evaluate(cdp, "document.querySelector('[data-testid=provider-reset-base-url]').click(); true")
   await waitFor(cdp, "window.api.provider.get('zhipuai').then((provider) => provider.isApiOverridden === false)", 'default Base URL')
+  await evaluate(cdp, `Promise.all([
+    window.api.provider.setBaseURL('anthropic', ''),
+    window.api.provider.setBaseURL('google', ''),
+  ])`)
   console.log(`PASS provider documentation, editable Base URL, chat-only models, and persistence\n${screenshotPath}`)
 } finally {
   cdp?.close()
