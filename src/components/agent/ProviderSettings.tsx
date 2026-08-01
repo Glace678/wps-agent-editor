@@ -259,7 +259,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                       {t('providerSettings.resetBaseUrl')}
                     </Button>
                     {baseURLSaved && (
-                      <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                      <span data-testid="provider-base-url-saved" className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                         <Check className="h-3.5 w-3.5" />
                         {t('providerSettings.baseUrlSaved')}
                       </span>
