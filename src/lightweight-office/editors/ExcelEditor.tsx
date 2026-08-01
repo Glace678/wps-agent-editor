@@ -6,7 +6,10 @@ import { useTranslation } from '@/lib/i18n/runtime'
 import { documentBridge } from '../agent/document-bridge'
 import { readFileBuffer, saveFileBuffer } from '../utils/file-io'
 import { configureFortuneRendering } from '../utils/fortune-rendering'
-import { fingerprintExcelSheets } from '../utils/excel-dirty'
+import {
+  excelSheetsShareContentReferences,
+  fingerprintExcelSheets,
+} from '../utils/excel-dirty'
 import {
   DEFAULT_SPREADSHEET_FONT_SIZE,
   sheetsToXlsxBuffer,
@@ -20,6 +23,7 @@ import {
 } from '../utils/system-fonts'
 import { decorateExcelToolbarShortcuts } from '../utils/excel-toolbar-shortcuts'
 import { attachExcelLiveResize, type FortuneWorkbookApiLike } from '../utils/excel-live-resize'
+import { attachExcelFrameScroll } from '../utils/excel-frame-scroll'
 
 configureFortuneRendering()
 
@@ -35,6 +39,7 @@ type ExcelToolbarPickerKind = 'font' | 'font-size' | 'format'
 
 const EXCEL_FONT_SIZE_MIN = 1
 const EXCEL_FONT_SIZE_MAX = 409
+const DIRTY_CHECK_SETTLE_MS = 120
 
 // Localized Windows font names are what Excel displays, while users often
 // search with the corresponding internal English name. Keep both searchable.
@@ -440,6 +445,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   const suppressDirtyRef = useRef(true)
   /** Content fingerprint of the last saved / loaded workbook (not UI selection). */
   const baselineFingerprintRef = useRef('')
+  const lastContentSnapshotRef = useRef<readonly Sheet[] | null>(null)
+  const dirtyCheckTimerRef = useRef<number | null>(null)
+  const dirtyReportedRef = useRef(false)
   const sheetsRef = useRef<Sheet[]>([])
   const onDirtyRef = useRef(onDirty)
   const onReadyRef = useRef(onReady)
