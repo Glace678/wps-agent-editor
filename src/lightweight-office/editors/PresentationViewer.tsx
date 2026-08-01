@@ -698,6 +698,11 @@ export function PresentationViewer({
   // meaningless scrollbar at 100% zoom.
   const surfaceWidth = Math.max(viewportSize.width - 2, slideSize.width + surfaceInset)
   const surfaceHeight = Math.max(viewportSize.height - 2, slideSize.height + surfaceInset)
+  const thumbnailPaneMaxWidth = getThumbnailPaneMaxWidth()
+  const thumbnailPaneStyle = {
+    width: thumbnailPaneWidth,
+    '--presentation-thumbnail-scale': String(estimatedThumbnailScale(thumbnailPaneWidth)),
+  } as CSSProperties
 
   return (
     <div
@@ -846,24 +851,49 @@ export function PresentationViewer({
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {!isPresenting && showThumbnails ? (
-          <aside
-            className="w-[194px] shrink-0 overflow-y-auto border-r border-black/10 bg-[#f5f5f5] py-1 dark:border-white/10 dark:bg-[#191b1d]"
-            aria-label={t('presentationViewer.thumbnails')}
-            data-testid="presentation-thumbnails"
-          >
-            {viewer
-              ? Array.from({ length: slideCount }, (_, index) => (
-                  <SlideThumbnail
-                    key={index}
-                    viewer={viewer}
-                    index={index}
-                    active={index === currentSlide}
-                    label={t('presentationViewer.slideLabel', { number: index + 1 })}
-                    onSelect={(next) => void goToSlide(next)}
-                  />
-                ))
-              : null}
-          </aside>
+          <>
+            <aside
+              ref={thumbnailPaneRef}
+              className="presentation-thumbnail-pane shrink-0 overflow-x-hidden overflow-y-auto bg-[#f5f5f5] py-1 dark:bg-[#191b1d]"
+              style={thumbnailPaneStyle}
+              aria-label={t('presentationViewer.thumbnails')}
+              data-testid="presentation-thumbnails"
+            >
+              {viewer
+                ? Array.from({ length: slideCount }, (_, index) => (
+                    <SlideThumbnail
+                      key={index}
+                      viewer={viewer}
+                      index={index}
+                      active={index === currentSlide}
+                      label={t('presentationViewer.slideLabel', { number: index + 1 })}
+                      aspectRatio={aspectRatio}
+                      onSelect={(next) => void goToSlide(next)}
+                    />
+                  ))
+                : null}
+            </aside>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t('presentationViewer.resizeThumbnails')}
+              aria-valuemin={MIN_THUMBNAIL_PANE_WIDTH}
+              aria-valuemax={Math.round(thumbnailPaneMaxWidth)}
+              aria-valuenow={Math.round(thumbnailPaneWidth)}
+              tabIndex={0}
+              className="presentation-thumbnail-resizer"
+              title={t('presentationViewer.resizeThumbnails')}
+              data-testid="presentation-thumbnail-resizer"
+              data-presentation-thumbnail-resizer
+              onPointerDown={startThumbnailResize}
+              onKeyDown={onThumbnailResizeKeyDown}
+              onDoubleClick={() => commitThumbnailPaneWidth(DEFAULT_THUMBNAIL_PANE_WIDTH)}
+            >
+              <span className="presentation-thumbnail-resizer-indicator" aria-hidden="true">
+                <MoveHorizontal />
+              </span>
+            </div>
+          </>
         ) : null}
 
         <main
