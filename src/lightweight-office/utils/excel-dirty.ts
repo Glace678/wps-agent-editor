@@ -29,6 +29,53 @@ const VOLATILE_SHEET_KEYS = new Set([
   'freezen',
 ])
 
+const CONTENT_REFERENCE_KEYS = [
+  'data',
+  'celldata',
+  'config',
+  'calcChain',
+  'images',
+  'chart',
+  'hyperlink',
+  'filter',
+  'dataVerification',
+  'pivotTable',
+] as const
+
+const CONTENT_SCALAR_KEYS = [
+  'name',
+  'id',
+  'order',
+  'row',
+  'column',
+  'isPivotTable',
+] as const
+
+/**
+ * Fast path for Fortune UI-only updates. Immer preserves nested content
+ * references when selection or viewport state changes, so scrolling can skip
+ * the much more expensive full workbook fingerprint.
+ */
+export function excelSheetsShareContentReferences(
+  previous: readonly Sheet[] | null | undefined,
+  next: readonly Sheet[] | null | undefined,
+): boolean {
+  if (previous === next) return true
+  if (!previous || !next || previous.length !== next.length) return false
+
+  for (let index = 0; index < previous.length; index += 1) {
+    const left = previous[index] as Sheet & Record<string, unknown>
+    const right = next[index] as Sheet & Record<string, unknown>
+    for (const key of CONTENT_REFERENCE_KEYS) {
+      if (left[key] !== right[key]) return false
+    }
+    for (const key of CONTENT_SCALAR_KEYS) {
+      if (left[key] !== right[key]) return false
+    }
+  }
+  return true
+}
+
 function matrixToCelldata(data: CellMatrix | undefined): NonNullable<Sheet['celldata']> {
   if (!data?.length) return []
   const celldata: NonNullable<Sheet['celldata']> = []
