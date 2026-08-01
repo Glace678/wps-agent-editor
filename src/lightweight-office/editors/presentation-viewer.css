@@ -149,13 +149,14 @@
 
 .presentation-thumbnail-resizer::before {
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   inset: 0 -4px;
   content: '';
 }
 
 .presentation-thumbnail-resizer::after {
   position: absolute;
+  z-index: 1;
   inset: 0 auto 0 50%;
   width: 1px;
   content: '';
