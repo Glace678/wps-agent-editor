@@ -146,9 +146,54 @@ try {
   assert.ok(layout.width >= 350, `Base URL input should be wide, received ${layout.width}px`)
   assert.ok(layout.height >= 40, `Base URL input should be tall, received ${layout.height}px`)
   assert.equal(layout.aboveKey, true, 'Base URL input must be above the API key')
+  assert.equal(
+    await evaluate(cdp, "Boolean(document.querySelector('[data-testid=provider-reset-base-url]'))"),
+    false,
+    'restore default must be hidden while the input matches the default URL',
+  )
 
-  const temporaryURL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions?key=do-not-persist'
-  const normalizedTemporaryURL = 'https://open.bigmodel.cn/api/paas/v4'
+  const defaultURL = 'https://open.bigmodel.cn/api/paas/v4'
+  const temporaryURL = 'https://proxy.example.com/v1/chat/completions?key=do-not-persist'
+  const normalizedTemporaryURL = 'https://proxy.example.com/v1'
+  await evaluate(cdp, `(() => {
+    const input = document.querySelector('[data-testid=provider-base-url]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(temporaryURL)})
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await waitFor(
+    cdp,
+    "Boolean(document.querySelector('[data-testid=provider-reset-base-url]:not(:disabled)'))",
+    'restore default after editing the URL',
+  )
+
+  await evaluate(cdp, `(() => {
+    const input = document.querySelector('[data-testid=provider-base-url]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(defaultURL)})
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await waitFor(
+    cdp,
+    "!document.querySelector('[data-testid=provider-reset-base-url]')",
+    'hidden restore default after typing the default URL',
+  )
+
+  await evaluate(cdp, `(() => {
+    const input = document.querySelector('[data-testid=provider-base-url]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(temporaryURL)})
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await waitFor(cdp, "Boolean(document.querySelector('[data-testid=provider-reset-base-url]'))", 'restore default before saving')
+  await evaluate(cdp, "document.querySelector('[data-testid=provider-reset-base-url]').click(); true")
+  await waitFor(
+    cdp,
+    `document.querySelector('[data-testid=provider-base-url]')?.value === ${JSON.stringify(defaultURL)}
+      && !document.querySelector('[data-testid=provider-reset-base-url]')`,
+    'default URL restored before saving',
+  )
+
   await evaluate(cdp, `(() => {
     const input = document.querySelector('[data-testid=provider-base-url]')
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(temporaryURL)})
@@ -188,6 +233,16 @@ try {
 
   await evaluate(cdp, "document.querySelector('[data-testid=provider-reset-base-url]').click(); true")
   await waitFor(cdp, "window.api.provider.get('zhipuai').then((provider) => provider.isApiOverridden === false)", 'default Base URL')
+  const equivalentDefault = await evaluate(cdp, `(async () => {
+    await window.api.provider.setBaseURL('zhipuai', ${JSON.stringify(`${defaultURL}/chat/completions`)})
+    return window.api.provider.get('zhipuai')
+  })()`)
+  assert.equal(equivalentDefault.api, defaultURL)
+  assert.equal(
+    equivalentDefault.isApiOverridden,
+    false,
+    'an address that normalizes to the default must not be stored as an override',
+  )
   await evaluate(cdp, `Promise.all([
     window.api.provider.setBaseURL('anthropic', ''),
     window.api.provider.setBaseURL('google', ''),
