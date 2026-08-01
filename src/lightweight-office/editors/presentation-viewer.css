@@ -109,9 +109,119 @@
   animation: presentation-slide-enter 150ms ease-out;
 }
 
+.presentation-thumbnail-pane {
+  min-width: 168px;
+  max-width: 420px;
+  scrollbar-color: rgb(120 120 120 / 60%) transparent;
+  scrollbar-gutter: stable;
+}
+
+.presentation-thumbnail-frame {
+  contain: layout paint;
+}
+
+.presentation-thumbnail-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 372px;
+  transform: scale(var(--presentation-thumbnail-scale, 0.387));
+  transform-origin: top left;
+  pointer-events: none;
+  will-change: transform;
+}
+
 .presentation-thumbnail-host [data-pptx-thumbnail='true'] {
-  max-width: 100%;
-  max-height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+.presentation-thumbnail-resizer {
+  position: relative;
+  z-index: 15;
+  width: 6px;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  background: rgb(0 0 0 / 8%);
+}
+
+.presentation-thumbnail-resizer::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 -4px;
+  content: '';
+}
+
+.presentation-thumbnail-resizer::after {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  content: '';
+  transform: translateX(-50%);
+  background: rgb(0 0 0 / 16%);
+  transition: width 120ms ease-out, background-color 120ms ease-out;
+}
+
+.presentation-thumbnail-resizer-indicator {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  width: 24px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%) scale(0.92);
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 4px;
+  background: #fff;
+  color: #505050;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
+  opacity: 0;
+  transition: opacity 120ms ease-out, transform 120ms ease-out;
+}
+
+.presentation-thumbnail-resizer-indicator > svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.8;
+}
+
+.presentation-thumbnail-resizer:hover::after,
+.presentation-thumbnail-resizer:focus-visible::after,
+.presentation-viewer[data-thumbnail-resizing='true'] .presentation-thumbnail-resizer::after {
+  width: 2px;
+  background: #d24726;
+}
+
+.presentation-thumbnail-resizer:hover .presentation-thumbnail-resizer-indicator,
+.presentation-thumbnail-resizer:focus-visible .presentation-thumbnail-resizer-indicator,
+.presentation-viewer[data-thumbnail-resizing='true'] .presentation-thumbnail-resizer-indicator {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+.presentation-thumbnail-resizer:focus-visible .presentation-thumbnail-resizer-indicator {
+  outline: 2px solid rgb(210 71 38 / 55%);
+  outline-offset: 1px;
+}
+
+.dark .presentation-thumbnail-resizer {
+  background: rgb(255 255 255 / 8%);
+}
+
+.dark .presentation-thumbnail-resizer::after {
+  background: rgb(255 255 255 / 18%);
+}
+
+.dark .presentation-thumbnail-resizer-indicator {
+  border-color: rgb(255 255 255 / 18%);
+  background: #292b2e;
+  color: #f1f1f1;
+  box-shadow: 0 2px 9px rgb(0 0 0 / 42%);
 }
 
 .presentation-viewer--presenting .presentation-stage {
@@ -172,6 +282,11 @@
   }
 
   .presentation-viewer--presenting .presentation-toolbar {
+    transition: none;
+  }
+
+  .presentation-thumbnail-resizer::after,
+  .presentation-thumbnail-resizer-indicator {
     transition: none;
   }
 }
