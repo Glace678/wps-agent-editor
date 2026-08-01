@@ -15,6 +15,8 @@ export function attachExcelFrameScroll(shell: HTMLElement): () => void {
   let forwarding = false
   let rawEventCount = 0
   let renderedFrameCount = 0
+  let pendingSince = 0
+  let maxFrameLatency = 0
 
   const flush = () => {
     frame = null
@@ -34,8 +36,12 @@ export function attachExcelFrameScroll(shell: HTMLElement): () => void {
     }
 
     renderedFrameCount += 1
+    const frameLatency = performance.now() - pendingSince
+    maxFrameLatency = Math.max(maxFrameLatency, frameLatency)
     shell.dataset.excelScrollRawEvents = String(rawEventCount)
     shell.dataset.excelScrollFrames = String(renderedFrameCount)
+    shell.dataset.excelScrollLastFrameMs = frameLatency.toFixed(2)
+    shell.dataset.excelScrollMaxFrameMs = maxFrameLatency.toFixed(2)
   }
 
   const onScrollCapture = (event: Event) => {
@@ -48,7 +54,10 @@ export function attachExcelFrameScroll(shell: HTMLElement): () => void {
     event.stopPropagation()
     rawEventCount += 1
     pendingTargets.add(target)
-    if (frame === null) frame = requestAnimationFrame(flush)
+    if (frame === null) {
+      pendingSince = performance.now()
+      frame = requestAnimationFrame(flush)
+    }
   }
 
   shell.addEventListener('scroll', onScrollCapture, true)
