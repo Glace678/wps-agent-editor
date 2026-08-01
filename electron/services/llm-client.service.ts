@@ -35,6 +35,35 @@ async function resolveProvider(providerId: string) {
   return getProviderById(providerId)
 }
 
+export function normalizeOpenAICompatibleBaseURL(baseURL?: string): string | undefined {
+  return baseURL
+    ?.trim()
+    .replace(/\/+$/, '')
+    .replace(/\/(?:chat\/completions|completions|responses)$/i, '')
+}
+
+export function normalizeAnthropicBaseURL(baseURL?: string): string | undefined {
+  return baseURL
+    ?.trim()
+    .replace(/\/+$/, '')
+    .replace(/\/v1\/messages$/i, '')
+    .replace(/\/v1$/i, '')
+}
+
+export function parseGoogleBaseURL(baseURL?: string): { baseUrl?: string; apiVersion?: string } {
+  const normalizedURL = baseURL?.trim().replace(/\/+$/, '')
+  const endpointMatch = normalizedURL?.match(
+    /\/(v\d+(?:beta\d*)?)(?:\/models\/[^/?]+(?::(?:generateContent|streamGenerateContent))?)?$/i,
+  )
+
+  return {
+    baseUrl: endpointMatch
+      ? normalizedURL?.slice(0, -endpointMatch[0].length)
+      : normalizedURL || undefined,
+    apiVersion: endpointMatch?.[1],
+  }
+}
+
 export async function createLLMClient(config: LLMRequestConfig): Promise<BaseChatModel> {
   const provider = await resolveProvider(config.providerId)
   if (!provider) throw new UnknownProviderError(config.providerId)
@@ -49,7 +78,7 @@ export async function createLLMClient(config: LLMRequestConfig): Promise<BaseCha
       modelName: config.model,
       openAIApiKey: apiKey || 'ollama',
       temperature,
-      configuration: { baseURL },
+      configuration: { baseURL: normalizeOpenAICompatibleBaseURL(baseURL) },
     })
   }
 
@@ -58,20 +87,17 @@ export async function createLLMClient(config: LLMRequestConfig): Promise<BaseCha
       return new ChatAnthropic({
         modelName: config.model,
         anthropicApiKey: apiKey,
-        anthropicApiUrl: baseURL ? baseURL.replace(/\/v1\/?$/, '') : undefined,
+        anthropicApiUrl: normalizeAnthropicBaseURL(baseURL),
         temperature,
       })
 
     case 'google': {
-      const normalizedGoogleURL = baseURL?.replace(/\/+$/, '')
-      const versionMatch = normalizedGoogleURL?.match(/\/(v\d+(?:beta\d*)?)$/)
+      const googleEndpoint = parseGoogleBaseURL(baseURL)
       return new ChatGoogleGenerativeAI({
         model: config.model,
         apiKey,
-        baseUrl: versionMatch
-          ? normalizedGoogleURL?.slice(0, -versionMatch[0].length)
-          : normalizedGoogleURL || undefined,
-        apiVersion: versionMatch?.[1],
+        baseUrl: googleEndpoint.baseUrl,
+        apiVersion: googleEndpoint.apiVersion,
         temperature,
       })
     }
@@ -83,7 +109,7 @@ export async function createLLMClient(config: LLMRequestConfig): Promise<BaseCha
         modelName: config.model,
         openAIApiKey: apiKey || 'missing-api-key',
         temperature,
-        configuration: { baseURL },
+        configuration: { baseURL: normalizeOpenAICompatibleBaseURL(baseURL) },
       })
   }
 }
