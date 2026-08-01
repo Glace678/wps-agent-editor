@@ -22,6 +22,7 @@
     "verify:app-menu": "node scripts/electron-verify-app-menu.mjs",
     "verify:provider-catalog": "tsx scripts/check-provider-model-filter.ts",
     "verify:provider-settings": "node scripts/electron-verify-provider-settings.mjs",
+    "verify:code-editor": "node scripts/electron-verify-code-editor.mjs",
     "postinstall": "node -e \"try{require('fs').readFileSync('node_modules/electron/path.txt')}catch(e){console.log('Run: npm run install:electron')}\"",
     "install:electron": "powershell -ExecutionPolicy Bypass -File scripts/install-electron.ps1"
   },

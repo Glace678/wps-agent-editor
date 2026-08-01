@@ -48,7 +48,7 @@ const CODE_LANGUAGE_BY_EXTENSION: Record<string, CodeLanguageDefinition> = {
   clj: { language: 'clojure', label: 'Clojure' },
   cljs: { language: 'clojure', label: 'ClojureScript' },
   coffee: { language: 'coffee', label: 'CoffeeScript' },
-  sol: { language: 'solidity', label: 'Solidity' },
+  sol: { language: 'sol', label: 'Solidity' },
   pas: { language: 'pascal', label: 'Pascal' },
   asm: { language: 'mips', label: 'Assembly' },
   s: { language: 'mips', label: 'Assembly' },
