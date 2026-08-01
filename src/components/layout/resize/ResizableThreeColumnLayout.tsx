@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { OPEN_AGENT_ASSISTANT_EVENT } from '@/lib/code-editor-events'
 import { ResizeHandle } from './ResizeHandle'
 import {
   COLLAPSED_PANEL_WIDTH,
@@ -173,6 +174,14 @@ export function ResizableThreeColumnLayout({ left, center, right }: ResizableThr
       requestAnimationFrame(() => unfreezeCenterPanel())
     }, 160)
   }, [freezeCenterPanel, unfreezeCenterPanel, persistCollapse])
+
+  useEffect(() => {
+    const handleOpenAgentAssistant = () => {
+      if (collapsedRef.current.right) expandRight()
+    }
+    window.addEventListener(OPEN_AGENT_ASSISTANT_EVENT, handleOpenAgentAssistant)
+    return () => window.removeEventListener(OPEN_AGENT_ASSISTANT_EVENT, handleOpenAgentAssistant)
+  }, [expandRight])
 
   const controls = useMemo<SidebarCollapseControls>(() => ({
     collapseLeft,

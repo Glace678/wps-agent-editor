@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { Send, Loader2, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { ChatMessage } from '@/types/agent'
+import { useAgentStore } from '@/stores/agent.store'
 
 interface AgentChatProps {
   agentId: string | null
@@ -19,7 +20,8 @@ interface AgentChatProps {
 
 export function AgentChat({ agentId, agentName, agentColor, messages, isRunning, onSend }: AgentChatProps) {
   const { t } = useTranslation()
-  const [input, setInput] = useState('')
+  const input = useAgentStore((state) => agentId ? state.drafts[agentId] ?? '' : '')
+  const setDraft = useAgentStore((state) => state.setDraft)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export function AgentChat({ agentId, agentName, agentColor, messages, isRunning,
   const handleSend = () => {
     if (!input.trim() || !agentId || isRunning) return
     onSend(input.trim())
-    setInput('')
+    setDraft(agentId, '')
   }
 
   if (!agentId) {
@@ -85,7 +87,7 @@ export function AgentChat({ agentId, agentName, agentColor, messages, isRunning,
             placeholder={t('agentUi.sendInstruction', { agent: agentName })}
             aria-label={t('agentUi.sendInstruction', { agent: agentName })}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => agentId && setDraft(agentId, e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
             disabled={isRunning}
           />

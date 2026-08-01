@@ -7,6 +7,7 @@ interface AgentState {
   messages: Record<string, ChatMessage[]>
   isRunning: boolean
   taskStatus: string
+  drafts: Record<string, string>
 
   setAgents: (agents: AgentConfig[]) => void
   setActiveAgentId: (id: string | null) => void
@@ -14,6 +15,8 @@ interface AgentState {
   clearMessages: (agentId: string) => void
   setIsRunning: (v: boolean) => void
   setTaskStatus: (status: string) => void
+  setDraft: (agentId: string, value: string) => void
+  appendDraft: (agentId: string, value: string) => void
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -22,6 +25,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   messages: {},
   isRunning: false,
   taskStatus: '',
+  drafts: {},
 
   setAgents: (agents) => set({ agents }),
   setActiveAgentId: (id) => set({ activeAgentId: id }),
@@ -38,4 +42,16 @@ export const useAgentStore = create<AgentState>((set) => ({
     })),
   setIsRunning: (v) => set({ isRunning: v }),
   setTaskStatus: (status) => set({ taskStatus: status }),
+  setDraft: (agentId, value) => set((state) => ({
+    drafts: { ...state.drafts, [agentId]: value },
+  })),
+  appendDraft: (agentId, value) => set((state) => {
+    const current = state.drafts[agentId]?.trimEnd() ?? ''
+    return {
+      drafts: {
+        ...state.drafts,
+        [agentId]: current ? `${current}\n\n${value}` : value,
+      },
+    }
+  }),
 }))
