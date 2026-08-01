@@ -234,9 +234,11 @@ try {
   await evaluate(cdp, "document.querySelector('[data-testid=provider-reset-base-url]').click(); true")
   await waitFor(
     cdp,
-    `window.api.provider.get('zhipuai').then((provider) => provider.isApiOverridden === false)
-      && document.querySelector('[data-testid=provider-base-url]')?.value === ${JSON.stringify(defaultURL)}
-      && !document.querySelector('[data-testid=provider-reset-base-url]')`,
+    `window.api.provider.get('zhipuai').then((provider) => (
+      provider.isApiOverridden === false
+        && document.querySelector('[data-testid=provider-base-url]')?.value === ${JSON.stringify(defaultURL)}
+        && !document.querySelector('[data-testid=provider-reset-base-url]')
+    ))`,
     'saved custom URL restored in the input',
   )
   const equivalentDefault = await evaluate(cdp, `(async () => {
