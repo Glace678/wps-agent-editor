@@ -57,7 +57,9 @@ function migrateLegacyAgent(raw: Record<string, unknown>): AgentConfig {
     role: String(raw.role ?? ''),
     systemPrompt: String(raw.systemPrompt ?? ''),
     providerId: String(raw.providerId ?? providerMap[legacyProvider ?? ''] ?? 'deepseek'),
-    model: String(raw.model ?? 'deepseek-chat'),
+    model: String(raw.model === 'deepseek-chat' || raw.model === 'deepseek-reasoner'
+      ? 'deepseek-v4-flash'
+      : raw.model ?? 'deepseek-v4-flash'),
     baseURL: raw.baseUrl as string | undefined ?? raw.baseURL as string | undefined,
     temperature: typeof raw.temperature === 'number' ? raw.temperature : 0.7,
     tools: Array.isArray(raw.tools) ? raw.tools as string[] : ['read_document'],
@@ -114,7 +116,7 @@ export function createAgent(partial: Partial<AgentConfig>): AgentConfig {
     role: t('agents.customAssistant'),
     systemPrompt: t('agents.customAssistantPrompt'),
     providerId: 'deepseek',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     temperature: 0.7,
     tools: ['read_document'],
     color: '#6366f1',

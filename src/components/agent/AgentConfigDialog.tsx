@@ -37,6 +37,13 @@ export function AgentConfigDialog({ agent, onSave, onClose }: AgentConfigDialogP
     setLoadingProviders(true)
     window.api.provider.list().then((list) => {
       setProviders(list)
+      setForm((current) => {
+        if (!current) return current
+        const provider = list.find((item) => item.id === current.providerId)
+        if (!provider || provider.models.length === 0) return current
+        if (provider.models.some((model) => model.id === current.model)) return current
+        return { ...current, model: provider.models[0].id }
+      })
       setLoadingProviders(false)
     })
   }, [agent, language])
@@ -73,7 +80,7 @@ export function AgentConfigDialog({ agent, onSave, onClose }: AgentConfigDialogP
     setForm({
       ...form,
       providerId,
-      model: model || form.model,
+      model,
       baseURL: provider.isLocal ? baseURL : undefined,
     })
   }
