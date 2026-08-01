@@ -1,0 +1,173 @@
+.presentation-icon-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: inherit;
+}
+
+.presentation-icon-button:hover:not(:disabled) {
+  background: rgb(0 0 0 / 7%);
+}
+
+.dark .presentation-icon-button:hover:not(:disabled),
+.presentation-viewer--presenting .presentation-icon-button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 11%);
+}
+
+.presentation-icon-button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.presentation-icon-button > svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+}
+
+.presentation-toolbar-separator {
+  width: 1px;
+  height: 22px;
+  margin: 0 3px;
+  background: rgb(0 0 0 / 12%);
+}
+
+.dark .presentation-toolbar-separator,
+.presentation-viewer--presenting .presentation-toolbar-separator {
+  background: rgb(255 255 255 / 16%);
+}
+
+.presentation-command-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 5px;
+  background: #fff;
+  padding: 0 11px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.presentation-command-button:hover:not(:disabled) {
+  border-color: rgb(210 71 38 / 55%);
+  background: #fff7f4;
+}
+
+.dark .presentation-command-button {
+  border-color: rgb(255 255 255 / 14%);
+  background: #2b2d30;
+}
+
+.dark .presentation-command-button:hover:not(:disabled) {
+  border-color: rgb(236 112 78 / 70%);
+  background: #382824;
+}
+
+.presentation-command-button:disabled {
+  opacity: 0.45;
+}
+
+.presentation-zoom-value {
+  width: 50px;
+  height: 28px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.presentation-zoom-value:hover {
+  background: rgb(0 0 0 / 7%);
+}
+
+.dark .presentation-zoom-value:hover {
+  background: rgb(255 255 255 / 9%);
+}
+
+.presentation-stage {
+  overscroll-behavior: contain;
+  scrollbar-color: rgb(120 120 120 / 65%) transparent;
+}
+
+.presentation-slide-host {
+  color-scheme: light;
+  contain: layout paint style;
+}
+
+.presentation-slide-host--changing > div {
+  animation: presentation-slide-enter 150ms ease-out;
+}
+
+.presentation-thumbnail-host [data-pptx-thumbnail='true'] {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.presentation-viewer--presenting .presentation-stage {
+  background: #000;
+  overflow: hidden;
+}
+
+.presentation-viewer--presenting .presentation-slide-host {
+  box-shadow: none;
+}
+
+.presentation-viewer--presenting .presentation-toolbar {
+  position: absolute;
+  z-index: 20;
+  bottom: 18px;
+  left: 50%;
+  width: min(520px, calc(100% - 24px));
+  height: 44px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 6px;
+  background: rgb(24 24 24 / 88%);
+  color: #fff;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 38%);
+  opacity: 1;
+  transition: opacity 140ms ease-out;
+}
+
+.presentation-viewer--presenting .presentation-toolbar input {
+  border-color: rgb(255 255 255 / 20%);
+  background: #2b2b2b;
+  color: #fff;
+}
+
+.presentation-viewer--controls-hidden {
+  cursor: none;
+}
+
+.presentation-viewer--controls-hidden .presentation-toolbar {
+  pointer-events: none;
+  opacity: 0;
+}
+
+@keyframes presentation-slide-enter {
+  from {
+    opacity: 0.78;
+    transform: scale(0.997);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presentation-slide-host--changing > div {
+    animation: none;
+  }
+
+  .presentation-viewer--presenting .presentation-toolbar {
+    transition: none;
+  }
+}
