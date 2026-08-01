@@ -1,3 +1,5 @@
+import { isCodeFile } from '@/lib/code-languages'
+
 export function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
@@ -72,4 +74,3 @@ export function getDocKind(filePath: string): 'word' | 'excel' | 'pdf' | 'text' 
   if (['txt', 'md', 'markdown', 'log'].includes(ext)) return 'text'
   return 'unknown'
 }
-import { isCodeFile } from '@/lib/code-languages'
