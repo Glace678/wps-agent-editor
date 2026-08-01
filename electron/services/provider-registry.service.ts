@@ -217,14 +217,14 @@ function buildFallbackCatalog(): ProviderDefinition[] {
   }))
 
   const extras: ProviderDefinition[] = [
-    { id: 'openai', name: 'OpenAI', api: 'https://api.openai.com/v1', env: ['OPENAI_API_KEY'], npm: '@ai-sdk/openai', protocol: 'openai', models: [] },
-    { id: 'anthropic', name: 'Anthropic', api: 'https://api.anthropic.com/v1', env: ['ANTHROPIC_API_KEY'], npm: '@ai-sdk/anthropic', protocol: 'anthropic', models: [] },
-    { id: 'google', name: 'Google', api: 'https://generativelanguage.googleapis.com/v1beta', env: ['GOOGLE_API_KEY'], npm: '@ai-sdk/google', protocol: 'google', models: [] },
-    { id: 'alibaba', name: 'Qwen', api: 'https://dashscope.aliyuncs.com/compatible-mode/v1', env: ['DASHSCOPE_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', models: [] },
-    { id: 'zhipuai', name: 'Zhipu AI', api: 'https://open.bigmodel.cn/api/paas/v4', env: ['ZHIPU_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', models: [] },
-    { id: 'moonshotai', name: 'Moonshot', api: 'https://api.moonshot.cn/v1', env: ['MOONSHOT_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', models: [] },
-    { id: 'siliconflow', name: 'SiliconFlow', api: 'https://api.siliconflow.cn/v1', env: ['SILICONFLOW_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', models: [] },
-    { id: 'minimax', name: 'MiniMax', api: 'https://api.minimax.chat/v1', env: ['MINIMAX_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', models: [] },
+    { id: 'openai', name: 'OpenAI', api: 'https://api.openai.com/v1', env: ['OPENAI_API_KEY'], npm: '@ai-sdk/openai', protocol: 'openai', doc: 'https://platform.openai.com/docs/api-reference', models: [] },
+    { id: 'anthropic', name: 'Anthropic', api: 'https://api.anthropic.com', env: ['ANTHROPIC_API_KEY'], npm: '@ai-sdk/anthropic', protocol: 'anthropic', doc: 'https://platform.claude.com/docs/en/api/overview', models: [] },
+    { id: 'google', name: 'Google', api: 'https://generativelanguage.googleapis.com/v1beta', env: ['GOOGLE_API_KEY'], npm: '@ai-sdk/google', protocol: 'google', doc: 'https://ai.google.dev/api', models: [] },
+    { id: 'alibaba', name: 'Qwen', api: 'https://dashscope.aliyuncs.com/compatible-mode/v1', env: ['DASHSCOPE_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', doc: 'https://help.aliyun.com/zh/model-studio/use-qwen-by-calling-api', models: [] },
+    { id: 'zhipuai', name: 'Zhipu AI', api: 'https://open.bigmodel.cn/api/paas/v4', env: ['ZHIPU_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', doc: 'https://docs.bigmodel.cn/cn/api/introduction', models: [] },
+    { id: 'moonshotai', name: 'Moonshot', api: 'https://api.moonshot.cn/v1', env: ['MOONSHOT_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', doc: 'https://platform.moonshot.cn/docs/api/chat', models: [] },
+    { id: 'siliconflow', name: 'SiliconFlow', api: 'https://api.siliconflow.cn/v1', env: ['SILICONFLOW_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', doc: 'https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions', models: [] },
+    { id: 'minimax', name: 'MiniMax', api: 'https://api.minimaxi.com/v1', env: ['MINIMAX_API_KEY'], npm: '@ai-sdk/openai-compatible', protocol: 'openai-compatible', doc: 'https://platform.minimaxi.com/docs/guides/text-generation', models: [] },
   ]
 
   return [...fromProfiles, ...extras]
