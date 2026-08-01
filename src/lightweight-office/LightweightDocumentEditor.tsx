@@ -445,6 +445,9 @@ export function LightweightDocumentEditor() {
           onDirty={handleDirty}
           onSaveSuccess={handleSaveSuccess}
           onRegisterSave={handleRegisterSave}
+          onShellNextTab={() => switchTabByOffset(1)}
+          onShellPreviousTab={() => switchTabByOffset(-1)}
+          onShellCloseTab={closeActiveTab}
         />
       )
     }

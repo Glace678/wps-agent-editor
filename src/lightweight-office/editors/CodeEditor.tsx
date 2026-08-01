@@ -175,6 +175,9 @@ interface CodeEditorProps {
   onDirty: () => void
   onSaveSuccess: () => void
   onRegisterSave: (save: (() => Promise<void>) | null) => void
+  onShellNextTab?: () => void
+  onShellPreviousTab?: () => void
+  onShellCloseTab?: () => void
 }
 
 export function CodeEditor({
@@ -183,6 +186,9 @@ export function CodeEditor({
   onDirty,
   onSaveSuccess,
   onRegisterSave,
+  onShellNextTab,
+  onShellPreviousTab,
+  onShellCloseTab,
 }: CodeEditorProps) {
   const { t } = useTranslation()
   const language = useMemo(() => getCodeLanguage(filePath), [filePath])
@@ -192,6 +198,9 @@ export function CodeEditor({
   const modelRef = useRef<monaco.editor.ITextModel | null>(null)
   const onDirtyRef = useRef(onDirty)
   const onReadyRef = useRef(onReady)
+  const onShellNextTabRef = useRef(onShellNextTab)
+  const onShellPreviousTabRef = useRef(onShellPreviousTab)
+  const onShellCloseTabRef = useRef(onShellCloseTab)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [isRunning, setIsRunning] = useState(false)
   const [runResult, setRunResult] = useState<CodeRunResult | null>(null)
@@ -207,6 +216,9 @@ export function CodeEditor({
 
   onDirtyRef.current = onDirty
   onReadyRef.current = onReady
+  onShellNextTabRef.current = onShellNextTab
+  onShellPreviousTabRef.current = onShellPreviousTab
+  onShellCloseTabRef.current = onShellCloseTab
 
   const saveCurrent = useCallback(async () => {
     const model = modelRef.current
@@ -471,6 +483,9 @@ export function CodeEditor({
         )
 
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { void saveCurrentRef.current() })
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab, () => onShellNextTabRef.current?.())
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => onShellPreviousTabRef.current?.())
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => onShellCloseTabRef.current?.())
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyN, () => { void executeCommandRef.current('run') })
         editor.addCommand(monaco.KeyCode.F12, () => { void executeCommandRef.current('definition') })
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.F12, () => { void executeCommandRef.current('implementation') })
@@ -522,9 +537,13 @@ export function CodeEditor({
       }
       setContextMenu(null)
     }
+    const closeOnBlur = () => setContextMenu(null)
     window.addEventListener('mousedown', close, true)
-    window.addEventListener('blur', () => setContextMenu(null), { once: true })
-    return () => window.removeEventListener('mousedown', close, true)
+    window.addEventListener('blur', closeOnBlur)
+    return () => {
+      window.removeEventListener('mousedown', close, true)
+      window.removeEventListener('blur', closeOnBlur)
+    }
   }, [contextMenu])
 
   const submitInlineChat = () => {
@@ -540,16 +559,22 @@ export function CodeEditor({
         runResult.command ? `> ${runResult.command}` : '',
         runResult.stdout,
         runResult.stderr,
-        t('codeEditor.runFinished', {
-          code: runResult.exitCode ?? -1,
-          duration: runResult.durationMs,
-        }),
+        runResult.errorCode === 'runtime-missing'
+          ? t('codeEditor.runtimeMissing')
+          : runResult.errorCode === 'unsupported'
+            ? t('codeEditor.unsupportedRunner')
+            : runResult.errorCode === 'timeout'
+              ? t('codeEditor.timedOut')
+              : t('codeEditor.runFinished', {
+                  code: runResult.exitCode ?? -1,
+                  duration: runResult.durationMs,
+                }),
       ].filter(Boolean).join('\n')
     : ''
 
   const menuStyle: CSSProperties | undefined = contextMenu ? {
-    left: Math.min(contextMenu.x, window.innerWidth - 294),
-    top: Math.min(contextMenu.y, window.innerHeight - 620),
+    left: Math.max(4, Math.min(contextMenu.x, window.innerWidth - 294)),
+    top: Math.max(4, Math.min(contextMenu.y, window.innerHeight - 620)),
   } : undefined
 
   const menuGroups: Array<Array<{ command: CodeCommand; label: string; shortcut?: string; arrow?: boolean }>> = [
