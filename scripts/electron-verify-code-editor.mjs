@@ -244,7 +244,7 @@ try {
         console.log(`[SKIP] ${fixture.label} compiler/runtime is not installed on this machine`)
       } else {
         check(`${fixture.label} Run Code compiles or executes the source`,
-          run.success && run.stdout.includes(${JSON.stringify(fixture.expectedOutput)}),
+          run.success && run.stdout.includes(fixture.expectedOutput),
           JSON.stringify({ command: run.command, exitCode: run.exitCode, stdout: run.stdout, stderr: run.stderr }))
       }
     }
