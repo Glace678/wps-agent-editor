@@ -403,6 +403,21 @@ async function dragMouse(send, start, end, steps = 8) {
   })
 }
 
+async function wheelMouse(send, point, deltaY) {
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+  })
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseWheel',
+    x: point.x,
+    y: point.y,
+    deltaX: 0,
+    deltaY,
+  })
+}
+
 async function captureScreenshot(send, outputPath) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true })
   const screenshot = await send('Page.captureScreenshot', {
@@ -628,6 +643,33 @@ try {
   await pressKey(send, { key: 'Home', code: 'Home', keyCode: 36 })
   await waitFor(send, "document.querySelector('[data-testid=presentation-page-input]').value === '1'", 'Home navigation')
   check('isolated presentation keyboard navigation works', true)
+
+  const stageCenter = await evaluate(send, `(() => {
+    const rect = document.querySelector('[data-testid=presentation-stage]').getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`)
+  await wheelMouse(send, stageCenter, 48)
+  await wheelMouse(send, stageCenter, 48)
+  await wheelMouse(send, stageCenter, 48)
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-page-input]').value === '2'",
+    'wheel navigation to next slide')
+  const wheelDownDirection = await evaluate(send,
+    "document.querySelector('[data-testid=presentation-slide-host]').dataset.slideDirection")
+  check('wheel down over the main slide advances exactly one slide',
+    wheelDownDirection === 'next',
+    wheelDownDirection)
+
+  await sleep(220)
+  await wheelMouse(send, stageCenter, -120)
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-page-input]').value === '1'",
+    'wheel navigation to previous slide')
+  const wheelUpDirection = await evaluate(send,
+    "document.querySelector('[data-testid=presentation-slide-host]').dataset.slideDirection")
+  check('wheel up over the main slide returns to the previous slide',
+    wheelUpDirection === 'previous',
+    wheelUpDirection)
 
   const fittedWidth = await evaluate(send, "document.querySelector('[data-testid=presentation-slide-host]').getBoundingClientRect().width")
   await evaluate(send, "document.querySelector('[data-testid=presentation-zoom-in]').click(); true")

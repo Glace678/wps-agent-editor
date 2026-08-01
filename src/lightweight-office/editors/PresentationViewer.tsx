@@ -29,6 +29,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { cn } from '@/lib/utils'
@@ -49,6 +50,8 @@ const THUMBNAIL_RESIZER_WIDTH = 6
 const THUMBNAIL_RENDER_WIDTH = 372
 const THUMBNAIL_ROW_CHROME_WIDTH = 40
 const THUMBNAIL_PANE_STORAGE_KEY = 'presentation-thumbnail-pane-width'
+const WHEEL_NAVIGATION_THRESHOLD = 32
+const WHEEL_NAVIGATION_IDLE_MS = 160
 
 interface PresentationViewerProps {
   filePath: string
@@ -62,6 +65,14 @@ interface ViewportSize {
 }
 
 type LoadError = 'legacy' | 'document' | null
+type SlideDirection = 'next' | 'previous'
+
+interface WheelNavigationGesture {
+  accumulatedDelta: number
+  direction: -1 | 0 | 1
+  armed: boolean
+  idleTimer: number | null
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -199,6 +210,12 @@ export function PresentationViewer({
   const controlsTimerRef = useRef<number | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const thumbnailResizeCleanupRef = useRef<(() => void) | null>(null)
+  const wheelNavigationRef = useRef<WheelNavigationGesture>({
+    accumulatedDelta: 0,
+    direction: 0,
+    armed: true,
+    idleTimer: null,
+  })
 
   const [viewer, setViewer] = useState<PptxViewer | null>(null)
   const [loading, setLoading] = useState(true)
@@ -329,9 +346,10 @@ export function PresentationViewer({
     }
   }, [aspectRatio, isPresenting, viewportSize.height, viewportSize.width, zoom])
 
-  const animateSlide = useCallback(() => {
+  const animateSlide = useCallback((direction: SlideDirection) => {
     const host = slideHostRef.current
     if (!host) return
+    host.dataset.slideDirection = direction
     host.classList.remove('presentation-slide-host--changing')
     void host.offsetWidth
     host.classList.add('presentation-slide-host--changing')
@@ -344,10 +362,12 @@ export function PresentationViewer({
   const goToSlide = useCallback(async (index: number) => {
     const activeViewer = viewerRef.current
     if (!activeViewer || activeViewer.slideCount === 0) return
+    const previous = activeViewer.currentSlideIndex
     const next = Math.max(0, Math.min(index, activeViewer.slideCount - 1))
+    if (next === previous) return
     await activeViewer.goToSlide(next)
     setCurrentSlide(next)
-    animateSlide()
+    animateSlide(next > previous ? 'next' : 'previous')
   }, [animateSlide])
 
   useEffect(() => {
@@ -497,6 +517,55 @@ export function PresentationViewer({
   const setClampedZoom = useCallback((next: number) => {
     setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next)))
   }, [])
+
+  const onStageWheel = useCallback((event: ReactWheelEvent<HTMLElement>) => {
+    if (event.ctrlKey) {
+      if (isPresenting) return
+      event.preventDefault()
+      setClampedZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP))
+      return
+    }
+    if (event.altKey || event.metaKey || event.shiftKey) return
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 0.01) return
+
+    const stage = event.currentTarget
+    const direction: -1 | 1 = event.deltaY < 0 ? -1 : 1
+    const maxScrollTop = Math.max(0, stage.scrollHeight - stage.clientHeight)
+    const canScrollCurrentSlide = direction < 0
+      ? stage.scrollTop > 1
+      : stage.scrollTop < maxScrollTop - 1
+    if (canScrollCurrentSlide) return
+
+    const activeViewer = viewerRef.current
+    if (!activeViewer || activeViewer.slideCount < 2) return
+    event.preventDefault()
+
+    let delta = event.deltaY
+    if (event.deltaMode === 1) delta *= 16
+    else if (event.deltaMode === 2) delta *= Math.max(stage.clientHeight, 1)
+
+    const gesture = wheelNavigationRef.current
+    if (gesture.idleTimer !== null) window.clearTimeout(gesture.idleTimer)
+    gesture.idleTimer = window.setTimeout(() => {
+      gesture.accumulatedDelta = 0
+      gesture.direction = 0
+      gesture.armed = true
+      gesture.idleTimer = null
+    }, WHEEL_NAVIGATION_IDLE_MS)
+
+    if (gesture.direction !== direction) {
+      gesture.accumulatedDelta = 0
+      gesture.direction = direction
+    }
+    if (!gesture.armed) return
+
+    gesture.accumulatedDelta += delta
+    if (Math.abs(gesture.accumulatedDelta) < WHEEL_NAVIGATION_THRESHOLD) return
+
+    gesture.accumulatedDelta = 0
+    gesture.armed = false
+    void goToSlide(activeViewer.currentSlideIndex + direction)
+  }, [goToSlide, isPresenting, setClampedZoom, zoom])
 
   const startThumbnailResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !event.isPrimary) return
@@ -666,6 +735,9 @@ export function PresentationViewer({
   useEffect(() => {
     return () => {
       if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current)
+      if (wheelNavigationRef.current.idleTimer !== null) {
+        window.clearTimeout(wheelNavigationRef.current.idleTimer)
+      }
     }
   }, [])
 
@@ -903,11 +975,7 @@ export function PresentationViewer({
           className="presentation-stage relative min-h-0 min-w-0 flex-1 overflow-auto bg-[#d8dadd] dark:bg-[#0c0d0e]"
           data-testid="presentation-stage"
           onClick={onStageClick}
-          onWheel={(event) => {
-            if (!event.ctrlKey || isPresenting) return
-            event.preventDefault()
-            setClampedZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP))
-          }}
+          onWheel={onStageWheel}
         >
           <div
             className="presentation-zoom-surface flex items-center justify-center"

@@ -109,6 +109,14 @@
   animation: presentation-slide-enter 150ms ease-out;
 }
 
+.presentation-slide-host--changing[data-slide-direction='next'] > div {
+  animation-name: presentation-slide-enter-next;
+}
+
+.presentation-slide-host--changing[data-slide-direction='previous'] > div {
+  animation-name: presentation-slide-enter-previous;
+}
+
 .presentation-thumbnail-pane {
   min-width: 168px;
   max-width: 420px;
@@ -302,8 +310,31 @@
   }
 }
 
+@keyframes presentation-slide-enter-next {
+  from {
+    opacity: 0.78;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes presentation-slide-enter-previous {
+  from {
+    opacity: 0.78;
+    transform: translate3d(0, -10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .presentation-slide-host--changing > div {
+  .presentation-slide-host--changing > div,
+  .presentation-slide-host--changing[data-slide-direction] > div {
     animation: none;
   }
 
