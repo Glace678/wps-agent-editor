@@ -57,6 +57,7 @@ const PROVIDER_DOC_OVERRIDES: Record<string, string> = {
   evroc: 'https://docs.evroc.com/products/think/think.html',
   google: 'https://ai.google.dev/api',
   groq: 'https://console.groq.com/docs/api-reference',
+  helicone: 'https://docs.helicone.ai/getting-started/integration-method/openai-proxy',
   inception: 'https://docs.inceptionlabs.ai/get-started/get-started',
   inferx: 'https://model.inferx.net/help',
   'kimi-for-coding': 'https://www.kimi.com/code/docs/',
