@@ -54,6 +54,7 @@ const PROVIDER_DOC_OVERRIDES: Record<string, string> = {
   'kimi-for-coding': 'https://www.kimi.com/code/docs/en/',
   morph: 'https://docs.morphllm.com/models/apply',
   wandb: 'https://docs.wandb.ai/inference/api-reference',
+  zhipuai: 'https://docs.bigmodel.cn/cn/api/introduction',
 }
 
 const LOCAL_OLLAMA_BASE: ProviderDefinition = {
