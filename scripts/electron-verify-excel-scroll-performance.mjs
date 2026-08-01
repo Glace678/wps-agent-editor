@@ -172,6 +172,7 @@ try {
 
   const beforeChecksum = await evaluate(send, canvasChecksum)
   const burst = await evaluate(send, `(() => {
+    document.querySelector('[data-testid="excel-editor-shell"]').dataset.excelScrollDiagnostics = 'true';
     const bar = document.querySelector('.luckysheet-scrollbar-x');
     const maximum = bar.scrollWidth - bar.clientWidth;
     const target = Math.min(maximum, 2200);
@@ -233,6 +234,8 @@ try {
     const bar = document.querySelector('.luckysheet-scrollbar-x');
     const cellArea = document.querySelector('.fortune-cell-area');
     return { barLeft: bar.scrollLeft, cellLeft: cellArea.scrollLeft,
+      raw: Number(shell.dataset.excelScrollRawEvents),
+      frames: Number(shell.dataset.excelScrollFrames),
       maxFrameMs: Number(shell.dataset.excelScrollMaxFrameMs) };
   })()`)
   const maxDispatchMs = Math.max(...dispatchDurations)
@@ -241,6 +244,45 @@ try {
     JSON.stringify({ ...dragResult, maxDispatchMs }))
   check('pointer events remain responsive during the real thumb drag',
     maxDispatchMs < 100, `${maxDispatchMs.toFixed(2)}ms max`)
+
+  await evaluate(send, `(() => {
+    const bar = document.querySelector('.luckysheet-scrollbar-x');
+    bar.scrollLeft = 0;
+    bar.dispatchEvent(new Event('scroll'));
+    return true;
+  })()`)
+  await waitFor(send, `document.querySelector('.fortune-cell-area')?.scrollLeft === 0`, 'column-resize scroll reset')
+  const columnEdge = await evaluate(send, `(() => {
+    const header = document.querySelector('.fortune-col-header');
+    const rect = header.getBoundingClientRect();
+    return { x: rect.left + 74, y: rect.top + rect.height / 2,
+      beforeWidth: document.querySelector('.luckysheet-scrollbar-x > div').getBoundingClientRect().width };
+  })()`)
+  await mouse(send, 'mouseMoved', columnEdge.x, columnEdge.y)
+  await sleep(100)
+  const columnHandle = await evaluate(send, `(() => {
+    const handle = document.querySelector('.fortune-cols-change-size');
+    if (!handle) return null;
+    const rect = handle.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  check('large-sheet column resize handle is available', Boolean(columnHandle), JSON.stringify(columnHandle))
+  const resizeDurations = []
+  resizeDurations.push(await mouse(send, 'mousePressed', columnHandle.x, columnHandle.y))
+  for (let step = 1; step <= 12; step += 1) {
+    resizeDurations.push(await mouse(send, 'mouseMoved', columnHandle.x + step * 6, columnHandle.y, true))
+    await sleep(5)
+  }
+  const midResizeWidth = await evaluate(send,
+    `document.querySelector('.luckysheet-scrollbar-x > div').getBoundingClientRect().width`)
+  resizeDurations.push(await mouse(send, 'mouseReleased', columnHandle.x + 72, columnHandle.y))
+  const maxResizeDispatchMs = Math.max(...resizeDurations)
+  check('large-sheet column content reflows while the handle is still moving',
+    midResizeWidth > columnEdge.beforeWidth + 50,
+    `${columnEdge.beforeWidth} -> ${midResizeWidth}`)
+  check('large-sheet column drag remains below the visible 100ms lag threshold',
+    maxResizeDispatchMs < 100, `${maxResizeDispatchMs.toFixed(2)}ms max`)
+  await sleep(250)
 
   fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
   const screenshot = await send('Page.captureScreenshot', { format: 'png', fromSurface: true })
