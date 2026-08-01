@@ -28,6 +28,7 @@
     "install:electron": "powershell -ExecutionPolicy Bypass -File scripts/install-electron.ps1"
   },
   "dependencies": {
+    "@aiden0z/pptx-renderer": "^1.2.4",
     "@fortune-sheet/core": "^1.0.4",
     "@fortune-sheet/react": "^1.0.4",
     "@langchain/anthropic": "^0.3.34",
