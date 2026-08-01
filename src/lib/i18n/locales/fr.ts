@@ -115,6 +115,7 @@ export const fr = {
     exitSlideshow: 'Quitter le diaporama',
     slideshow: 'Diaporama',
     thumbnails: 'Miniatures des diapositives',
+    resizeThumbnails: 'Redimensionner les miniatures',
     slideLabel: 'Diapositive {number}',
     loading: 'Chargement de la présentation...',
     openFailed: 'Impossible d’ouvrir la présentation',

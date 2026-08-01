@@ -115,6 +115,7 @@ export const ru = {
     exitSlideshow: 'Завершить показ',
     slideshow: 'Показ слайдов',
     thumbnails: 'Эскизы слайдов',
+    resizeThumbnails: 'Изменить ширину области эскизов',
     slideLabel: 'Слайд {number}',
     loading: 'Загрузка презентации...',
     openFailed: 'Не удалось открыть презентацию',

@@ -115,6 +115,7 @@ export const es = {
     exitSlideshow: 'Salir de la presentación',
     slideshow: 'Presentación',
     thumbnails: 'Miniaturas de diapositivas',
+    resizeThumbnails: 'Cambiar el ancho de las miniaturas',
     slideLabel: 'Diapositiva {number}',
     loading: 'Cargando presentación...',
     openFailed: 'No se pudo abrir la presentación',

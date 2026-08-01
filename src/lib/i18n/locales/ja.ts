@@ -115,6 +115,7 @@ export const ja = {
     exitSlideshow: 'スライドショーを終了',
     slideshow: 'スライドショー',
     thumbnails: 'スライドのサムネイル',
+    resizeThumbnails: 'スライドのサムネイル幅を変更',
     slideLabel: 'スライド {number}',
     loading: 'プレゼンテーションを読み込んでいます...',
     openFailed: 'プレゼンテーションを開けませんでした',

@@ -115,6 +115,7 @@ export const zhCN = {
     exitSlideshow: '退出幻灯片放映',
     slideshow: '放映',
     thumbnails: '幻灯片缩略图',
+    resizeThumbnails: '调整幻灯片缩略图栏宽度',
     slideLabel: '第 {number} 张幻灯片',
     loading: '正在加载演示文稿...',
     openFailed: '无法打开演示文稿',

@@ -113,6 +113,7 @@ export const en = {
     exitSlideshow: 'Exit slideshow',
     slideshow: 'Slideshow',
     thumbnails: 'Slide thumbnails',
+    resizeThumbnails: 'Resize slide thumbnails',
     slideLabel: 'Slide {number}',
     loading: 'Loading presentation...',
     openFailed: 'Could not open the presentation',

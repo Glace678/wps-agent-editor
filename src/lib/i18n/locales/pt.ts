@@ -115,6 +115,7 @@ export const pt = {
     exitSlideshow: 'Sair da apresentação',
     slideshow: 'Apresentação',
     thumbnails: 'Miniaturas dos slides',
+    resizeThumbnails: 'Redimensionar miniaturas dos slides',
     slideLabel: 'Slide {number}',
     loading: 'Carregando apresentação...',
     openFailed: 'Não foi possível abrir a apresentação',

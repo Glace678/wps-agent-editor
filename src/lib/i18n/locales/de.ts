@@ -115,6 +115,7 @@ export const de = {
     exitSlideshow: 'Bildschirmpräsentation beenden',
     slideshow: 'Bildschirmpräsentation',
     thumbnails: 'Folienminiaturen',
+    resizeThumbnails: 'Breite der Folienminiaturen ändern',
     slideLabel: 'Folie {number}',
     loading: 'Präsentation wird geladen...',
     openFailed: 'Die Präsentation konnte nicht geöffnet werden',

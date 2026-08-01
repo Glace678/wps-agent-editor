@@ -115,6 +115,7 @@ export const ar = {
     exitSlideshow: 'إنهاء عرض الشرائح',
     slideshow: 'عرض الشرائح',
     thumbnails: 'صور الشرائح المصغرة',
+    resizeThumbnails: 'تغيير عرض الصور المصغرة للشرائح',
     slideLabel: 'الشريحة {number}',
     loading: 'جارٍ تحميل العرض التقديمي...',
     openFailed: 'تعذر فتح العرض التقديمي',
