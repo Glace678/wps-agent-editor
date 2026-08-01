@@ -5,7 +5,7 @@ import {
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
-import { FileText, Plus, X } from 'lucide-react'
+import { Code2, FileText, Plus, X } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { cn } from '@/lib/utils'
 import { reorderTabsById } from '../document-tabs'
@@ -14,7 +14,7 @@ export interface DocumentTabBarItem {
   id: string
   name: string
   dirty?: boolean
-  kind?: 'word' | 'excel' | 'pdf' | 'text' | 'unknown'
+  kind?: 'word' | 'excel' | 'pdf' | 'text' | 'code' | 'unknown'
 }
 
 interface DocumentTabBarProps {
@@ -57,6 +57,9 @@ function KindIcon({ kind }: { kind?: DocumentTabBarItem['kind'] }) {
         <span className="text-[13px] font-bold text-[#555] dark:text-[#aaa]">T</span>
       </div>
     )
+  }
+  if (kind === 'code') {
+    return <Code2 className="h-5 w-5 shrink-0 text-[#16825d]" />
   }
   if (kind === 'unknown') {
     return <FileText className="h-6 w-6 shrink-0" />

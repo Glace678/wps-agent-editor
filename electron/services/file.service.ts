@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { CODE_FILE_EXTENSIONS, isCodeFile } from '../../src/lib/code-languages'
 
 export interface FileEntry {
   name: string
@@ -14,7 +15,12 @@ export interface FileEntry {
 const SUPPORTED_EXTENSIONS = new Set([
   '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
   '.pdf', '.txt', '.md', '.csv', '.odt', '.ods',
+  ...CODE_FILE_EXTENSIONS.map((extension) => `.${extension}`),
 ])
+
+function isSupportedFileName(filePath: string): boolean {
+  return SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase()) || isCodeFile(filePath)
+}
 
 export function normalizePath(p: string): string {
   return path.normalize(p)
@@ -25,8 +31,7 @@ export function getHomeDir(): string {
 }
 
 export function isSupportedFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase()
-  return SUPPORTED_EXTENSIONS.has(ext)
+  return isSupportedFileName(filePath)
 }
 
 export async function listDirectory(dirPath: string): Promise<FileEntry[]> {
@@ -39,7 +44,7 @@ export async function listDirectory(dirPath: string): Promise<FileEntry[]> {
     try {
       const stat = await fs.stat(fullPath)
       const ext = entry.isDirectory() ? '' : path.extname(entry.name).toLowerCase()
-      if (entry.isDirectory() || SUPPORTED_EXTENSIONS.has(ext)) {
+      if (entry.isDirectory() || isSupportedFileName(entry.name)) {
         results.push({
           name: entry.name,
           path: fullPath,
@@ -89,7 +94,7 @@ export async function searchFiles(
         }
       } else if (entry.name.toLowerCase().includes(lowerQuery)) {
         const ext = path.extname(entry.name).toLowerCase()
-        if (SUPPORTED_EXTENSIONS.has(ext)) {
+        if (isSupportedFileName(entry.name)) {
           try {
             const stat = await fs.stat(fullPath)
             results.push({

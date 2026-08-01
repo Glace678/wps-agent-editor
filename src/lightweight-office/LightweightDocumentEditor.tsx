@@ -30,7 +30,7 @@ interface TabItem {
   id: string
   path: string
   name: string
-  kind: 'word' | 'excel' | 'pdf' | 'text' | 'unknown'
+  kind: 'word' | 'excel' | 'pdf' | 'text' | 'code' | 'unknown'
   dirty: boolean
 }
 

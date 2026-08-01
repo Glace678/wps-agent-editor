@@ -62,12 +62,14 @@ export function getExtension(filePath: string): string {
   return name.slice(dot + 1).toLowerCase()
 }
 
-export function getDocKind(filePath: string): 'word' | 'excel' | 'pdf' | 'text' | 'unknown' {
+export function getDocKind(filePath: string): 'word' | 'excel' | 'pdf' | 'text' | 'code' | 'unknown' {
   const ext = getExtension(filePath)
   // SuperDoc 对 OOXML .docx 支持最好；旧版 .doc 仍路由到 Word 编辑器并显示明确错误
   if (['docx', 'doc', 'odt'].includes(ext)) return 'word'
   if (['xlsx', 'xls', 'csv', 'ods'].includes(ext)) return 'excel'
   if (ext === 'pdf') return 'pdf'
-  if (['txt', 'md', 'markdown', 'json', 'log'].includes(ext)) return 'text'
+  if (isCodeFile(filePath)) return 'code'
+  if (['txt', 'md', 'markdown', 'log'].includes(ext)) return 'text'
   return 'unknown'
 }
+import { isCodeFile } from '@/lib/code-languages'

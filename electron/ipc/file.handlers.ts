@@ -1,6 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { IPC } from './channels'
 import { t } from '../i18n/translate'
+import { CODE_FILE_EXTENSIONS } from '../../src/lib/code-languages'
 import { listDirectory, searchFiles, getHomeDir, normalizePath } from '../services/file.service'
 import {
   getRecentFiles,
@@ -114,11 +115,12 @@ export function registerFileHandlers(): void {
       extensions: ['docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'pdf', 'odt', 'ods'],
     }
     const textFilter = { name: t('fileHandler.text'), extensions: ['txt', 'md', 'markdown', 'json', 'log'] }
+    const codeFilter = { name: 'Code', extensions: [...CODE_FILE_EXTENSIONS] }
     const result = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: kind === 'text'
         ? [textFilter, { name: t('fileHandler.allFiles'), extensions: ['*'] }]
-        : [officeFilter, textFilter, { name: t('fileHandler.allFiles'), extensions: ['*'] }],
+        : [officeFilter, codeFilter, textFilter, { name: t('fileHandler.allFiles'), extensions: ['*'] }],
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return normalizePath(result.filePaths[0])
