@@ -14,7 +14,7 @@ export interface DocumentTabBarItem {
   id: string
   name: string
   dirty?: boolean
-  kind?: 'word' | 'excel' | 'pdf' | 'text' | 'code' | 'unknown'
+  kind?: 'word' | 'excel' | 'slide' | 'pdf' | 'text' | 'code' | 'unknown'
 }
 
 interface DocumentTabBarProps {
@@ -41,6 +41,13 @@ function KindIcon({ kind }: { kind?: DocumentTabBarItem['kind'] }) {
     return (
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm bg-[#107c41]">
         <span className="text-[13px] font-bold text-white">X</span>
+      </div>
+    )
+  }
+  if (kind === 'slide') {
+    return (
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm bg-[#d24726]">
+        <span className="text-[13px] font-bold text-white">P</span>
       </div>
     )
   }

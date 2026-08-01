@@ -33,11 +33,16 @@ const CodeEditor = lazy(async () => {
   return { default: module.CodeEditor }
 })
 
+const PresentationViewer = lazy(async () => {
+  const module = await import('./editors/PresentationViewer')
+  return { default: module.PresentationViewer }
+})
+
 interface TabItem {
   id: string
   path: string
   name: string
-  kind: 'word' | 'excel' | 'pdf' | 'text' | 'code' | 'unknown'
+  kind: 'word' | 'excel' | 'slide' | 'pdf' | 'text' | 'code' | 'unknown'
   dirty: boolean
 }
 
@@ -106,7 +111,7 @@ function ShortcutSettingsModal({ onClose }: { onClose: () => void }) {
  * dispatch 会以 no-handler 放行，不拦截事件。
  */
 function useBinaryDocShortcuts(
-  kind: 'word' | 'excel' | 'pdf' | null,
+  kind: 'word' | 'excel' | 'slide' | 'pdf' | null,
   saveRef: MutableRefObject<(() => Promise<void>) | null>,
   tabNav?: {
     nextTab: () => void
@@ -313,7 +318,9 @@ export function LightweightDocumentEditor() {
 
   const kind = currentFile ? getDocKind(currentFile) : null
   // PDF 也要注册外壳快捷键（Ctrl+Tab/W/O/P），否则 PDF 标签激活时它们全部失效
-  const binaryKind = kind === 'word' || kind === 'excel' || kind === 'pdf' ? kind : null
+  const binaryKind = kind === 'word' || kind === 'excel' || kind === 'slide' || kind === 'pdf'
+    ? kind
+    : null
   const tabNav = useMemo(
     () => ({
       nextTab: () => switchTabByOffset(1),
@@ -440,6 +447,24 @@ export function LightweightDocumentEditor() {
         <div className="min-h-0 flex-1 overflow-hidden">
           <PdfViewer filePath={currentFile} onReady={handleReady} />
         </div>
+      )
+    }
+
+    if (kind === 'slide') {
+      return (
+        <Suspense
+          fallback={(
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
+              {t('presentationViewer.loading')}
+            </div>
+          )}
+        >
+          <PresentationViewer
+            filePath={currentFile}
+            onReady={handleReady}
+            onRegisterSave={handleRegisterSave}
+          />
+        </Suspense>
       )
     }
 
