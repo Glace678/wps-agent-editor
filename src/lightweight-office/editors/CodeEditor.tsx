@@ -110,7 +110,7 @@ function configureMonaco(): void {
       allowNonTsExtensions: true,
       allowJs: true,
       checkJs: false,
-      target: monaco.typescript.ScriptTarget.ES2022,
+      target: monaco.typescript.ScriptTarget.ESNext,
       module: monaco.typescript.ModuleKind.ESNext,
       moduleResolution: monaco.typescript.ModuleResolutionKind.NodeJs,
       jsx: monaco.typescript.JsxEmit.ReactJSX,
