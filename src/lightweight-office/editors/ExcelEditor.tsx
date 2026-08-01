@@ -533,6 +533,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     readyRef.current = false
     suppressDirtyRef.current = true
     baselineFingerprintRef.current = ''
+    lastContentSnapshotRef.current = null
+    dirtyReportedRef.current = false
+    cancelPendingDirtyCheck()
     documentBridge.clear()
 
     async function load() {
@@ -544,6 +547,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
         const loaded = await xlsxBufferToSheets(buffer)
         console.log('[ExcelEditor] 解析成功，工作表数:', loaded.length)
         sheetsRef.current = loaded
+        lastContentSnapshotRef.current = loaded
         // Provisional baseline until Fortune expands the model after mount.
         baselineFingerprintRef.current = fingerprintExcelSheets(loaded)
         setSheets(loaded)
@@ -559,7 +563,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       documentBridge.clear()
       onRegisterSave(null)
     }
-  }, [filePath, onRegisterSave])
+  }, [cancelPendingDirtyCheck, filePath, onRegisterSave])
 
   useEffect(() => {
     onRegisterSave(async () => {
