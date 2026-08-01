@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react'
+import { createPortal } from 'react-dom'
 import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
@@ -531,10 +532,8 @@ export function CodeEditor({
   useEffect(() => {
     if (!contextMenu) return
     const close = (event: MouseEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) {
-        const menu = (event.target as Element).closest?.('[data-code-context-menu]')
-        if (menu) return
-      }
+      const menu = (event.target as Element).closest?.('[data-code-context-menu]')
+      if (menu) return
       setContextMenu(null)
     }
     const closeOnBlur = () => setContextMenu(null)
@@ -572,10 +571,17 @@ export function CodeEditor({
       ].filter(Boolean).join('\n')
     : ''
 
-  const menuStyle: CSSProperties | undefined = contextMenu ? {
-    left: Math.max(4, Math.min(contextMenu.x, window.innerWidth - 294)),
-    top: Math.max(4, Math.min(contextMenu.y, window.innerHeight - 620)),
-  } : undefined
+  const menuStyle: CSSProperties | undefined = contextMenu
+    ? (() => {
+        const maxHeight = Math.max(160, window.innerHeight - 8)
+        const expectedHeight = Math.min(672, maxHeight)
+        return {
+          left: Math.max(4, Math.min(contextMenu.x, window.innerWidth - 290)),
+          top: Math.max(4, Math.min(contextMenu.y, window.innerHeight - expectedHeight - 4)),
+          maxHeight,
+        }
+      })()
+    : undefined
 
   const menuGroups: Array<Array<{ command: CodeCommand; label: string; shortcut?: string; arrow?: boolean }>> = [
     [{ command: 'run', label: t('codeEditor.runCode'), shortcut: 'Ctrl+Alt+N' }],
@@ -747,9 +753,9 @@ export function CodeEditor({
           {status && <span className="ml-auto max-w-[55%] truncate text-foreground">{status}</span>}
         </div>
 
-        {contextMenu && (
+        {contextMenu && createPortal(
           <div
-            className="fixed z-[2147483200] w-[286px] overflow-hidden rounded-[4px] border border-black/15 bg-card py-1 text-[13px] text-card-foreground shadow-2xl dark:border-white/15"
+            className="fixed z-[2147483200] w-[286px] overflow-y-auto rounded-[4px] border border-black/15 bg-card py-1 text-[13px] text-card-foreground shadow-2xl dark:border-white/15"
             style={menuStyle}
             data-code-context-menu
             role="menu"
@@ -773,7 +779,8 @@ export function CodeEditor({
                 ))}
               </div>
             ))}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     </TooltipProvider>
