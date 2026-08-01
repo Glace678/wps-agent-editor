@@ -6,6 +6,7 @@ const rejected: ModelsDevModel[] = [
   { id: 'bge-multilingual-gemma2', modalities: textOutput },
   { id: 'melotts', modalities: textOutput },
   { id: 'studiovoice', modalities: textOutput },
+  { id: 'nemotron-voicechat', modalities: textOutput },
   { id: 'PaddlePaddle/PaddleOCR-VL-1.5', modalities: textOutput },
   { id: 'meta/esm2-650m', modalities: textOutput },
   { id: 'meta/esmfold', modalities: textOutput },

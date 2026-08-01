@@ -110,7 +110,7 @@ interface ProviderCatalogCache {
 
 const PROVIDER_CACHE_VERSION = 3
 const NON_CHAT_DESCRIPTION = /\b(?:embedding model|reranking model|image model|video model|speech generation model|speech transcription model|speech-to-text model|text-to-speech model|audio-to-audio model|safety model|moderation model|classification model|ocr model|translation model)\b/i
-const NON_CHAT_ID = /embed|rerank|ocr|transcrib|whisper|tts|studiovoice|(?:^|[\s/._:-])bge(?:$|[\s/._:-])|(?:^|[\s/._:-])(?:e5|gte|all[-_ ]?minilm)(?:$|[\s/._:-])|gliner|gliguard|qwen\d*guard|guardrails?|safeguard|prompt[-_ ]?guard|llama[-_ ]?guard|content[-_ ]?safety|moderation|classifier|reward[-_ ]?model|esm(?:fold|\d)|usdvalidate|translat/i
+const NON_CHAT_ID = /embed|rerank|ocr|transcrib|whisper|tts|voice|(?:^|[\s/._:-])bge(?:$|[\s/._:-])|(?:^|[\s/._:-])(?:e5|gte|all[-_ ]?minilm)(?:$|[\s/._:-])|gliner|gliguard|qwen\d*guard|guardrails?|safeguard|prompt[-_ ]?guard|llama[-_ ]?guard|content[-_ ]?safety|moderation|classifier|reward[-_ ]?model|esm(?:fold|\d)|usdvalidate|translat/i
 const NON_CHAT_FAMILIES = new Set([
   'text-embedding',
   'cohere-embed',
