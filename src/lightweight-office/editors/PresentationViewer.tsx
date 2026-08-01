@@ -818,30 +818,34 @@ export function PresentationViewer({
         aria-label={t('presentationViewer.toolbar')}
       >
         {!isPresenting ? (
-          <button
-            type="button"
-            className="presentation-icon-button"
-            aria-label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
-            title={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
-            data-testid="presentation-thumbnail-toggle"
-            onClick={() => setShowThumbnails((visible) => !visible)}
+          <PresentationToolbarTooltip
+            label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
           >
-            {showThumbnails ? <PanelLeftClose /> : <PanelLeftOpen />}
-          </button>
+            <button
+              type="button"
+              className="presentation-icon-button"
+              aria-label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
+              data-testid="presentation-thumbnail-toggle"
+              onClick={() => setShowThumbnails((visible) => !visible)}
+            >
+              {showThumbnails ? <PanelLeftClose /> : <PanelLeftOpen />}
+            </button>
+          </PresentationToolbarTooltip>
         ) : null}
 
         <div className="presentation-toolbar-separator" />
-        <button
-          type="button"
-          className="presentation-icon-button"
-          disabled={loading || currentSlide <= 0}
-          aria-label={t('presentationViewer.previousSlide')}
-          title={t('presentationViewer.previousSlide')}
-          data-testid="presentation-previous-slide"
-          onClick={() => void goToSlide(currentSlide - 1)}
-        >
-          <ChevronLeft />
-        </button>
+        <PresentationToolbarTooltip label={t('presentationViewer.previousSlide')}>
+          <button
+            type="button"
+            className="presentation-icon-button"
+            disabled={loading || currentSlide <= 0}
+            aria-label={t('presentationViewer.previousSlide')}
+            data-testid="presentation-previous-slide"
+            onClick={() => void goToSlide(currentSlide - 1)}
+          >
+            <ChevronLeft />
+          </button>
+        </PresentationToolbarTooltip>
         <div className="flex h-8 items-center gap-1 px-1 text-[12px] tabular-nums">
           <input
             className="h-7 w-12 rounded-[4px] border border-black/15 bg-white px-1.5 text-center text-[12px] text-[#222] outline-none focus:border-[#d24726] dark:border-white/15"
@@ -857,17 +861,18 @@ export function PresentationViewer({
           />
           <span className="min-w-[44px] text-muted-foreground">/ {slideCount || 0}</span>
         </div>
-        <button
-          type="button"
-          className="presentation-icon-button"
-          disabled={loading || currentSlide >= slideCount - 1}
-          aria-label={t('presentationViewer.nextSlide')}
-          title={t('presentationViewer.nextSlide')}
-          data-testid="presentation-next-slide"
-          onClick={() => void goToSlide(currentSlide + 1)}
-        >
-          <ChevronRight />
-        </button>
+        <PresentationToolbarTooltip label={t('presentationViewer.nextSlide')}>
+          <button
+            type="button"
+            className="presentation-icon-button"
+            disabled={loading || currentSlide >= slideCount - 1}
+            aria-label={t('presentationViewer.nextSlide')}
+            data-testid="presentation-next-slide"
+            onClick={() => void goToSlide(currentSlide + 1)}
+          >
+            <ChevronRight />
+          </button>
+        </PresentationToolbarTooltip>
 
         {!isPresenting ? (
           <div className="presentation-zoom-controls contents">
