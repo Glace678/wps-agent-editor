@@ -13,6 +13,7 @@ const electronPath = require('electron')
 const rendererEntry = path.join(root, 'out', 'renderer', 'index.html')
 const cacheDirectory = path.join(root, '.cache')
 const screenshotPath = path.join(cacheDirectory, 'electron-verify-presentation.png')
+const toolbarTooltipScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-toolbar-tooltip.png')
 const resizerScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-resizer.png')
 const fullscreenScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-fullscreen.png')
 const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-profile-'))
@@ -541,6 +542,53 @@ try {
   check('thumbnail rail reserves no more than an 8px scrollbar',
     initial.thumbnailScrollbarWidth <= 8,
     `${initial.thumbnailScrollbarWidth}px`)
+
+  const thumbnailToggleCenter = await evaluate(send, `(() => {
+    const rect = document.querySelector('[data-testid=presentation-thumbnail-toggle]').getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`)
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: thumbnailToggleCenter.x,
+    y: thumbnailToggleCenter.y,
+  })
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-toolbar-tooltip]')?.getBoundingClientRect().width > 0",
+    'presentation toolbar tooltip')
+  const toolbarTooltip = await evaluate(send, `(() => {
+    const tooltip = document.querySelector('[data-testid=presentation-toolbar-tooltip]');
+    const trigger = document.querySelector('[data-testid=presentation-thumbnail-toggle]');
+    const toolbar = document.querySelector('.presentation-toolbar');
+    const style = getComputedStyle(tooltip);
+    const rect = tooltip.getBoundingClientRect();
+    const toolbarRect = toolbar.getBoundingClientRect();
+    return {
+      text: tooltip.textContent.trim(),
+      triggerLabel: trigger.getAttribute('aria-label'),
+      background: style.backgroundColor,
+      color: style.color,
+      fontSize: style.fontSize,
+      borderWidth: style.borderTopWidth,
+      borderStyle: style.borderTopStyle,
+      borderRadius: style.borderTopLeftRadius,
+      top: rect.top,
+      toolbarBottom: toolbarRect.bottom,
+    };
+  })()`)
+  check('toolbar hover popup matches the Word and Excel gray boxed style',
+    toolbarTooltip.text === toolbarTooltip.triggerLabel
+      && toolbarTooltip.background === 'rgb(102, 102, 102)'
+      && toolbarTooltip.color === 'rgb(255, 255, 255)'
+      && toolbarTooltip.fontSize === '12px'
+      && toolbarTooltip.borderWidth === '1px'
+      && toolbarTooltip.borderStyle === 'solid'
+      && toolbarTooltip.borderRadius === '2px'
+      && toolbarTooltip.top >= toolbarTooltip.toolbarBottom - 1,
+    JSON.stringify(toolbarTooltip))
+  const toolbarTooltipScreenshotSize = await captureScreenshot(send, toolbarTooltipScreenshotPath)
+  check('toolbar hover popup screenshot captured',
+    toolbarTooltipScreenshotSize > 20_000,
+    toolbarTooltipScreenshotPath)
 
   const initialResizeLayout = await evaluate(send, `(() => {
     const pane = document.querySelector('[data-testid=presentation-thumbnails]').getBoundingClientRect();

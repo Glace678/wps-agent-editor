@@ -928,29 +928,32 @@ export function PresentationViewer({
 
         <div className="flex-1" />
         {isPresenting ? (
-          <button
-            type="button"
-            className="presentation-icon-button"
-            aria-label={t('presentationViewer.exitSlideshow')}
-            title={t('presentationViewer.exitSlideshow')}
-            data-testid="presentation-exit-slideshow"
-            onClick={() => void stopPresentation()}
-          >
-            <Minimize2 />
-          </button>
+          <PresentationToolbarTooltip label={t('presentationViewer.exitSlideshow')}>
+            <button
+              type="button"
+              className="presentation-icon-button"
+              aria-label={t('presentationViewer.exitSlideshow')}
+              data-testid="presentation-exit-slideshow"
+              onClick={() => void stopPresentation()}
+            >
+              <Minimize2 />
+            </button>
+          </PresentationToolbarTooltip>
         ) : (
-          <button
-            type="button"
-            className="presentation-command-button presentation-slideshow-button"
-            disabled={loading || slideCount === 0}
-            title={t('presentationViewer.startSlideshow')}
-            data-testid="presentation-start-slideshow"
-            onClick={() => void startPresentation(false)}
-          >
-            <Play className="h-4 w-4 fill-current" />
-            <span>{t('presentationViewer.slideshow')}</span>
-            <Maximize2 className="h-3.5 w-3.5 opacity-65" />
-          </button>
+          <PresentationToolbarTooltip label={t('presentationViewer.startSlideshow')}>
+            <button
+              type="button"
+              className="presentation-command-button presentation-slideshow-button"
+              disabled={loading || slideCount === 0}
+              aria-label={t('presentationViewer.startSlideshow')}
+              data-testid="presentation-start-slideshow"
+              onClick={() => void startPresentation(false)}
+            >
+              <Play className="h-4 w-4 fill-current" />
+              <span>{t('presentationViewer.slideshow')}</span>
+              <Maximize2 className="h-3.5 w-3.5 opacity-65" />
+            </button>
+          </PresentationToolbarTooltip>
         )}
       </div>
 
