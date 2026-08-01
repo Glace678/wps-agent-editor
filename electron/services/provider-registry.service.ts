@@ -72,6 +72,17 @@ function getCachePath(): string {
   return path.join(app.getPath('userData'), 'provider-catalog.json')
 }
 
+interface ModelsDevModel {
+  id: string
+  name?: string
+  description?: string
+  family?: string
+  modalities?: {
+    input?: string[]
+    output?: string[]
+  }
+}
+
 interface ModelsDevProvider {
   id: string
   name: string
@@ -79,7 +90,37 @@ interface ModelsDevProvider {
   env?: string[]
   npm?: string
   doc?: string
-  models?: Record<string, { id: string; name: string }>
+  models?: Record<string, ModelsDevModel>
+}
+
+interface ProviderCatalogCache {
+  version: 2
+  providers: ProviderDefinition[]
+}
+
+const PROVIDER_CACHE_VERSION = 2
+const NON_CHAT_DESCRIPTION = /\b(?:embedding model|reranking model|image model|video model|speech generation model|speech transcription model|speech-to-text model|text-to-speech model|audio-to-audio model|safety model|moderation model|classification model|ocr model|translation model)\b/i
+const NON_CHAT_ID = /embed|rerank|(?:^|[\s/._:-])ocr(?:$|[\s/._:-])|transcrib|whisper|(?:^|[\s/._:-])tts(?:$|[\s/._:-])|safeguard|prompt[-_ ]?guard|llama[-_ ]?guard|content[-_ ]?safety|moderation|classifier|reward[-_ ]?model/i
+const NON_CHAT_FAMILIES = new Set([
+  'text-embedding',
+  'cohere-embed',
+  'mistral-embed',
+  'codestral-embed',
+  'titan-embed',
+  'voyage',
+  'bge',
+])
+
+export function isTextChatModel(model: ModelsDevModel): boolean {
+  const input = model.modalities?.input ?? []
+  const output = model.modalities?.output ?? []
+  if (!input.includes('text')) return false
+  if (output.length !== 1 || output[0] !== 'text') return false
+
+  const identity = [model.id, model.name, model.family].filter(Boolean).join(' ')
+  return !NON_CHAT_DESCRIPTION.test(model.description ?? '')
+    && !NON_CHAT_ID.test(identity)
+    && !NON_CHAT_FAMILIES.has((model.family ?? '').toLowerCase())
 }
 
 let catalogCache: ProviderDefinition[] | null = null
@@ -106,7 +147,9 @@ async function fetchModelsDev(): Promise<ProviderDefinition[]> {
     npm: p.npm || '@ai-sdk/openai-compatible',
     protocol: inferProtocol(p.npm || ''),
     doc: p.doc,
-    models: Object.values(p.models || {}).map((m) => ({ id: m.id, name: m.name || m.id })),
+    models: Object.values(p.models || {})
+      .filter(isTextChatModel)
+      .map((m) => ({ id: m.id, name: m.name || m.id })),
   }))
 }
 
@@ -115,14 +158,20 @@ async function loadFromCache(): Promise<ProviderDefinition[] | null> {
     const stat = await fs.stat(getCachePath())
     if (Date.now() - stat.mtimeMs > 24 * 60 * 60 * 1000) return null
     const raw = await fs.readFile(getCachePath(), 'utf-8')
-    return JSON.parse(raw) as ProviderDefinition[]
+    const parsed = JSON.parse(raw) as Partial<ProviderCatalogCache>
+    if (parsed.version !== PROVIDER_CACHE_VERSION || !Array.isArray(parsed.providers)) return null
+    return parsed.providers
   } catch {
     return null
   }
 }
 
 async function saveCache(providers: ProviderDefinition[]): Promise<void> {
-  await fs.writeFile(getCachePath(), JSON.stringify(providers, null, 2))
+  const cache: ProviderCatalogCache = {
+    version: PROVIDER_CACHE_VERSION,
+    providers,
+  }
+  await fs.writeFile(getCachePath(), JSON.stringify(cache, null, 2))
 }
 
 export async function getProviderCatalog(forceRefresh = false): Promise<ProviderDefinition[]> {
