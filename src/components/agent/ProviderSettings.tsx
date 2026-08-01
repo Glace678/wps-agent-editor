@@ -266,17 +266,16 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                       <Save className="mr-1.5 h-3.5 w-3.5" />
                       {t('providerSettings.saveBaseUrl')}
                     </Button>
-                    {hasCustomBaseURL && (
-                      <Button
-                        size="sm"
-                        data-testid="provider-reset-base-url"
-                        variant="outline"
-                        onClick={() => void handleResetBaseURL()}
-                      >
-                        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                        {t('providerSettings.resetBaseUrl')}
-                      </Button>
-                    )}
+                    <Button
+                      size="sm"
+                      data-testid="provider-reset-base-url"
+                      variant="outline"
+                      onClick={() => void handleResetBaseURL()}
+                      disabled={!hasCustomBaseURL}
+                    >
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                      {t('providerSettings.resetBaseUrl')}
+                    </Button>
                     {baseURLSaved && (
                       <span data-testid="provider-base-url-saved" className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                         <Check className="h-3.5 w-3.5" />

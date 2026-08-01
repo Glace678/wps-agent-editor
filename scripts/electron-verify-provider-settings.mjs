@@ -147,9 +147,9 @@ try {
   assert.ok(layout.height >= 40, `Base URL input should be tall, received ${layout.height}px`)
   assert.equal(layout.aboveKey, true, 'Base URL input must be above the API key')
   assert.equal(
-    await evaluate(cdp, "Boolean(document.querySelector('[data-testid=provider-reset-base-url]'))"),
-    false,
-    'restore default must be hidden while the input matches the default URL',
+    await evaluate(cdp, "document.querySelector('[data-testid=provider-reset-base-url]')?.disabled"),
+    true,
+    'restore default must remain visible and disabled while the input matches the default URL',
   )
 
   const defaultURL = 'https://open.bigmodel.cn/api/paas/v4'
@@ -175,8 +175,8 @@ try {
   })()`)
   await waitFor(
     cdp,
-    "!document.querySelector('[data-testid=provider-reset-base-url]')",
-    'hidden restore default after typing the default URL',
+    "document.querySelector('[data-testid=provider-reset-base-url]')?.disabled === true",
+    'disabled restore default after typing the default URL',
   )
 
   await evaluate(cdp, `(() => {
@@ -190,7 +190,7 @@ try {
   await waitFor(
     cdp,
     `document.querySelector('[data-testid=provider-base-url]')?.value === ${JSON.stringify(defaultURL)}
-      && !document.querySelector('[data-testid=provider-reset-base-url]')`,
+      && document.querySelector('[data-testid=provider-reset-base-url]')?.disabled === true`,
     'default URL restored before saving',
   )
 
@@ -237,7 +237,7 @@ try {
     `window.api.provider.get('zhipuai').then((provider) => (
       provider.isApiOverridden === false
         && document.querySelector('[data-testid=provider-base-url]')?.value === ${JSON.stringify(defaultURL)}
-        && !document.querySelector('[data-testid=provider-reset-base-url]')
+        && document.querySelector('[data-testid=provider-reset-base-url]')?.disabled === true
     ))`,
     'saved custom URL restored in the input',
   )
