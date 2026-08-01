@@ -130,6 +130,12 @@ try {
   assert.notEqual(catalog.first, 'gpt-image-2', 'the first OpenAI model must be a chat model')
 
   await evaluate(cdp, "document.querySelector('[data-testid=provider-option-zhipuai]').click(); true")
+  await sleep(500)
+  console.log('provider debug', await evaluate(cdp, `(() => ({
+    heading: document.querySelector('[role=dialog] h3')?.textContent,
+    doc: document.querySelector('[data-testid=provider-documentation]')?.href,
+    selectedClass: document.querySelector('[data-testid=provider-option-zhipuai]')?.className,
+  }))()`))
   await waitFor(cdp, "document.querySelector('[data-testid=provider-documentation]')?.href.includes('docs.bigmodel.cn')", 'Zhipu API documentation')
 
   const layout = await evaluate(cdp, `(() => {
