@@ -489,8 +489,15 @@ try {
     const host = document.querySelector('[data-testid=presentation-slide-host]');
     const stage = document.querySelector('[data-testid=presentation-stage]');
     const toolbar = viewer.querySelector('.presentation-toolbar');
+    const thumbnailPane = document.querySelector('[data-testid=presentation-thumbnails]');
+    const firstThumbnail = document.querySelector('[data-testid=presentation-thumbnail-1]');
+    const thumbnailNumber = firstThumbnail.firstElementChild;
+    const thumbnailFrame = firstThumbnail.querySelector('.presentation-thumbnail-frame');
     const rect = host.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
+    const thumbnailPaneRect = thumbnailPane.getBoundingClientRect();
+    const thumbnailNumberRect = thumbnailNumber.getBoundingClientRect();
+    const thumbnailFrameRect = thumbnailFrame.getBoundingClientRect();
     return {
       state: viewer.dataset.presentationState,
       slides: Number(document.querySelector('[data-testid=presentation-page-input]').nextElementSibling.textContent.replace(/\\D/g, '')),
@@ -503,6 +510,9 @@ try {
       toolbarClientWidth: toolbar.clientWidth,
       toolbarScrollWidth: toolbar.scrollWidth,
       thumbnails: document.querySelectorAll('[data-testid=presentation-thumbnails] button').length,
+      thumbnailNumberLeftInset: thumbnailNumberRect.left - thumbnailPaneRect.left,
+      thumbnailFrameLeftInset: thumbnailFrameRect.left - thumbnailPaneRect.left,
+      thumbnailScrollbarWidth: thumbnailPane.offsetWidth - thumbnailPane.clientWidth,
     };
   })()`)
   check('presentation routes to the dedicated viewer', initial.state === 'ready')
@@ -510,6 +520,12 @@ try {
   check('first slide renders real text and layout nodes', initial.text.includes('Presentation playback') && initial.renderedNodes > 10, `${initial.renderedNodes} nodes`)
   check('slide is fitted inside a stable visible stage', initial.width > 350 && initial.height > 190 && initial.width <= initial.stageWidth && initial.height <= initial.stageHeight, JSON.stringify(initial))
   check('toolbar fits without horizontal clipping', initial.toolbarScrollWidth <= initial.toolbarClientWidth + 1, `${initial.toolbarScrollWidth}/${initial.toolbarClientWidth}`)
+  check('thumbnail number and preview use compact left spacing',
+    initial.thumbnailNumberLeftInset <= 5 && initial.thumbnailFrameLeftInset <= 27,
+    `${initial.thumbnailNumberLeftInset}px / ${initial.thumbnailFrameLeftInset}px`)
+  check('thumbnail rail reserves no more than a 4px scrollbar',
+    initial.thumbnailScrollbarWidth <= 4,
+    `${initial.thumbnailScrollbarWidth}px`)
 
   const initialResizeLayout = await evaluate(send, `(() => {
     const pane = document.querySelector('[data-testid=presentation-thumbnails]').getBoundingClientRect();
