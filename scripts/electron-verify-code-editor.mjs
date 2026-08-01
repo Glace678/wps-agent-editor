@@ -19,21 +19,25 @@ const fixtures = [
   {
     name: 'syntax.c',
     label: 'C',
+    expectedOutput: '7',
     source: '#include <stdio.h>\nint main(void) { const int value = 7; printf("%d\\n", value); return 0; }\n',
   },
   {
     name: 'syntax.cpp',
     label: 'C++',
+    expectedOutput: 'C++',
     source: '#include <iostream>\nclass Greeter { public: void run() { std::cout << "C++"; } };\n',
   },
   {
     name: 'Syntax.java',
     label: 'Java',
+    expectedOutput: 'Java',
     source: 'public class Syntax { public static void main(String[] args) { System.out.println("Java"); } }\n',
   },
   {
     name: 'syntax.ts',
     label: 'TypeScript',
+    expectedOutput: 'Hello Monaco',
     source: "const language: string = 'Monaco';\nfunction greet(name: string): string { return `Hello ${name}`; }\nconsole.log(greet(language));\n",
   },
 ]
@@ -233,6 +237,17 @@ try {
       `${fixture.label} syntax token colors`,
     )
     check(`${fixture.label} syntax highlighting uses multiple token colors`, colors.length >= 2, colors.join(', '))
+
+    if (fixture.label !== 'TypeScript') {
+      const run = await evaluate(send, `window.api.lw.runCode(${JSON.stringify(fixture.filePath)})`)
+      if (run.errorCode === 'runtime-missing') {
+        console.log(`[SKIP] ${fixture.label} compiler/runtime is not installed on this machine`)
+      } else {
+        check(`${fixture.label} Run Code compiles or executes the source`,
+          run.success && run.stdout.includes(${JSON.stringify(fixture.expectedOutput)}),
+          JSON.stringify({ command: run.command, exitCode: run.exitCode, stdout: run.stdout, stderr: run.stderr }))
+      }
+    }
   }
 
   const layout = await evaluate(send, `(() => {
