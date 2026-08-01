@@ -19,6 +19,11 @@ export function useGlobalOfficeShortcutListener(enabled = true): void {
     if (!enabled) return
 
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-code-editor-root]')) {
+        return
+      }
+
       // Ignore pure modifier presses
       if (event.key === 'Control' || event.key === 'Shift' || event.key === 'Alt' || event.key === 'Meta') {
         return

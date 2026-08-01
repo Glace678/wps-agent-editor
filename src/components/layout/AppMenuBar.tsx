@@ -19,7 +19,7 @@ const menus: ReadonlyArray<{ top: AppMenuTop; label: TranslationKey; items: read
     ['select-all', 'menu.selectAll', 'Ctrl+A'],
   ] },
   { top: 'view', label: 'menu.view', items: [
-    ['reload', 'menu.reload', 'Ctrl+R'], ['force-reload', 'menu.forceReload', 'Ctrl+Shift+R'],
+    ['reload', 'menu.reload', 'Ctrl+R'], ['force-reload', 'menu.forceReload', 'Ctrl+Alt+Shift+R'],
     ['toggle-dev-tools', 'menu.toggleDevTools', 'Ctrl+Shift+I'], 'separator',
     ['reset-zoom', 'menu.resetZoom', 'Ctrl+0'], ['zoom-in', 'menu.zoomIn', 'Ctrl++'], ['zoom-out', 'menu.zoomOut', 'Ctrl+-'],
     'separator', ['toggle-fullscreen', 'menu.toggleFullscreen', 'F11'],

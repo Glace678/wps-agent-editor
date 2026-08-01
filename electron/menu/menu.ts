@@ -169,7 +169,7 @@ export function createAppMenu(getMainWindow: () => BrowserWindow | null): void {
         },
         {
           label: t('menu.forceReload'),
-          accelerator: 'CmdOrCtrl+Shift+R',
+          accelerator: 'CmdOrCtrl+Alt+Shift+R',
           click: (_, window) => asBrowserWindow(window)?.webContents.reloadIgnoringCache(),
         },
         {
