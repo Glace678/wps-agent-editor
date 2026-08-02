@@ -26,6 +26,8 @@ const externalFixturePath = process.env.WPS_PRESENTATION_VERIFY_INPUT
   ? path.resolve(process.env.WPS_PRESENTATION_VERIFY_INPUT)
   : null
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+let injectedSlideXml = ''
+let animationTargetShapeId = ''
 
 function createWmfFixture() {
   if (process.platform !== 'win32') return false
@@ -73,9 +75,11 @@ async function injectFixtureMotionAndWmf() {
   const shapeMatches = [...targetPrefix.matchAll(/<p:cNvPr\b[^>]*\bid="(\d+)"/g)]
   const targetShapeId = shapeMatches.at(-1)?.[1]
   if (!targetShapeId) throw new Error('Animation target shape id is missing')
+  animationTargetShapeId = targetShapeId
 
   const motionXml = `<p:transition spd="med"><p:fade/></p:transition><p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst><p:par><p:cTn id="3" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="4" presetID="10" presetClass="entr" presetSubtype="0" fill="hold" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="5" dur="500" fill="hold"/><p:tgtEl><p:spTgt spid="${targetShapeId}"/></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>`
   slideXml = slideXml.replace('</p:sld>', `${motionXml}</p:sld>`)
+  injectedSlideXml = slideXml
   zip.file('ppt/slides/slide1.xml', slideXml)
 
   if (fs.existsSync(wmfFixturePath)) {
@@ -917,6 +921,25 @@ try {
   await pressKey(send, { key: 'F5', code: 'F5', keyCode: 116 })
   await waitFor(send, "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'F5 slideshow mode')
   check('F5 starts slideshow mode', true)
+
+  const animationDiagnostics = await evaluate(send, `(() => {
+    const parsed = new DOMParser().parseFromString(${JSON.stringify(injectedSlideXml)}, 'application/xml');
+    const timeNodes = [...parsed.getElementsByTagName('*')].filter(element =>
+      element.localName === 'cTn' && element.getAttribute('presetClass') === 'entr');
+    const target = timeNodes[0]
+      ? [...timeNodes[0].getElementsByTagName('*')].find(element => element.localName === 'spTgt')?.getAttribute('spid')
+      : null;
+    const host = document.querySelector('[data-testid=presentation-slide-host]');
+    return {
+      parserError: Boolean(parsed.querySelector('parsererror')),
+      timeNodes: timeNodes.length,
+      target,
+      expectedTarget: ${JSON.stringify(animationTargetShapeId)},
+      annotatedIds: [...host.querySelectorAll('[data-presentation-node-id]')].map(element => element.dataset.presentationNodeId),
+      pending: host.querySelectorAll('.presentation-animation-target--pending').length,
+    };
+  })()`)
+  console.log(`[INFO] animation diagnostics: ${JSON.stringify(animationDiagnostics)}`)
 
   const pendingAnimationTargets = await waitFor(send,
     "document.querySelectorAll('[data-testid=presentation-slide-host] .presentation-animation-target--pending').length",
