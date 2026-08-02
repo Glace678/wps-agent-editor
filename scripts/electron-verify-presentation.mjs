@@ -902,9 +902,20 @@ try {
   await waitFor(send, "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'F5 slideshow mode')
   check('F5 starts slideshow mode', true)
 
+  const pendingAnimationTargets = await waitFor(send,
+    "document.querySelectorAll('[data-testid=presentation-slide-host] .presentation-animation-target--pending').length",
+    'pending click animation')
+  check('slideshow initializes click-triggered object animations', pendingAnimationTargets > 0, `${pendingAnimationTargets} target(s)`)
+
+  await pressKey(send, { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 })
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-page-input]').value === '1' && document.querySelector('[data-testid=presentation-slide-host] .presentation-animation-target--entrance')",
+    'first click animation step')
+  check('first slideshow click runs the object animation without changing slides', true)
+
   await pressKey(send, { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 })
   await waitFor(send, "document.querySelector('[data-testid=presentation-page-input]').value === '2'", 'fullscreen arrow navigation')
-  check('slideshow advances with the arrow key', true)
+  check('next click advances after the current slide animation steps finish', true)
 
   await waitFor(
     send,
