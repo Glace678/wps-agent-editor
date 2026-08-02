@@ -1027,7 +1027,7 @@ try {
     await sleep(5_000)
     const newSlideResult = await evaluate(send, `(() => {
       const input = document.querySelector('[data-testid=presentation-page-input]');
-      const total = Number(input?.nextElementSibling?.textContent.replace(/\D/g, ''));
+      const total = document.querySelectorAll('[data-testid=presentation-thumbnails] .presentation-thumbnail').length;
       const error = document.querySelector('[data-testid=presentation-edit-error]')?.textContent?.trim();
       const presentationState = document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState;
       return {
@@ -1062,17 +1062,15 @@ try {
 
     await evaluate(send, "document.querySelector('[data-testid=presentation-duplicate-slide]').click(); true")
     await waitFor(send, `(() => {
-      const input = document.querySelector('[data-testid=presentation-page-input]');
       return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
-        && Number(input?.nextElementSibling?.textContent.replace(/\D/g, '')) === 5;
+        && document.querySelectorAll('[data-testid=presentation-thumbnails] .presentation-thumbnail').length === 5;
     })()`, 'duplicated slide', 120_000)
     check('Duplicate slide creates an independent copy', true)
 
     await evaluate(send, "document.querySelector('[data-testid=presentation-delete-slide]').click(); true")
     await waitFor(send, `(() => {
-      const input = document.querySelector('[data-testid=presentation-page-input]');
       return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
-        && Number(input?.nextElementSibling?.textContent.replace(/\D/g, '')) === 4;
+        && document.querySelectorAll('[data-testid=presentation-thumbnails] .presentation-thumbnail').length === 4;
     })()`, 'deleted duplicated slide', 120_000)
     check('Delete slide removes the selected slide while preserving the deck', true)
 
@@ -1091,9 +1089,8 @@ try {
       return true;
     })()`)
     await waitFor(send, `(() => {
-      const input = document.querySelector('[data-testid=presentation-page-input]');
       return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
-        && Number(input?.nextElementSibling?.textContent.replace(/\D/g, '')) === 6
+        && document.querySelectorAll('[data-testid=presentation-thumbnails] .presentation-thumbnail').length === 6
         && document.querySelector('[data-testid=presentation-slide-host]')?.textContent.includes('Roadmap');
     })()`, 'outline slides imported', 120_000)
     check('outline import creates title-and-content slides in order', true)
