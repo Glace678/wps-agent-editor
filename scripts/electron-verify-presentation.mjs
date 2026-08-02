@@ -699,14 +699,14 @@ try {
 
   await clickSelector(send, '[data-testid=presentation-new-slide-menu]')
   await waitFor(send,
-    "document.querySelector('[data-testid=presentation-import-outline]') && document.querySelector('[data-testid=presentation-reuse-slides]')",
+    "Boolean(document.querySelector('[data-testid=presentation-import-outline]') && document.querySelector('[data-testid=presentation-reuse-slides]'))",
     'new slide dropdown')
   check('new slide dropdown exposes outline import and reuse slides', true)
   await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
 
   await clickSelector(send, '[data-testid=presentation-slideshow-menu]')
   await waitFor(send,
-    "document.querySelector('[data-testid=presentation-start-from-beginning]') && document.querySelector('[data-testid=presentation-start-from-current]')",
+    "Boolean(document.querySelector('[data-testid=presentation-start-from-beginning]') && document.querySelector('[data-testid=presentation-start-from-current]'))",
     'slideshow dropdown')
   check('slideshow dropdown exposes beginning and current-slide starts', true)
   await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
@@ -964,7 +964,7 @@ try {
   check('Escape exits slideshow mode', true)
 
   await clickSelector(send, '[data-testid=presentation-slideshow-menu]')
-  await waitFor(send, "document.querySelector('[data-testid=presentation-start-from-current]')", 'current-slide slideshow item')
+  await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-start-from-current]'))", 'current-slide slideshow item')
   await clickSelector(send, '[data-testid=presentation-start-from-current]')
   await waitFor(send,
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '2'",
@@ -976,7 +976,7 @@ try {
   await evaluate(send, "document.querySelector('[data-testid=presentation-thumbnail-3]').click(); true")
   await waitFor(send, "document.querySelector('[data-testid=presentation-page-input]').value === '3'", 'third slide before beginning slideshow')
   await clickSelector(send, '[data-testid=presentation-slideshow-menu]')
-  await waitFor(send, "document.querySelector('[data-testid=presentation-start-from-beginning]')", 'beginning slideshow item')
+  await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-start-from-beginning]'))", 'beginning slideshow item')
   await clickSelector(send, '[data-testid=presentation-start-from-beginning]')
   await waitFor(send,
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '1'",
@@ -996,7 +996,7 @@ try {
     check('New slide inserts after the current slide and selects it', true)
 
     await evaluate(send, "document.querySelector('[data-testid=presentation-edit-slide]').click(); true")
-    await waitFor(send, "document.querySelector('[data-testid=presentation-text-dialog]')", 'slide text editor', 120_000)
+    await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-text-dialog]'))", 'slide text editor', 120_000)
     await evaluate(send, `(() => {
       const title = document.querySelector('[data-testid=presentation-slide-title-input]');
       const body = document.querySelector('[data-testid=presentation-slide-body-input]');
@@ -1030,9 +1030,9 @@ try {
     check('Delete slide removes the selected slide while preserving the deck', true)
 
     await clickSelector(send, '[data-testid=presentation-new-slide-menu]')
-    await waitFor(send, "document.querySelector('[data-testid=presentation-import-outline]')", 'outline import menu item')
+    await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-import-outline]'))", 'outline import menu item')
     await clickSelector(send, '[data-testid=presentation-import-outline]')
-    await waitFor(send, "document.querySelector('[data-testid=presentation-outline-dialog]')", 'outline import dialog')
+    await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-outline-dialog]'))", 'outline import dialog')
     await evaluate(send, `(() => {
       const outline = document.querySelector('[data-testid=presentation-outline-input]');
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
