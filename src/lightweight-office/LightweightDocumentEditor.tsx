@@ -462,6 +462,8 @@ export function LightweightDocumentEditor() {
           <PresentationViewer
             filePath={currentFile}
             onReady={handleReady}
+            onDirty={handleDirty}
+            onSaveSuccess={handleSaveSuccess}
             onRegisterSave={handleRegisterSave}
           />
         </Suspense>

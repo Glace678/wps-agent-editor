@@ -505,6 +505,7 @@ export function PresentationViewer({
     const next = Math.max(0, Math.min(index, activeViewer.slideCount - 1))
     if (next === previous) return
     await activeViewer.goToSlide(next)
+    desiredSlideIndexRef.current = next
     setCurrentSlide(next)
     prepareSlideRuntime(activeViewer, next)
     animateSlide(
@@ -648,7 +649,10 @@ export function PresentationViewer({
   useEffect(() => clearControlsTimer, [clearControlsTimer])
 
   const startPresentation = useCallback(async (fromBeginning: boolean) => {
+    isPresentingRef.current = true
     if (fromBeginning) await goToSlide(0)
+    const activeViewer = viewerRef.current
+    if (activeViewer) prepareSlideRuntime(activeViewer, activeViewer.currentSlideIndex, true)
     setIsPresenting(true)
     setControlsVisible(true)
     const root = rootRef.current
@@ -659,10 +663,13 @@ export function PresentationViewer({
         console.warn('[PresentationViewer] Fullscreen request failed:', error)
       }
     }
-  }, [goToSlide])
+  }, [goToSlide, prepareSlideRuntime])
 
   const stopPresentation = useCallback(async () => {
     clearControlsTimer()
+    isPresentingRef.current = false
+    const activeViewer = viewerRef.current
+    if (activeViewer) prepareSlideRuntime(activeViewer, activeViewer.currentSlideIndex, false)
     setIsPresenting(false)
     setControlsVisible(true)
     if (document.fullscreenElement === rootRef.current) {
@@ -672,11 +679,116 @@ export function PresentationViewer({
         console.warn('[PresentationViewer] Unable to exit fullscreen:', error)
       }
     }
-  }, [clearControlsTimer])
+  }, [clearControlsTimer, prepareSlideRuntime])
 
   const setClampedZoom = useCallback((next: number) => {
     setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next)))
   }, [])
+
+  const advancePresentation = useCallback(() => {
+    const runtime = animationRuntimeRef.current
+    if (runtime && runNextPresentationAnimation(runtime)) return
+    void goToSlide(currentSlide + 1)
+  }, [currentSlide, goToSlide])
+
+  const describeEditError = useCallback((error: unknown) => {
+    const raw = error instanceof Error ? error.message : String(error)
+    const message = raw.replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    if (message.includes('PRESENTATION_CANNOT_DELETE_ONLY_SLIDE')) {
+      return t('presentationViewer.cannotDeleteOnlySlide')
+    }
+    if (message.includes('PRESENTATION_EDITOR_UNAVAILABLE')) {
+      return t('presentationViewer.editorUnavailable')
+    }
+    if (message.includes('PRESENTATION_REUSE')) {
+      return t('presentationViewer.reuseFailed')
+    }
+    return t('presentationViewer.editFailed', { error: message })
+  }, [t])
+
+  const executeEditOperation = useCallback(async (
+    operation: PresentationEditOperation,
+  ): Promise<PresentationEditResult | null> => {
+    const buffer = presentationBufferRef.current
+    if (!buffer) return null
+    setEditBusy(true)
+    setEditError('')
+    try {
+      const result = await window.api.lw.editPresentation({
+        data: new Uint8Array(buffer),
+        operation,
+      })
+      if (result.data) {
+        presentationBufferRef.current = copyBinaryData(result.data)
+        desiredSlideIndexRef.current = result.currentSlideIndex
+        setSlideCount(result.slideCount)
+        setCurrentSlide(result.currentSlideIndex)
+        setContentRevision((revision) => revision + 1)
+        onDirty?.()
+      }
+      return result
+    } catch (error) {
+      console.error('[PresentationViewer] Presentation edit failed:', error)
+      setEditError(describeEditError(error))
+      return null
+    } finally {
+      setEditBusy(false)
+    }
+  }, [describeEditError, onDirty])
+
+  const addSlide = useCallback(() => {
+    void executeEditOperation({ type: 'add', afterSlideIndex: currentSlide })
+  }, [currentSlide, executeEditOperation])
+
+  const openSlideTextEditor = useCallback(() => {
+    void (async () => {
+      const result = await executeEditOperation({ type: 'inspect', slideIndex: currentSlide })
+      if (!result?.slide) return
+      setEditTitle(result.slide.title)
+      setEditBody(result.slide.body)
+      setEditDialogMode('text')
+    })()
+  }, [currentSlide, executeEditOperation])
+
+  const openOutlineImporter = useCallback(() => {
+    setEditTitle('')
+    setEditBody('')
+    setEditError('')
+    setEditDialogMode('outline')
+  }, [])
+
+  const reuseSlides = useCallback(() => {
+    void (async () => {
+      const sourcePath = await window.api.file.selectFile('presentation')
+      if (!sourcePath) return
+      await executeEditOperation({ type: 'reuseSlides', afterSlideIndex: currentSlide, sourcePath })
+    })()
+  }, [currentSlide, executeEditOperation])
+
+  const submitEditDialog = useCallback(() => {
+    void (async () => {
+      if (editDialogMode === 'text') {
+        const result = await executeEditOperation({
+          type: 'updateText',
+          slideIndex: currentSlide,
+          title: editTitle,
+          body: editBody,
+        })
+        if (result) setEditDialogMode(null)
+        return
+      }
+      if (editDialogMode === 'outline') {
+        const slides = parseOutlineSlides(editBody)
+        if (slides.length === 0) return
+        const result = await executeEditOperation({
+          type: 'importOutline',
+          afterSlideIndex: currentSlide,
+          slides,
+        })
+        if (result) setEditDialogMode(null)
+      }
+    })()
+  }, [currentSlide, editBody, editDialogMode, editTitle, executeEditOperation])
 
   const onStageWheel = useCallback((event: ReactWheelEvent<HTMLElement>) => {
     if (event.ctrlKey) {
@@ -875,7 +987,8 @@ export function PresentationViewer({
 
       if (['ArrowRight', 'ArrowDown', 'PageDown'].includes(event.key) || (isPresenting && (event.key === ' ' || event.key === 'Enter'))) {
         event.preventDefault()
-        void goToSlide(currentSlide + 1)
+        if (isPresenting) advancePresentation()
+        else void goToSlide(currentSlide + 1)
       } else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key)) {
         event.preventDefault()
         void goToSlide(currentSlide - 1)
@@ -890,7 +1003,7 @@ export function PresentationViewer({
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [currentSlide, goToSlide, isPresenting, setClampedZoom, slideCount, startPresentation, stopPresentation, zoom])
+  }, [advancePresentation, currentSlide, goToSlide, isPresenting, setClampedZoom, slideCount, startPresentation, stopPresentation, zoom])
 
   useEffect(() => {
     return () => {
@@ -923,7 +1036,7 @@ export function PresentationViewer({
     if (!isPresenting || event.button !== 0) return
     const target = event.target instanceof HTMLElement ? event.target : null
     if (target?.closest('a, button, input, video, audio, [role="link"]')) return
-    void goToSlide(currentSlide + 1)
+    advancePresentation()
   }
 
   const surfaceInset = isPresenting ? 12 : 24
@@ -953,24 +1066,115 @@ export function PresentationViewer({
       onMouseMove={revealPresentationControls}
     >
       <div
-        className="presentation-toolbar flex h-11 shrink-0 items-center gap-1 border-b border-black/10 bg-[#f8f8f8] px-2 dark:border-white/10 dark:bg-[#202224]"
+        className="presentation-toolbar flex h-[41px] shrink-0 items-center gap-1 overflow-hidden border-b border-black/10 bg-[#f8f8f8] px-2 dark:border-white/10 dark:bg-[#202224]"
         role="toolbar"
         aria-label={t('presentationViewer.toolbar')}
       >
         {!isPresenting ? (
-          <PresentationToolbarTooltip
-            label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
-          >
-            <button
-              type="button"
-              className="presentation-icon-button"
-              aria-label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
-              data-testid="presentation-thumbnail-toggle"
-              onClick={() => setShowThumbnails((visible) => !visible)}
+          <>
+            <PresentationToolbarTooltip
+              label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
             >
-              {showThumbnails ? <PanelLeftClose /> : <PanelLeftOpen />}
-            </button>
-          </PresentationToolbarTooltip>
+              <button
+                type="button"
+                className="presentation-icon-button"
+                aria-label={showThumbnails ? t('presentationViewer.hideThumbnails') : t('presentationViewer.showThumbnails')}
+                data-testid="presentation-thumbnail-toggle"
+                onClick={() => setShowThumbnails((visible) => !visible)}
+              >
+                {showThumbnails ? <PanelLeftClose /> : <PanelLeftOpen />}
+              </button>
+            </PresentationToolbarTooltip>
+
+            <div className="presentation-toolbar-separator" />
+            <div className="presentation-split-command presentation-new-slide-command">
+              <button
+                type="button"
+                className="presentation-command-button presentation-split-command-main"
+                disabled={loading || editBusy || slideCount === 0}
+                aria-label={t('presentationViewer.newSlide')}
+                data-testid="presentation-new-slide"
+                onClick={addSlide}
+              >
+                {editBusy ? <LoaderCircle className="animate-spin" /> : <Plus />}
+                <span>{t('presentationViewer.newSlide')}</span>
+              </button>
+              <DropdownMenu.Root modal={false}>
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    type="button"
+                    className="presentation-split-command-arrow"
+                    disabled={loading || editBusy || slideCount === 0}
+                    aria-label={t('presentationViewer.newSlideOptions')}
+                    data-testid="presentation-new-slide-menu"
+                  >
+                    <ChevronDown />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content sideOffset={4} align="start" className={presentationMenuContentClass}>
+                    <DropdownMenu.Item className={presentationMenuItemClass} onSelect={addSlide}>
+                      <Plus className="h-4 w-4" />
+                      <span>{t('presentationViewer.newSlide')}</span>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className={presentationMenuItemClass}
+                      data-testid="presentation-import-outline"
+                      onSelect={openOutlineImporter}
+                    >
+                      <FileText className="h-4 w-4" />
+                      <span>{t('presentationViewer.importOutline')}</span>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className={presentationMenuItemClass}
+                      data-testid="presentation-reuse-slides"
+                      onSelect={reuseSlides}
+                    >
+                      <Copy className="h-4 w-4" />
+                      <span>{t('presentationViewer.reuseSlides')}</span>
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
+
+            <PresentationToolbarTooltip label={t('presentationViewer.editSlideText')}>
+              <button
+                type="button"
+                className="presentation-icon-button"
+                disabled={loading || editBusy || slideCount === 0}
+                aria-label={t('presentationViewer.editSlideText')}
+                data-testid="presentation-edit-slide"
+                onClick={openSlideTextEditor}
+              >
+                <Pencil />
+              </button>
+            </PresentationToolbarTooltip>
+            <PresentationToolbarTooltip label={t('presentationViewer.duplicateSlide')}>
+              <button
+                type="button"
+                className="presentation-icon-button"
+                disabled={loading || editBusy || slideCount === 0}
+                aria-label={t('presentationViewer.duplicateSlide')}
+                data-testid="presentation-duplicate-slide"
+                onClick={() => void executeEditOperation({ type: 'duplicate', slideIndex: currentSlide })}
+              >
+                <Copy />
+              </button>
+            </PresentationToolbarTooltip>
+            <PresentationToolbarTooltip label={t('presentationViewer.deleteSlide')}>
+              <button
+                type="button"
+                className="presentation-icon-button"
+                disabled={loading || editBusy || slideCount <= 1}
+                aria-label={t('presentationViewer.deleteSlide')}
+                data-testid="presentation-delete-slide"
+                onClick={() => void executeEditOperation({ type: 'delete', slideIndex: currentSlide })}
+              >
+                <Trash2 />
+              </button>
+            </PresentationToolbarTooltip>
+          </>
         ) : null}
 
         <div className="presentation-toolbar-separator" />
@@ -1080,10 +1284,10 @@ export function PresentationViewer({
             </button>
           </PresentationToolbarTooltip>
         ) : (
-          <PresentationToolbarTooltip label={t('presentationViewer.startSlideshow')}>
+          <div className="presentation-split-command presentation-slideshow-button">
             <button
               type="button"
-              className="presentation-command-button presentation-slideshow-button"
+              className="presentation-command-button presentation-split-command-main"
               disabled={loading || slideCount === 0}
               aria-label={t('presentationViewer.startSlideshow')}
               data-testid="presentation-start-slideshow"
@@ -1091,11 +1295,51 @@ export function PresentationViewer({
             >
               <Play className="h-4 w-4 fill-current" />
               <span>{t('presentationViewer.slideshow')}</span>
-              <Maximize2 className="h-3.5 w-3.5 opacity-65" />
             </button>
-          </PresentationToolbarTooltip>
+            <DropdownMenu.Root modal={false}>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className="presentation-split-command-arrow"
+                  disabled={loading || slideCount === 0}
+                  aria-label={t('presentationViewer.slideshowOptions')}
+                  data-testid="presentation-slideshow-menu"
+                >
+                  <ChevronDown />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content sideOffset={4} align="end" className={presentationMenuContentClass}>
+                  <DropdownMenu.Item
+                    className={presentationMenuItemClass}
+                    data-testid="presentation-start-from-beginning"
+                    onSelect={() => void startPresentation(true)}
+                  >
+                    <Play className="h-4 w-4 fill-current" />
+                    <span className="flex-1">{t('presentationViewer.startFromBeginning')}</span>
+                    <span className="text-[11px] text-muted-foreground">F5</span>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className={presentationMenuItemClass}
+                    data-testid="presentation-start-from-current"
+                    onSelect={() => void startPresentation(false)}
+                  >
+                    <Play className="h-4 w-4" />
+                    <span className="flex-1">{t('presentationViewer.startFromCurrent')}</span>
+                    <span className="text-[11px] text-muted-foreground">Shift+F5</span>
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
         )}
       </div>
+
+      {editError && !editDialogMode ? (
+        <div className="presentation-operation-error" role="alert" data-testid="presentation-edit-error">
+          {editError}
+        </div>
+      ) : null}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {!isPresenting && showThumbnails ? (
@@ -1188,7 +1432,10 @@ export function PresentationViewer({
                 <button
                   type="button"
                   className="presentation-command-button mt-1"
-                  onClick={() => setRetryToken((value) => value + 1)}
+                  onClick={() => {
+                    presentationBufferRef.current = null
+                    setRetryToken((value) => value + 1)
+                  }}
                 >
                   <RefreshCw className="h-4 w-4" />
                   <span>{t('presentationViewer.retry')}</span>
@@ -1198,6 +1445,21 @@ export function PresentationViewer({
           ) : null}
         </main>
       </div>
+      {editDialogMode ? (
+        <PresentationEditDialog
+          mode={editDialogMode}
+          title={editTitle}
+          body={editBody}
+          busy={editBusy}
+          error={editError}
+          onTitleChange={setEditTitle}
+          onBodyChange={setEditBody}
+          onClose={() => {
+            if (!editBusy) setEditDialogMode(null)
+          }}
+          onSubmit={submitEditDialog}
+        />
+      ) : null}
       </div>
     </TooltipProvider>
   )
