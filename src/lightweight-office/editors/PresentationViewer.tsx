@@ -466,10 +466,29 @@ export function PresentationViewer({
     }
   }, [aspectRatio, isPresenting, viewportSize.height, viewportSize.width, zoom])
 
-  const animateSlide = useCallback((direction: SlideDirection) => {
+  const prepareSlideRuntime = useCallback((
+    activeViewer: PptxViewer,
+    slideIndex: number,
+    active = isPresentingRef.current,
+  ) => {
+    clearPresentationAnimations(animationRuntimeRef.current)
+    animationRuntimeRef.current = preparePresentationAnimations(
+      activeViewer,
+      slideIndex,
+      mainSlideElement(slideHostRef.current),
+      active,
+    )
+  }, [])
+
+  const animateSlide = useCallback((
+    direction: SlideDirection,
+    transition: PresentationTransition,
+  ) => {
     const host = slideHostRef.current
     if (!host) return
     host.dataset.slideDirection = direction
+    host.dataset.slideTransition = transition.kind
+    host.style.setProperty('--presentation-slide-transition-ms', `${transition.durationMs}ms`)
     host.classList.remove('presentation-slide-host--changing')
     void host.offsetWidth
     host.classList.add('presentation-slide-host--changing')
@@ -487,8 +506,12 @@ export function PresentationViewer({
     if (next === previous) return
     await activeViewer.goToSlide(next)
     setCurrentSlide(next)
-    animateSlide(next > previous ? 'next' : 'previous')
-  }, [animateSlide])
+    prepareSlideRuntime(activeViewer, next)
+    animateSlide(
+      next > previous ? 'next' : 'previous',
+      getPresentationTransition(activeViewer, next),
+    )
+  }, [animateSlide, prepareSlideRuntime])
 
   useEffect(() => {
     const host = slideHostRef.current
