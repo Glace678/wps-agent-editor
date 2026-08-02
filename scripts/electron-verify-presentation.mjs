@@ -1014,7 +1014,16 @@ try {
     await waitFor(send,
       "Boolean(document.querySelector('[data-testid=presentation-new-slide]') && !document.querySelector('[data-testid=presentation-new-slide]').disabled)",
       'enabled new slide control')
+    const newSlideStartedAt = Date.now()
     await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide]').click(); true")
+    await waitFor(send,
+      "Boolean(document.querySelector('[data-testid=presentation-new-slide] .animate-spin'))",
+      'new slide operation start')
+    await waitFor(send,
+      "!document.querySelector('[data-testid=presentation-new-slide] .animate-spin')",
+      'new slide operation completion',
+      130_000)
+    console.log(`[INFO] new slide operation elapsed: ${Date.now() - newSlideStartedAt}ms`)
     const newSlideResult = await waitFor(send, `(() => {
       const input = document.querySelector('[data-testid=presentation-page-input]');
       const total = Number(input?.nextElementSibling?.textContent.replace(/\D/g, ''));
@@ -1034,7 +1043,7 @@ try {
         && total === 4
         ? { ok: input?.value === '2', total, page: input?.value }
         : null;
-    })()`, 'new slide created through Office automation', 120_000)
+    })()`, 'new slide created through Office automation', 45_000)
     check('New slide inserts after the current slide and selects it', newSlideResult.ok, JSON.stringify(newSlideResult))
     if (!newSlideResult.ok) throw new Error(`New slide operation failed: ${JSON.stringify(newSlideResult)}`)
 
