@@ -4,21 +4,27 @@ import {
   type SlideHandle,
 } from '@aiden0z/pptx-renderer'
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  FileText,
   LoaderCircle,
-  Maximize2,
   Minimize2,
   MoveHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Play,
+  Plus,
   Presentation,
   RefreshCw,
   Scan,
+  Trash2,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   useCallback,
   useEffect,
@@ -35,8 +41,23 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { cn } from '@/lib/utils'
+import { useEditorStore } from '@/stores/editor.store'
+import type {
+  PresentationEditOperation,
+  PresentationEditResult,
+  PresentationSlideText,
+} from '@/types/presentation'
 import { documentBridge } from '../agent/document-bridge'
-import { getExtension, readPresentationBuffer } from '../utils/file-io'
+import { getExtension, readPresentationBuffer, saveFileBuffer } from '../utils/file-io'
+import { PresentationEditDialog, type PresentationEditDialogMode } from './PresentationEditDialog'
+import {
+  clearPresentationAnimations,
+  getPresentationTransition,
+  preparePresentationAnimations,
+  runNextPresentationAnimation,
+  type PresentationAnimationRuntime,
+  type PresentationTransition,
+} from './presentation-animation'
 import './presentation-viewer.css'
 
 const MIN_ZOOM = 50
@@ -54,10 +75,18 @@ const THUMBNAIL_ROW_CHROME_WIDTH = 40
 const THUMBNAIL_PANE_STORAGE_KEY = 'presentation-thumbnail-pane-width'
 const WHEEL_NAVIGATION_THRESHOLD = 32
 const WHEEL_NAVIGATION_IDLE_MS = 160
+const MAX_OUTLINE_SLIDES = 100
+
+const presentationMenuContentClass =
+  'z-[10000] min-w-[210px] rounded-[4px] border border-black/15 bg-[#f9f9f9] p-1 text-[12px] text-[#202020] shadow-xl dark:border-white/15 dark:bg-[#2c2c2c] dark:text-[#f4f4f4]'
+const presentationMenuItemClass =
+  'flex h-8 cursor-default select-none items-center gap-2 rounded-[3px] px-2 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-black/[0.07] dark:data-[highlighted]:bg-white/[0.1]'
 
 interface PresentationViewerProps {
   filePath: string
   onReady?: () => void
+  onDirty?: () => void
+  onSaveSuccess?: () => void
   onRegisterSave?: (fn: (() => Promise<void>) | null) => void
 }
 
@@ -95,6 +124,46 @@ function estimatedThumbnailScale(paneWidth: number): number {
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+}
+
+function copyBinaryData(data: Uint8Array | ArrayBuffer): ArrayBuffer {
+  if (data instanceof ArrayBuffer) return data.slice(0)
+  const copy = new Uint8Array(data.byteLength)
+  copy.set(data)
+  return copy.buffer
+}
+
+function resolvePresentationSavePath(filePath: string): string {
+  if (getExtension(filePath) !== 'ppt') return filePath
+  return filePath.replace(/\.ppt$/i, '.pptx')
+}
+
+function parseOutlineSlides(outline: string): PresentationSlideText[] {
+  const slides: PresentationSlideText[] = []
+  let current: PresentationSlideText | null = null
+
+  for (const rawLine of outline.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!rawLine.trim()) continue
+    const trimmed = rawLine.trim()
+    const isBody = /^\s+/.test(rawLine) || /^[-*+]\s+/.test(trimmed)
+    const value = trimmed.replace(/^#{1,6}\s+/, '').replace(/^[-*+]\s+/, '').trim()
+    if (!value) continue
+
+    if (!isBody || !current) {
+      current = { title: value, body: '' }
+      slides.push(current)
+      if (slides.length >= MAX_OUTLINE_SLIDES) break
+    } else {
+      current.body = current.body ? `${current.body}\n${value}` : value
+    }
+  }
+  return slides
+}
+
+function mainSlideElement(host: HTMLElement | null): HTMLElement | null {
+  const wrapper = host?.firstElementChild
+  const slide = wrapper?.firstElementChild
+  return slide instanceof HTMLElement ? slide : null
 }
 
 function PresentationToolbarTooltip({ label, children }: { label: string; children: ReactNode }) {
