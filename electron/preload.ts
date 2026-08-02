@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from './ipc/channels'
 import type { AppMenuAction } from '../src/types/app-menu'
 import type { ThemePreference } from '../src/lib/theme'
+import type { PresentationEditRequest } from '../src/types/presentation'
 
 const api = {
   file: {
@@ -11,7 +12,7 @@ const api = {
     getRecent: () => ipcRenderer.invoke(IPC.FILE_GET_RECENT),
     getHome: () => ipcRenderer.invoke(IPC.FILE_GET_HOME),
     selectFolder: () => ipcRenderer.invoke(IPC.FILE_SELECT_FOLDER),
-    selectFile: (kind?: 'all' | 'text') => ipcRenderer.invoke(IPC.FILE_SELECT_FILE, kind),
+    selectFile: (kind?: 'all' | 'text' | 'presentation') => ipcRenderer.invoke(IPC.FILE_SELECT_FILE, kind),
     selectSaveFile: (defaultName?: string) =>
       ipcRenderer.invoke(IPC.FILE_SELECT_SAVE_FILE, defaultName),
     stat: (filePath: string) => ipcRenderer.invoke(IPC.FILE_STAT, filePath),
@@ -78,6 +79,8 @@ const api = {
   lw: {
     readFile: (filePath: string) => ipcRenderer.invoke(IPC.LW_READ_FILE, filePath),
     readPresentation: (filePath: string) => ipcRenderer.invoke(IPC.LW_READ_PRESENTATION, filePath),
+    editPresentation: (request: PresentationEditRequest) =>
+      ipcRenderer.invoke(IPC.LW_EDIT_PRESENTATION, request),
     saveFile: (filePath: string, base64: string) => ipcRenderer.invoke(IPC.LW_SAVE_FILE, filePath, base64),
     saveText: (filePath: string, text: string, encoding: string) =>
       ipcRenderer.invoke(IPC.LW_SAVE_TEXT, filePath, text, encoding),

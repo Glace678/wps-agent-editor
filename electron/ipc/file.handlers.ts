@@ -27,6 +27,7 @@ import {
 const OFFICE_FILE_EXTENSIONS = Object.freeze([
   'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'pdf', 'odt', 'ods',
 ])
+const PRESENTATION_FILE_EXTENSIONS = Object.freeze(['pptx', 'ppt'])
 const TEXT_FILE_EXTENSIONS = Object.freeze(['txt', 'md', 'markdown', 'json', 'log'])
 
 function uniqueExtensions(...groups: readonly (readonly string[])[]): string[] {
@@ -116,7 +117,10 @@ export function registerFileHandlers(): void {
     return normalizePath(result.filePaths[0])
   })
 
-  ipcMain.handle(IPC.FILE_SELECT_FILE, async (_event, kind: 'all' | 'text' = 'all') => {
+  ipcMain.handle(IPC.FILE_SELECT_FILE, async (
+    _event,
+    kind: 'all' | 'text' | 'presentation' = 'all',
+  ) => {
     const win = BrowserWindow.getFocusedWindow()
     const officeFilter = {
       name: t('fileHandler.officeDocuments'),
@@ -124,6 +128,10 @@ export function registerFileHandlers(): void {
     }
     const textFilter = { name: t('fileHandler.text'), extensions: [...TEXT_FILE_EXTENSIONS] }
     const codeFilter = { name: t('fileHandler.codeDocuments'), extensions: [...CODE_FILE_EXTENSIONS] }
+    const presentationFilter = {
+      name: t('fileHandler.officeDocuments'),
+      extensions: [...PRESENTATION_FILE_EXTENSIONS],
+    }
     const supportedFilter = {
       name: t('fileHandler.supportedFiles'),
       extensions: uniqueExtensions(OFFICE_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS, CODE_FILE_EXTENSIONS),
@@ -141,7 +149,9 @@ export function registerFileHandlers(): void {
       properties: ['openFile'],
       filters: kind === 'text'
         ? [textFilter, { name: t('fileHandler.allFiles'), extensions: ['*'] }]
-        : [
+        : kind === 'presentation'
+          ? [presentationFilter, { name: t('fileHandler.allFiles'), extensions: ['*'] }]
+          : [
             supportedFilter,
             ...languageFilters,
             codeFilter,

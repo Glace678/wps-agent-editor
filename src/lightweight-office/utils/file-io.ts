@@ -35,6 +35,7 @@ export interface PresentationFileBuffer {
   buffer: ArrayBuffer
   convertedFromLegacy: boolean
   converter: 'libreoffice' | 'powerpoint' | 'wps' | null
+  normalizedWmfCount: number
 }
 
 export async function readPresentationBuffer(filePath: string): Promise<PresentationFileBuffer> {
@@ -43,6 +44,7 @@ export async function readPresentationBuffer(filePath: string): Promise<Presenta
     buffer: toArrayBuffer(result.data),
     convertedFromLegacy: result.convertedFromLegacy,
     converter: result.converter,
+    normalizedWmfCount: result.normalizedWmfCount,
   }
 }
 

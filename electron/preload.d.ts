@@ -10,6 +10,7 @@ import type { LanguageCode } from '../src/lib/i18n/types'
 import type { AppMenuAction } from '../src/types/app-menu'
 import type { ThemePreference } from '../src/lib/theme'
 import type { CodeRunResult } from '../src/types/code'
+import type { PresentationEditRequest, PresentationEditResult } from '../src/types/presentation'
 
 export interface ElectronAPI {
   file: {
@@ -19,7 +20,7 @@ export interface ElectronAPI {
     getRecent: () => Promise<RecentFile[]>
     getHome: () => Promise<string>
     selectFolder: () => Promise<string | null>
-    selectFile: (kind?: 'all' | 'text') => Promise<string | null>
+    selectFile: (kind?: 'all' | 'text' | 'presentation') => Promise<string | null>
     selectSaveFile: (defaultName?: string) => Promise<string | null>
     stat: (filePath: string) => Promise<FileStatInfo>
     rename: (filePath: string, newName: string) => Promise<{
@@ -133,7 +134,9 @@ export interface ElectronAPI {
       encoding: 'binary' | 'base64'
       convertedFromLegacy: boolean
       converter: 'libreoffice' | 'powerpoint' | 'wps' | null
+      normalizedWmfCount: number
     }>
+    editPresentation: (request: PresentationEditRequest) => Promise<PresentationEditResult>
     saveFile: (filePath: string, base64: string) => Promise<{ success: boolean }>
     saveText: (filePath: string, text: string, encoding: string) => Promise<{ success: boolean }>
     listFonts: (language?: LanguageCode) => Promise<Array<{

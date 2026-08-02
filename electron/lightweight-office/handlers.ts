@@ -13,6 +13,8 @@ import { handleAgentResult } from './agent-bridge.service'
 import { getLanguage, type LanguageCode } from '../i18n/types'
 import { runCodeFile } from '../services/code-runner.service'
 import { preparePresentation } from '../services/presentation-converter.service'
+import { editPresentation } from '../services/presentation-editor.service'
+import type { PresentationEditRequest } from '../../src/types/presentation'
 
 interface SystemFontFace {
   familyName: string
@@ -124,9 +126,22 @@ export function registerLightweightOfficeHandlers(
         encoding: 'binary' as const,
         convertedFromLegacy: prepared.convertedFromLegacy,
         converter: prepared.converter,
+        normalizedWmfCount: prepared.normalizedWmfCount,
       }
     } catch (error) {
       console.error('LW_READ_PRESENTATION error:', error)
+      throw error
+    }
+  })
+
+  ipcMain.handle(IPC.LW_EDIT_PRESENTATION, async (_e, request: PresentationEditRequest) => {
+    try {
+      if (!request || !request.data || !request.operation) {
+        throw new TypeError('Invalid presentation edit request')
+      }
+      return await editPresentation(request.data, request.operation)
+    } catch (error) {
+      console.error('LW_EDIT_PRESENTATION error:', error)
       throw error
     }
   })
