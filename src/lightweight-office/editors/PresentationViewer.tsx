@@ -523,6 +523,7 @@ export function PresentationViewer({
     if (!host) return
 
     let cancelled = false
+    let animationSourceFrame: number | null = null
     const abortController = new AbortController()
     documentBridge.clear()
     viewerRef.current?.destroy()
@@ -572,8 +573,6 @@ export function PresentationViewer({
           presentationBufferFileRef.current = filePath
         }
         if (cancelled) return
-        presentationSlideXmlRef.current = await extractPresentationSlideXml(buffer)
-        if (cancelled) return
         await nextViewer.open(buffer, {
           renderMode: 'slide',
           signal: abortController.signal,
@@ -584,6 +583,9 @@ export function PresentationViewer({
 
         const count = nextViewer.slideCount
         if (count === 0) throw new Error('The presentation contains no slides')
+        presentationSlideXmlRef.current = nextViewer.presentationData?.slides.map(
+          (slide) => slide.sourceXml ?? '',
+        ) ?? []
         const desiredSlide = clamp(desiredSlideIndexRef.current, 0, count - 1)
         if (desiredSlide !== nextViewer.currentSlideIndex) {
           await nextViewer.goToSlide(desiredSlide)
@@ -601,6 +603,27 @@ export function PresentationViewer({
         setViewer(nextViewer)
         setLoading(false)
         onReady?.()
+
+        const missingSourceIndex = presentationSlideXmlRef.current.findIndex((source) => !source)
+        if (missingSourceIndex >= 0) {
+          const openedBuffer = buffer
+          animationSourceFrame = requestAnimationFrame(() => {
+            animationSourceFrame = null
+            void extractPresentationSlideXml(openedBuffer, [missingSourceIndex])
+              .then((sources) => {
+                if (cancelled || viewerRef.current !== nextViewer) return
+                const source = sources[missingSourceIndex]
+                if (!source) return
+                presentationSlideXmlRef.current[missingSourceIndex] = source
+                if (nextViewer.currentSlideIndex === missingSourceIndex) {
+                  prepareSlideRuntime(nextViewer, missingSourceIndex)
+                }
+              })
+              .catch((error) => {
+                console.warn('[PresentationViewer] Unable to read slide animation metadata:', error)
+              })
+          })
+        }
       } catch (error) {
         if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return
         console.error('[PresentationViewer] Unable to open presentation:', error)
@@ -617,6 +640,7 @@ export function PresentationViewer({
 
     return () => {
       cancelled = true
+      if (animationSourceFrame !== null) cancelAnimationFrame(animationSourceFrame)
       abortController.abort()
       nextViewer.destroy()
       clearPresentationAnimations(animationRuntimeRef.current)
