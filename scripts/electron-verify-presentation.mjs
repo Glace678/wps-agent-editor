@@ -17,6 +17,7 @@ const screenshotPath = path.join(cacheDirectory, 'electron-verify-presentation.p
 const toolbarTooltipScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-toolbar-tooltip.png')
 const resizerScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-resizer.png')
 const fullscreenScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-fullscreen.png')
+const editDialogScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-edit-dialog.png')
 const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-profile-'))
 const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-fixture-'))
 const fixturePath = path.join(fixtureDirectory, 'presentation-playback.pptx')
@@ -886,6 +887,19 @@ try {
   check('wheel down over the main slide advances exactly one slide',
     wheelDownDirection === 'next',
     wheelDownDirection)
+  const transitionTiming = await evaluate(send, `(() => {
+    const host = document.querySelector('[data-testid=presentation-slide-host]');
+    const slide = host.firstElementChild;
+    return {
+      kind: host.dataset.slideTransition,
+      durationMs: Number.parseFloat(getComputedStyle(host).getPropertyValue('--presentation-slide-transition-ms')),
+      delay: slide ? getComputedStyle(slide).animationDelay : '',
+    };
+  })()`)
+  check('slide transitions start immediately with a visible PowerPoint-like duration',
+    transitionTiming.durationMs >= 220 && transitionTiming.durationMs <= 520
+      && (transitionTiming.delay === '0s' || transitionTiming.delay === ''),
+    JSON.stringify(transitionTiming))
 
   await sleep(220)
   await wheelMouse(send, stageCenter, -120)
@@ -1044,6 +1058,8 @@ try {
 
     await evaluate(send, "document.querySelector('[data-testid=presentation-edit-slide]').click(); true")
     await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-text-dialog]'))", 'slide text editor', 120_000)
+    const editDialogScreenshotSize = await captureScreenshot(send, editDialogScreenshotPath)
+    check('slide text editor screenshot captured', editDialogScreenshotSize > 20_000, editDialogScreenshotPath)
     await evaluate(send, `(() => {
       const title = document.querySelector('[data-testid=presentation-slide-title-input]');
       const body = document.querySelector('[data-testid=presentation-slide-body-input]');
