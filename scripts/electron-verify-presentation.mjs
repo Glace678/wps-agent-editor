@@ -993,6 +993,7 @@ try {
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '2'",
     'toolbar slideshow from current')
   check('toolbar starts slideshow from the current slide', true)
+  await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-exit-slideshow]'))", 'current slideshow exit control')
   await evaluate(send, "document.querySelector('[data-testid=presentation-exit-slideshow]').click(); true")
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit current slideshow')
 
@@ -1005,6 +1006,7 @@ try {
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '1'",
     'toolbar slideshow from beginning')
   check('toolbar starts slideshow from the beginning', true)
+  await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-exit-slideshow]'))", 'beginning slideshow exit control')
   await evaluate(send, "document.querySelector('[data-testid=presentation-exit-slideshow]').click(); true")
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit beginning slideshow')
 
