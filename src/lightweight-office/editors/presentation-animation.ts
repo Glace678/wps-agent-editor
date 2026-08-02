@@ -1,4 +1,5 @@
 import type { PptxViewer } from '@aiden0z/pptx-renderer'
+import JSZip from 'jszip'
 
 export type PresentationAnimationKind = 'entrance' | 'emphasis' | 'exit'
 export type PresentationTransitionKind = 'fade' | 'push' | 'wipe' | 'split' | 'cover' | 'uncover'
@@ -27,6 +28,62 @@ export interface PresentationAnimationRuntime {
   steps: PresentationAnimationStep[]
   nextStep: number
   slideElement: HTMLElement | null
+}
+
+function normalizeZipPath(baseDirectory: string, target: string): string {
+  const segments = `${baseDirectory}/${target.replace(/\\/g, '/')}`.split('/')
+  const normalized: string[] = []
+  for (const segment of segments) {
+    if (!segment || segment === '.') continue
+    if (segment === '..') normalized.pop()
+    else normalized.push(segment)
+  }
+  return normalized.join('/')
+}
+
+export async function extractPresentationSlideXml(input: ArrayBuffer): Promise<string[]> {
+  const zip = await JSZip.loadAsync(input)
+  const presentationEntry = zip.file('ppt/presentation.xml')
+  const relationshipsEntry = zip.file('ppt/_rels/presentation.xml.rels')
+  if (!presentationEntry || !relationshipsEntry || typeof DOMParser === 'undefined') return []
+
+  const [presentationXml, relationshipsXml] = await Promise.all([
+    presentationEntry.async('string'),
+    relationshipsEntry.async('string'),
+  ])
+  const parser = new DOMParser()
+  const presentationDocument = parser.parseFromString(presentationXml, 'application/xml')
+  const relationshipsDocument = parser.parseFromString(relationshipsXml, 'application/xml')
+  if (presentationDocument.querySelector('parsererror') || relationshipsDocument.querySelector('parsererror')) {
+    return []
+  }
+
+  const relationshipTargets = new Map<string, string>()
+  for (const relationship of allElements(relationshipsDocument).filter(
+    (element) => element.localName === 'Relationship',
+  )) {
+    const id = relationship.getAttribute('Id')
+    const target = relationship.getAttribute('Target')
+    if (id && target) relationshipTargets.set(id, target)
+  }
+
+  const orderedPaths = allElements(presentationDocument)
+    .filter((element) => element.localName === 'sldId')
+    .map((element) => element.getAttribute('r:id') || element.getAttribute('id'))
+    .map((relationshipId) => relationshipId ? relationshipTargets.get(relationshipId) : undefined)
+    .filter((target): target is string => Boolean(target))
+    .map((target) => normalizeZipPath('ppt', target))
+
+  const paths = orderedPaths.length > 0
+    ? orderedPaths
+    : Object.keys(zip.files)
+      .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+      .sort((left, right) => {
+        const leftNumber = Number(left.match(/slide(\d+)\.xml$/i)?.[1] ?? 0)
+        const rightNumber = Number(right.match(/slide(\d+)\.xml$/i)?.[1] ?? 0)
+        return leftNumber - rightNumber
+      })
+  return Promise.all(paths.map(async (slidePath) => zip.file(slidePath)?.async('string') ?? ''))
 }
 
 const ANIMATION_CLASSES = [
@@ -138,11 +195,13 @@ export function preparePresentationAnimations(
   slideIndex: number,
   slideElement: HTMLElement | null,
   active: boolean,
+  sourceXml?: string,
 ): PresentationAnimationRuntime {
   if (slideElement) annotateSlideNodes(viewer, slideIndex, slideElement)
   clearAnimationClasses(slideElement)
-  const sourceXml = viewer.presentationData?.slides[slideIndex]?.sourceXml
-  const motion = parsePresentationSlideMotion(sourceXml)
+  const motion = parsePresentationSlideMotion(
+    sourceXml ?? viewer.presentationData?.slides[slideIndex]?.sourceXml,
+  )
 
   if (active && slideElement) {
     const entranceIds = new Set(
@@ -184,8 +243,9 @@ export function clearPresentationAnimations(runtime: PresentationAnimationRuntim
 export function getPresentationTransition(
   viewer: PptxViewer,
   slideIndex: number,
+  sourceXml?: string,
 ): PresentationTransition {
   return parsePresentationSlideMotion(
-    viewer.presentationData?.slides[slideIndex]?.sourceXml,
+    sourceXml ?? viewer.presentationData?.slides[slideIndex]?.sourceXml,
   ).transition
 }

@@ -52,6 +52,7 @@ import { getExtension, readPresentationBuffer, saveFileBuffer } from '../utils/f
 import { PresentationEditDialog, type PresentationEditDialogMode } from './PresentationEditDialog'
 import {
   clearPresentationAnimations,
+  extractPresentationSlideXml,
   getPresentationTransition,
   preparePresentationAnimations,
   runNextPresentationAnimation,
@@ -302,6 +303,7 @@ export function PresentationViewer({
   const controlsTimerRef = useRef<number | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const presentationBufferRef = useRef<ArrayBuffer | null>(null)
+  const presentationSlideXmlRef = useRef<string[]>([])
   const presentationBufferFileRef = useRef('')
   const desiredSlideIndexRef = useRef(0)
   const savePathRef = useRef(resolvePresentationSavePath(filePath))
@@ -341,6 +343,7 @@ export function PresentationViewer({
 
   useEffect(() => {
     presentationBufferRef.current = null
+    presentationSlideXmlRef.current = []
     presentationBufferFileRef.current = filePath
     desiredSlideIndexRef.current = 0
     savePathRef.current = resolvePresentationSavePath(filePath)
@@ -477,6 +480,7 @@ export function PresentationViewer({
       slideIndex,
       mainSlideElement(slideHostRef.current),
       active,
+      presentationSlideXmlRef.current[slideIndex],
     )
   }, [])
 
@@ -510,7 +514,7 @@ export function PresentationViewer({
     prepareSlideRuntime(activeViewer, next)
     animateSlide(
       next > previous ? 'next' : 'previous',
-      getPresentationTransition(activeViewer, next),
+      getPresentationTransition(activeViewer, next, presentationSlideXmlRef.current[next]),
     )
   }, [animateSlide, prepareSlideRuntime])
 
@@ -559,6 +563,8 @@ export function PresentationViewer({
           presentationBufferRef.current = buffer
           presentationBufferFileRef.current = filePath
         }
+        if (cancelled) return
+        presentationSlideXmlRef.current = await extractPresentationSlideXml(buffer)
         if (cancelled) return
         await nextViewer.open(buffer, {
           renderMode: 'slide',
