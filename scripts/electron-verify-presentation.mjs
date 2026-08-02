@@ -947,6 +947,108 @@ try {
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit slideshow')
   check('Escape exits slideshow mode', true)
 
+  await evaluate(send, "document.querySelector('[data-testid=presentation-slideshow-menu]').click(); true")
+  await waitFor(send, "document.querySelector('[data-testid=presentation-start-from-current]')", 'current-slide slideshow item')
+  await evaluate(send, "document.querySelector('[data-testid=presentation-start-from-current]').click(); true")
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '2'",
+    'toolbar slideshow from current')
+  check('toolbar starts slideshow from the current slide', true)
+  await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
+  await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit current slideshow')
+
+  await evaluate(send, "document.querySelector('[data-testid=presentation-thumbnail-3]').click(); true")
+  await waitFor(send, "document.querySelector('[data-testid=presentation-page-input]').value === '3'", 'third slide before beginning slideshow')
+  await evaluate(send, "document.querySelector('[data-testid=presentation-slideshow-menu]').click(); true")
+  await waitFor(send, "document.querySelector('[data-testid=presentation-start-from-beginning]')", 'beginning slideshow item')
+  await evaluate(send, "document.querySelector('[data-testid=presentation-start-from-beginning]').click(); true")
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '1'",
+    'toolbar slideshow from beginning')
+  check('toolbar starts slideshow from the beginning', true)
+  await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
+  await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit beginning slideshow')
+
+  if (hasLegacyFixture) {
+    await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide]').click(); true")
+    await waitFor(send, `(() => {
+      const input = document.querySelector('[data-testid=presentation-page-input]');
+      const total = Number(input?.nextElementSibling?.textContent.replace(/\D/g, ''));
+      return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
+        && total === 4 && input?.value === '2';
+    })()`, 'new slide created through Office automation', 120_000)
+    check('New slide inserts after the current slide and selects it', true)
+
+    await evaluate(send, "document.querySelector('[data-testid=presentation-edit-slide]').click(); true")
+    await waitFor(send, "document.querySelector('[data-testid=presentation-text-dialog]')", 'slide text editor', 120_000)
+    await evaluate(send, `(() => {
+      const title = document.querySelector('[data-testid=presentation-slide-title-input]');
+      const body = document.querySelector('[data-testid=presentation-slide-body-input]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(title, 'Edited slide title');
+      title.dispatchEvent(new Event('input', { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(body, 'First point\\nSecond point');
+      body.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-testid=presentation-edit-dialog-submit]').click();
+      return true;
+    })()`)
+    await waitFor(send,
+      "document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready' && document.querySelector('[data-testid=presentation-slide-host]')?.textContent.includes('Edited slide title')",
+      'edited slide text rendered',
+      120_000)
+    check('simple title and body editing updates the rendered slide', true)
+
+    await evaluate(send, "document.querySelector('[data-testid=presentation-duplicate-slide]').click(); true")
+    await waitFor(send, `(() => {
+      const input = document.querySelector('[data-testid=presentation-page-input]');
+      return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
+        && Number(input?.nextElementSibling?.textContent.replace(/\D/g, '')) === 5;
+    })()`, 'duplicated slide', 120_000)
+    check('Duplicate slide creates an independent copy', true)
+
+    await evaluate(send, "document.querySelector('[data-testid=presentation-delete-slide]').click(); true")
+    await waitFor(send, `(() => {
+      const input = document.querySelector('[data-testid=presentation-page-input]');
+      return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
+        && Number(input?.nextElementSibling?.textContent.replace(/\D/g, '')) === 4;
+    })()`, 'deleted duplicated slide', 120_000)
+    check('Delete slide removes the selected slide while preserving the deck', true)
+
+    await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide-menu]').click(); true")
+    await waitFor(send, "document.querySelector('[data-testid=presentation-import-outline]')", 'outline import menu item')
+    await evaluate(send, "document.querySelector('[data-testid=presentation-import-outline]').click(); true")
+    await waitFor(send, "document.querySelector('[data-testid=presentation-outline-dialog]')", 'outline import dialog')
+    await evaluate(send, `(() => {
+      const outline = document.querySelector('[data-testid=presentation-outline-input]');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
+        outline,
+        'Roadmap\\n  Alpha milestone\\nDelivery\\n  Beta milestone',
+      );
+      outline.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-testid=presentation-edit-dialog-submit]').click();
+      return true;
+    })()`)
+    await waitFor(send, `(() => {
+      const input = document.querySelector('[data-testid=presentation-page-input]');
+      return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
+        && Number(input?.nextElementSibling?.textContent.replace(/\D/g, '')) === 6
+        && document.querySelector('[data-testid=presentation-slide-host]')?.textContent.includes('Roadmap');
+    })()`, 'outline slides imported', 120_000)
+    check('outline import creates title-and-content slides in order', true)
+
+    const saveMtime = fs.statSync(fixturePath).mtimeMs
+    await pressKey(send, { key: 's', code: 'KeyS', keyCode: 83, modifiers: 2 })
+    await waitFor(send,
+      `window.api.lw.readPresentation(${JSON.stringify(fixturePath)}).then(result => (result.data?.byteLength ?? result.data?.length ?? 0) > 10000)`,
+      'saved edited presentation',
+      120_000)
+    await sleep(500)
+    const savedZip = await JSZip.loadAsync(fs.readFileSync(fixturePath))
+    const savedSlideCount = Object.keys(savedZip.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name)).length
+    check('Ctrl+S persists the edited PPTX buffer',
+      fs.statSync(fixturePath).mtimeMs >= saveMtime && savedSlideCount === 6,
+      `${savedSlideCount} slides`)
+  }
+
   if (hasLegacyFixture) {
     check('legacy PPT file opened through the application', await openFile(send, legacyFixturePath))
     await waitFor(
