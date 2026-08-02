@@ -25,6 +25,13 @@ function toArrayBuffer(data: Uint8Array | ArrayBuffer | string): ArrayBuffer {
   if (data instanceof ArrayBuffer) {
     return data
   }
+  if (
+    data.buffer instanceof ArrayBuffer
+    && data.byteOffset === 0
+    && data.byteLength === data.buffer.byteLength
+  ) {
+    return data.buffer
+  }
   // Uint8Array / Buffer-like view：拷贝为独立 ArrayBuffer，避免 shared/detached 问题
   const copy = new Uint8Array(data.byteLength)
   copy.set(data)
