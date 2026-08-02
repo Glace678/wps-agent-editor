@@ -533,7 +533,8 @@ export function PresentationViewer({
     setErrorDetail('')
     setSlideCount(0)
 
-    const nextViewer = new PptxViewer(host, {
+    let nextViewer: PptxViewer
+    nextViewer = new PptxViewer(host, {
       fitMode: 'contain',
       zoomPercent: 100,
       zipLimits: RECOMMENDED_ZIP_LIMITS,
@@ -542,6 +543,13 @@ export function PresentationViewer({
       pdfjs: false,
       onSlideChange: (index) => {
         if (!cancelled) setCurrentSlide(index)
+      },
+      onSlideRendered: (index, element) => {
+        queueMicrotask(() => {
+          if (cancelled || viewerRef.current !== nextViewer) return
+          if (mainSlideElement(host) !== element) return
+          prepareSlideRuntime(nextViewer, index)
+        })
       },
       onSlideError: (_index, error) => {
         console.error('[PresentationViewer] Slide render failed:', error)
