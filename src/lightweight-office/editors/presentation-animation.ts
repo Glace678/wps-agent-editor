@@ -41,7 +41,10 @@ function normalizeZipPath(baseDirectory: string, target: string): string {
   return normalized.join('/')
 }
 
-export async function extractPresentationSlideXml(input: ArrayBuffer): Promise<string[]> {
+export async function extractPresentationSlideXml(
+  input: ArrayBuffer,
+  slideIndexes?: readonly number[],
+): Promise<string[]> {
   const zip = await JSZip.loadAsync(input)
   const presentationEntry = zip.file('ppt/presentation.xml')
   const relationshipsEntry = zip.file('ppt/_rels/presentation.xml.rels')
@@ -83,7 +86,12 @@ export async function extractPresentationSlideXml(input: ArrayBuffer): Promise<s
         const rightNumber = Number(right.match(/slide(\d+)\.xml$/i)?.[1] ?? 0)
         return leftNumber - rightNumber
       })
-  return Promise.all(paths.map(async (slidePath) => zip.file(slidePath)?.async('string') ?? ''))
+  const requested = slideIndexes ? new Set(slideIndexes) : null
+  return Promise.all(paths.map(async (slidePath, index) => (
+    requested && !requested.has(index)
+      ? ''
+      : zip.file(slidePath)?.async('string') ?? ''
+  )))
 }
 
 const ANIMATION_CLASSES = [

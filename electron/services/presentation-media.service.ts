@@ -8,10 +8,26 @@ import JSZip from 'jszip'
 const execFileAsync = promisify(execFile)
 const WMF_CONVERSION_TIMEOUT_MS = 120_000
 const WMF_CONVERSION_OUTPUT_LIMIT = 8 * 1024 * 1024
+const WMF_EXTENSION_MARKERS = [
+  '.wmf',
+  '.wmF',
+  '.wMf',
+  '.wMF',
+  '.Wmf',
+  '.WmF',
+  '.WMf',
+  '.WMF',
+].map((value) => Buffer.from(value, 'ascii'))
 
 export interface NormalizedPresentationMedia {
   data: Buffer
   convertedWmfCount: number
+}
+
+function mayContainWmf(data: Buffer): boolean {
+  // ZIP entry names remain plain text in local/central headers, even when the
+  // corresponding media payload is compressed.
+  return WMF_EXTENSION_MARKERS.some((marker) => data.indexOf(marker) >= 0)
 }
 
 function buildWmfConversionScript(): string {
@@ -104,6 +120,8 @@ function replaceWmfRelationshipTargets(
 }
 
 export async function normalizePresentationMedia(data: Buffer): Promise<NormalizedPresentationMedia> {
+  if (!mayContainWmf(data)) return { data, convertedWmfCount: 0 }
+
   const zip = await JSZip.loadAsync(data)
   const wmfEntries = Object.values(zip.files).filter(
     (entry) => !entry.dir && /^ppt\/media\/[^/]+\.wmf$/i.test(entry.name),
