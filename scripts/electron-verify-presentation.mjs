@@ -1020,7 +1020,17 @@ try {
       const total = Number(input?.nextElementSibling?.textContent.replace(/\D/g, ''));
       const error = document.querySelector('[data-testid=presentation-edit-error]')?.textContent?.trim();
       if (error) return { ok: false, error, total, page: input?.value };
-      return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
+      const presentationState = document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState;
+      if (presentationState === 'error') {
+        return {
+          ok: false,
+          error: document.querySelector('[data-testid=presentation-stage]')?.innerText?.trim(),
+          total,
+          page: input?.value,
+          presentationState,
+        };
+      }
+      return presentationState === 'ready'
         && total === 4
         ? { ok: input?.value === '2', total, page: input?.value }
         : null;
