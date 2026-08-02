@@ -1024,26 +1024,21 @@ try {
       'new slide operation completion',
       130_000)
     console.log(`[INFO] new slide operation elapsed: ${Date.now() - newSlideStartedAt}ms`)
-    const newSlideResult = await waitFor(send, `(() => {
+    await sleep(5_000)
+    const newSlideResult = await evaluate(send, `(() => {
       const input = document.querySelector('[data-testid=presentation-page-input]');
       const total = Number(input?.nextElementSibling?.textContent.replace(/\D/g, ''));
       const error = document.querySelector('[data-testid=presentation-edit-error]')?.textContent?.trim();
-      if (error) return { ok: false, error, total, page: input?.value };
       const presentationState = document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState;
-      if (presentationState === 'error') {
-        return {
-          ok: false,
-          error: document.querySelector('[data-testid=presentation-stage]')?.innerText?.trim(),
-          total,
-          page: input?.value,
-          presentationState,
-        };
-      }
-      return presentationState === 'ready'
-        && total === 4
-        ? { ok: input?.value === '2', total, page: input?.value }
-        : null;
-    })()`, 'new slide created through Office automation', 45_000)
+      return {
+        ok: presentationState === 'ready' && total === 4 && input?.value === '2',
+        error: error || document.querySelector('[data-testid=presentation-stage]')?.innerText?.trim(),
+        total,
+        page: input?.value,
+        presentationState,
+        renderedNodes: document.querySelectorAll('[data-testid=presentation-slide-host] *').length,
+      };
+    })()`)
     check('New slide inserts after the current slide and selects it', newSlideResult.ok, JSON.stringify(newSlideResult))
     if (!newSlideResult.ok) throw new Error(`New slide operation failed: ${JSON.stringify(newSlideResult)}`)
 
