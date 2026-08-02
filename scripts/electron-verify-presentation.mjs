@@ -1076,6 +1076,9 @@ try {
       120_000)
     check('simple title and body editing updates the rendered slide', true)
 
+    await waitFor(send,
+      "Boolean(document.querySelector('[data-testid=presentation-duplicate-slide]') && !document.querySelector('[data-testid=presentation-duplicate-slide]').disabled)",
+      'enabled duplicate slide control')
     await evaluate(send, "document.querySelector('[data-testid=presentation-duplicate-slide]').click(); true")
     await waitFor(send, `(() => {
       return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
@@ -1083,6 +1086,9 @@ try {
     })()`, 'duplicated slide', 120_000)
     check('Duplicate slide creates an independent copy', true)
 
+    await waitFor(send,
+      "Boolean(document.querySelector('[data-testid=presentation-delete-slide]') && !document.querySelector('[data-testid=presentation-delete-slide]').disabled)",
+      'enabled delete slide control')
     await evaluate(send, "document.querySelector('[data-testid=presentation-delete-slide]').click(); true")
     await waitFor(send, `(() => {
       return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
@@ -1090,6 +1096,9 @@ try {
     })()`, 'deleted duplicated slide', 120_000)
     check('Delete slide removes the selected slide while preserving the deck', true)
 
+    await waitFor(send,
+      "Boolean(document.querySelector('[data-testid=presentation-new-slide-menu]') && !document.querySelector('[data-testid=presentation-new-slide-menu]').disabled)",
+      'enabled new slide menu')
     await clickSelector(send, '[data-testid=presentation-new-slide-menu]')
     await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-import-outline]'))", 'outline import menu item')
     await clickSelector(send, '[data-testid=presentation-import-outline]')
