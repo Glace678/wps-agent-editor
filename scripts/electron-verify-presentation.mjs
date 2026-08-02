@@ -507,6 +507,32 @@ async function wheelMouse(send, point, deltaY) {
   })
 }
 
+async function clickSelector(send, selector) {
+  const point = await evaluate(send, `(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`)
+  if (!point) throw new Error(`Element not found for click: ${selector}`)
+  await send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  })
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  })
+}
+
 async function captureScreenshot(send, outputPath) {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true })
   const screenshot = await send('Page.captureScreenshot', {
@@ -681,14 +707,14 @@ try {
       && editToolbar.remove && editToolbar.slideshowMenu,
     JSON.stringify(editToolbar))
 
-  await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide-menu]').click(); true")
+  await clickSelector(send, '[data-testid=presentation-new-slide-menu]')
   await waitFor(send,
     "document.querySelector('[data-testid=presentation-import-outline]') && document.querySelector('[data-testid=presentation-reuse-slides]')",
     'new slide dropdown')
   check('new slide dropdown exposes outline import and reuse slides', true)
   await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
 
-  await evaluate(send, "document.querySelector('[data-testid=presentation-slideshow-menu]').click(); true")
+  await clickSelector(send, '[data-testid=presentation-slideshow-menu]')
   await waitFor(send,
     "document.querySelector('[data-testid=presentation-start-from-beginning]') && document.querySelector('[data-testid=presentation-start-from-current]')",
     'slideshow dropdown')
@@ -947,9 +973,9 @@ try {
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit slideshow')
   check('Escape exits slideshow mode', true)
 
-  await evaluate(send, "document.querySelector('[data-testid=presentation-slideshow-menu]').click(); true")
+  await clickSelector(send, '[data-testid=presentation-slideshow-menu]')
   await waitFor(send, "document.querySelector('[data-testid=presentation-start-from-current]')", 'current-slide slideshow item')
-  await evaluate(send, "document.querySelector('[data-testid=presentation-start-from-current]').click(); true")
+  await clickSelector(send, '[data-testid=presentation-start-from-current]')
   await waitFor(send,
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '2'",
     'toolbar slideshow from current')
@@ -959,9 +985,9 @@ try {
 
   await evaluate(send, "document.querySelector('[data-testid=presentation-thumbnail-3]').click(); true")
   await waitFor(send, "document.querySelector('[data-testid=presentation-page-input]').value === '3'", 'third slide before beginning slideshow')
-  await evaluate(send, "document.querySelector('[data-testid=presentation-slideshow-menu]').click(); true")
+  await clickSelector(send, '[data-testid=presentation-slideshow-menu]')
   await waitFor(send, "document.querySelector('[data-testid=presentation-start-from-beginning]')", 'beginning slideshow item')
-  await evaluate(send, "document.querySelector('[data-testid=presentation-start-from-beginning]').click(); true")
+  await clickSelector(send, '[data-testid=presentation-start-from-beginning]')
   await waitFor(send,
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '1'",
     'toolbar slideshow from beginning')
@@ -1013,9 +1039,9 @@ try {
     })()`, 'deleted duplicated slide', 120_000)
     check('Delete slide removes the selected slide while preserving the deck', true)
 
-    await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide-menu]').click(); true")
+    await clickSelector(send, '[data-testid=presentation-new-slide-menu]')
     await waitFor(send, "document.querySelector('[data-testid=presentation-import-outline]')", 'outline import menu item')
-    await evaluate(send, "document.querySelector('[data-testid=presentation-import-outline]').click(); true")
+    await clickSelector(send, '[data-testid=presentation-import-outline]')
     await waitFor(send, "document.querySelector('[data-testid=presentation-outline-dialog]')", 'outline import dialog')
     await evaluate(send, `(() => {
       const outline = document.querySelector('[data-testid=presentation-outline-input]');
