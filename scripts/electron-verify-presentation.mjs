@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import PptxGenJS from 'pptxgenjs'
+import JSZip from 'jszip'
 
 const require = createRequire(import.meta.url)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -20,10 +21,89 @@ const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-prof
 const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-presentation-fixture-'))
 const fixturePath = path.join(fixtureDirectory, 'presentation-playback.pptx')
 const legacyFixturePath = path.join(fixtureDirectory, 'presentation-playback-legacy.ppt')
+const wmfFixturePath = path.join(fixtureDirectory, 'presentation-shape.wmf')
 const externalFixturePath = process.env.WPS_PRESENTATION_VERIFY_INPUT
   ? path.resolve(process.env.WPS_PRESENTATION_VERIFY_INPUT)
   : null
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function createWmfFixture() {
+  if (process.platform !== 'win32') return false
+  const script = `
+$ErrorActionPreference = 'Stop'
+$source = @'
+using System;
+using System.Runtime.InteropServices;
+public static class PresentationWmfFixture {
+  [DllImport("gdi32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr CreateMetaFile(string fileName);
+  [DllImport("gdi32.dll")] public static extern bool Rectangle(IntPtr hdc, int left, int top, int right, int bottom);
+  [DllImport("gdi32.dll")] public static extern bool MoveToEx(IntPtr hdc, int x, int y, IntPtr point);
+  [DllImport("gdi32.dll")] public static extern bool LineTo(IntPtr hdc, int x, int y);
+  [DllImport("gdi32.dll")] public static extern IntPtr CloseMetaFile(IntPtr hdc);
+  [DllImport("gdi32.dll")] public static extern bool DeleteMetaFile(IntPtr hmf);
+}
+'@
+Add-Type -TypeDefinition $source
+$dc = [PresentationWmfFixture]::CreateMetaFile($env:WPS_AGENT_WMF_FIXTURE)
+if ($dc -eq [IntPtr]::Zero) { throw 'Unable to create WMF fixture' }
+[void][PresentationWmfFixture]::Rectangle($dc, 0, 0, 320, 180)
+[void][PresentationWmfFixture]::MoveToEx($dc, 0, 0, [IntPtr]::Zero)
+[void][PresentationWmfFixture]::LineTo($dc, 320, 180)
+$metafile = [PresentationWmfFixture]::CloseMetaFile($dc)
+if ($metafile -eq [IntPtr]::Zero) { throw 'Unable to close WMF fixture' }
+[void][PresentationWmfFixture]::DeleteMetaFile($metafile)
+`
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    env: { ...process.env, WPS_AGENT_WMF_FIXTURE: wmfFixturePath },
+    windowsHide: true,
+    timeout: 30_000,
+    stdio: 'ignore',
+  })
+  return fs.existsSync(wmfFixturePath) && fs.statSync(wmfFixturePath).size > 0
+}
+
+async function injectFixtureMotionAndWmf() {
+  const zip = await JSZip.loadAsync(fs.readFileSync(fixturePath))
+  const slideEntry = zip.file('ppt/slides/slide1.xml')
+  if (!slideEntry) throw new Error('Fixture slide1.xml is missing')
+  let slideXml = await slideEntry.async('string')
+  const targetTextIndex = slideXml.indexOf('PPTX renderer verification')
+  if (targetTextIndex < 0) throw new Error('Animation target text is missing')
+  const targetPrefix = slideXml.slice(0, targetTextIndex)
+  const shapeMatches = [...targetPrefix.matchAll(/<p:cNvPr\b[^>]*\bid="(\d+)"/g)]
+  const targetShapeId = shapeMatches.at(-1)?.[1]
+  if (!targetShapeId) throw new Error('Animation target shape id is missing')
+
+  const motionXml = `<p:transition spd="med"><p:fade/></p:transition><p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst><p:par><p:cTn id="3" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="4" presetID="10" presetClass="entr" presetSubtype="0" fill="hold" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="5" dur="500" fill="hold"/><p:tgtEl><p:spTgt spid="${targetShapeId}"/></p:tgtEl></p:cBhvr></p:animEffect></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>`
+  slideXml = slideXml.replace('</p:sld>', `${motionXml}</p:sld>`)
+  zip.file('ppt/slides/slide1.xml', slideXml)
+
+  if (fs.existsSync(wmfFixturePath)) {
+    const pngMedia = Object.values(zip.files).find(
+      (entry) => !entry.dir && /^ppt\/media\/image\d+\.png$/i.test(entry.name),
+    )
+    if (!pngMedia) throw new Error('Fixture PNG media is missing')
+    const wmfMediaPath = pngMedia.name.replace(/\.png$/i, '.wmf')
+    const pngName = path.posix.basename(pngMedia.name)
+    const wmfName = path.posix.basename(wmfMediaPath)
+    zip.file(wmfMediaPath, fs.readFileSync(wmfFixturePath))
+    zip.remove(pngMedia.name)
+    for (const entry of Object.values(zip.files).filter((item) => !item.dir && item.name.endsWith('.rels'))) {
+      const rels = await entry.async('string')
+      if (rels.includes(pngName)) zip.file(entry.name, rels.replaceAll(pngName, wmfName))
+    }
+    const contentTypes = zip.file('[Content_Types].xml')
+    if (contentTypes) {
+      const xml = await contentTypes.async('string')
+      zip.file('[Content_Types].xml', xml.replace(
+        '</Types>',
+        '<Default Extension="wmf" ContentType="image/x-wmf"/></Types>',
+      ))
+    }
+  }
+
+  fs.writeFileSync(fixturePath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+}
 
 async function createFixture() {
   const pptx = new PptxGenJS()
@@ -68,6 +148,13 @@ async function createFixture() {
     fontSize: 14,
     color: '526176',
     margin: 0,
+  })
+  first.addImage({
+    data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlTXk0AAAAASUVORK5CYII=',
+    x: 12.95,
+    y: 7.1,
+    w: 0.2,
+    h: 0.2,
   })
   first.addShape(pptx.ShapeType.roundRect, {
     x: 8.65,
@@ -185,6 +272,7 @@ async function createFixture() {
   }
 
   await pptx.writeFile({ fileName: fixturePath, compression: true })
+  await injectFixtureMotionAndWmf()
 }
 
 function createLegacyFixture() {
