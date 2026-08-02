@@ -366,7 +366,7 @@ function connectCdp(url, onEvent) {
             pending.delete(id)
             rejectCall(new Error(`CDP command timed out: ${method}`))
           }, 30_000)
-          pending.set(id, { resolveCall, rejectCall, timer })
+          pending.set(id, { resolveCall, rejectCall, timer, method })
           socket.send(JSON.stringify({ id, method, params }))
         })
       },
@@ -383,7 +383,7 @@ function connectCdp(url, onEvent) {
       if (!call) return
       clearTimeout(call.timer)
       pending.delete(message.id)
-      if (message.error) call.rejectCall(new Error(message.error.message))
+      if (message.error) call.rejectCall(new Error(`${call.method}: ${message.error.message}`))
       else call.resolveCall(message)
     })
     socket.addEventListener('error', reject)
@@ -391,12 +391,17 @@ function connectCdp(url, onEvent) {
 }
 
 async function evaluate(send, expression) {
-  const response = await send('Runtime.evaluate', {
-    expression,
-    awaitPromise: true,
-    returnByValue: true,
-    userGesture: true,
-  })
+  let response
+  try {
+    response = await send('Runtime.evaluate', {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+      userGesture: true,
+    })
+  } catch (error) {
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; expression=${expression.slice(0, 280)}`)
+  }
   if (response.result.exceptionDetails) {
     throw new Error(response.result.exceptionDetails.exception?.description ?? response.result.exceptionDetails.text)
   }
@@ -508,29 +513,14 @@ async function wheelMouse(send, point, deltaY) {
 }
 
 async function clickSelector(send, selector) {
-  const point = await evaluate(send, `(() => {
+  const focused = await evaluate(send, `(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
-    if (!element) return null;
-    const rect = element.getBoundingClientRect();
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    if (!element) return false;
+    element.focus();
+    return true;
   })()`)
-  if (!point) throw new Error(`Element not found for click: ${selector}`)
-  await send('Input.dispatchMouseEvent', {
-    type: 'mousePressed',
-    x: point.x,
-    y: point.y,
-    button: 'left',
-    buttons: 1,
-    clickCount: 1,
-  })
-  await send('Input.dispatchMouseEvent', {
-    type: 'mouseReleased',
-    x: point.x,
-    y: point.y,
-    button: 'left',
-    buttons: 0,
-    clickCount: 1,
-  })
+  if (!focused) throw new Error(`Element not found for click: ${selector}`)
+  await pressKey(send, { key: 'Enter', code: 'Enter', keyCode: 13 })
 }
 
 async function captureScreenshot(send, outputPath) {
