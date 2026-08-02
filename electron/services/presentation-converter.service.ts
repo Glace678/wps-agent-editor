@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
+import { normalizePresentationMedia } from './presentation-media.service'
 
 const execFileAsync = promisify(execFile)
 const CONVERSION_TIMEOUT_MS = 120_000
@@ -15,6 +16,7 @@ export interface PreparedPresentation {
   data: Buffer
   convertedFromLegacy: boolean
   converter: PresentationConverter | null
+  normalizedWmfCount: number
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -183,10 +185,12 @@ async function convertLegacyPresentation(sourcePath: string): Promise<PreparedPr
     if (libreOffice) {
       try {
         const convertedPath = await convertWithLibreOffice(libreOffice, sourcePath, outputDirectory)
+        const normalized = await normalizePresentationMedia(await fs.readFile(convertedPath))
         return {
-          data: await fs.readFile(convertedPath),
+          data: normalized.data,
           convertedFromLegacy: true,
           converter: 'libreoffice',
+          normalizedWmfCount: normalized.convertedWmfCount,
         }
       } catch (error) {
         failures.push(error)
@@ -196,10 +200,12 @@ async function convertLegacyPresentation(sourcePath: string): Promise<PreparedPr
     if (process.platform === 'win32') {
       try {
         const converted = await convertWithWindowsOffice(sourcePath, outputDirectory)
+        const normalized = await normalizePresentationMedia(await fs.readFile(converted.path))
         return {
-          data: await fs.readFile(converted.path),
+          data: normalized.data,
           convertedFromLegacy: true,
           converter: converted.converter,
+          normalizedWmfCount: normalized.convertedWmfCount,
         }
       } catch (error) {
         failures.push(error)
@@ -220,10 +226,12 @@ export async function preparePresentation(filePath: string): Promise<PreparedPre
   const extension = path.extname(normalized).toLowerCase()
 
   if (extension === '.pptx') {
+    const normalizedMedia = await normalizePresentationMedia(await fs.readFile(normalized))
     return {
-      data: await fs.readFile(normalized),
+      data: normalizedMedia.data,
       convertedFromLegacy: false,
       converter: null,
+      normalizedWmfCount: normalizedMedia.convertedWmfCount,
     }
   }
   if (extension === '.ppt') return convertLegacyPresentation(normalized)
