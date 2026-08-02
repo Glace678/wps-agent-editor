@@ -288,9 +288,12 @@ function SlideThumbnail({
 export function PresentationViewer({
   filePath,
   onReady,
+  onDirty,
+  onSaveSuccess,
   onRegisterSave,
 }: PresentationViewerProps) {
   const { t } = useTranslation()
+  const setCurrentFile = useEditorStore((state) => state.setCurrentFile)
   const rootRef = useRef<HTMLDivElement>(null)
   const thumbnailPaneRef = useRef<HTMLElement>(null)
   const stageRef = useRef<HTMLElement>(null)
@@ -298,6 +301,12 @@ export function PresentationViewer({
   const viewerRef = useRef<PptxViewer | null>(null)
   const controlsTimerRef = useRef<number | null>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const presentationBufferRef = useRef<ArrayBuffer | null>(null)
+  const presentationBufferFileRef = useRef('')
+  const desiredSlideIndexRef = useRef(0)
+  const savePathRef = useRef(resolvePresentationSavePath(filePath))
+  const isPresentingRef = useRef(false)
+  const animationRuntimeRef = useRef<PresentationAnimationRuntime | null>(null)
   const thumbnailResizeCleanupRef = useRef<(() => void) | null>(null)
   const wheelNavigationRef = useRef<WheelNavigationGesture>({
     accumulatedDelta: 0,
@@ -311,6 +320,7 @@ export function PresentationViewer({
   const [loadError, setLoadError] = useState<LoadError>(null)
   const [errorDetail, setErrorDetail] = useState('')
   const [retryToken, setRetryToken] = useState(0)
+  const [contentRevision, setContentRevision] = useState(0)
   const [slideCount, setSlideCount] = useState(0)
   const [currentSlide, setCurrentSlide] = useState(0)
   const [aspectRatio, setAspectRatio] = useState(DEFAULT_ASPECT_RATIO)
@@ -321,13 +331,34 @@ export function PresentationViewer({
   const [thumbnailPaneWidth, setThumbnailPaneWidth] = useState(readStoredThumbnailPaneWidth)
   const [isPresenting, setIsPresenting] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [editBusy, setEditBusy] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [editDialogMode, setEditDialogMode] = useState<PresentationEditDialogMode | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editBody, setEditBody] = useState('')
   const thumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
   const preferredThumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
 
   useEffect(() => {
-    onRegisterSave?.(null)
+    presentationBufferRef.current = null
+    presentationBufferFileRef.current = filePath
+    desiredSlideIndexRef.current = 0
+    savePathRef.current = resolvePresentationSavePath(filePath)
+    setEditDialogMode(null)
+    setEditError('')
+  }, [filePath])
+
+  useEffect(() => {
+    onRegisterSave?.(async () => {
+      const buffer = presentationBufferRef.current
+      if (!buffer) return
+      const target = savePathRef.current
+      await saveFileBuffer(target, buffer)
+      if (target !== filePath) setCurrentFile(target)
+      onSaveSuccess?.()
+    })
     return () => onRegisterSave?.(null)
-  }, [onRegisterSave])
+  }, [filePath, onRegisterSave, onSaveSuccess, setCurrentFile])
 
   useEffect(() => {
     const stage = stageRef.current
