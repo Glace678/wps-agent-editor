@@ -527,10 +527,13 @@ let child
 let cdp
 const rendererErrors = []
 let hasLegacyFixture = false
+let hasWmfFixture = false
 
 try {
+  hasWmfFixture = createWmfFixture()
   await createFixture()
   check('multi-slide PPTX fixture generated', fs.statSync(fixturePath).size > 10_000, `${fs.statSync(fixturePath).size} bytes`)
+  if (hasWmfFixture) check('genuine WMF media fixture generated', true, `${fs.statSync(wmfFixturePath).size} bytes`)
   hasLegacyFixture = createLegacyFixture()
   if (hasLegacyFixture) {
     check('genuine legacy PPT fixture generated', true, `${fs.statSync(legacyFixturePath).size} bytes`)
@@ -578,6 +581,46 @@ try {
     check('legacy PPT is converted through the application IPC',
       preparedLegacy.converted && preparedLegacy.bytes > 10_000,
       JSON.stringify(preparedLegacy))
+  }
+
+  if (hasWmfFixture) {
+    const preparedWmf = await evaluate(send, `(async () => {
+      const result = await window.api.lw.readPresentation(${JSON.stringify(fixturePath)});
+      return {
+        convertedWmf: result.normalizedWmfCount,
+        bytes: result.data?.byteLength ?? result.data?.length ?? 0,
+      };
+    })()`)
+    check('WMF media is normalized to PNG before browser rendering',
+      preparedWmf.convertedWmf === 1 && preparedWmf.bytes > 10_000,
+      JSON.stringify(preparedWmf))
+  }
+
+  if (hasLegacyFixture) {
+    const reuseResult = await evaluate(send, `(async () => {
+      try {
+        const prepared = await window.api.lw.readPresentation(${JSON.stringify(fixturePath)});
+        const result = await window.api.lw.editPresentation({
+          data: prepared.data,
+          operation: {
+            type: 'reuseSlides',
+            afterSlideIndex: 0,
+            sourcePath: ${JSON.stringify(fixturePath)},
+          },
+        });
+        return {
+          slideCount: result.slideCount,
+          currentSlideIndex: result.currentSlideIndex,
+          bytes: result.data?.byteLength ?? result.data?.length ?? 0,
+          converter: result.converter,
+        };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    })()`)
+    check('reuse-slides operation preserves the presentation through Office automation',
+      reuseResult.slideCount === 6 && reuseResult.currentSlideIndex === 1 && reuseResult.bytes > 10_000,
+      JSON.stringify(reuseResult))
   }
 
   check('PPTX file opened through the application', await openFile(send, fixturePath))
