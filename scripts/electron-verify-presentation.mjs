@@ -1011,6 +1011,9 @@ try {
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit beginning slideshow')
 
   if (hasLegacyFixture) {
+    await waitFor(send,
+      "Boolean(document.querySelector('[data-testid=presentation-new-slide]') && !document.querySelector('[data-testid=presentation-new-slide]').disabled)",
+      'enabled new slide control')
     await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide]').click(); true")
     await waitFor(send, `(() => {
       const input = document.querySelector('[data-testid=presentation-page-input]');
