@@ -80,7 +80,7 @@ async function injectFixtureMotionAndWmf() {
 
   if (fs.existsSync(wmfFixturePath)) {
     const pngMedia = Object.values(zip.files).find(
-      (entry) => !entry.dir && /^ppt\/media\/image\d+\.png$/i.test(entry.name),
+      (entry) => !entry.dir && /^ppt\/media\/[^/]+\.png$/i.test(entry.name),
     )
     if (!pngMedia) throw new Error('Fixture PNG media is missing')
     const wmfMediaPath = pngMedia.name.replace(/\.png$/i, '.wmf')
