@@ -667,6 +667,33 @@ try {
   check('first slide renders real text and layout nodes', initial.text.includes('Presentation playback') && initial.renderedNodes > 10, `${initial.renderedNodes} nodes`)
   check('slide is fitted inside a stable visible stage', initial.width > 350 && initial.height > 190 && initial.width <= initial.stageWidth && initial.height <= initial.stageHeight, JSON.stringify(initial))
   check('toolbar fits without horizontal clipping', initial.toolbarScrollWidth <= initial.toolbarClientWidth + 1, `${initial.toolbarScrollWidth}/${initial.toolbarClientWidth}`)
+  const editToolbar = await evaluate(send, `(() => ({
+    height: document.querySelector('.presentation-toolbar').getBoundingClientRect().height,
+    newSlide: Boolean(document.querySelector('[data-testid=presentation-new-slide]')),
+    edit: Boolean(document.querySelector('[data-testid=presentation-edit-slide]')),
+    duplicate: Boolean(document.querySelector('[data-testid=presentation-duplicate-slide]')),
+    remove: Boolean(document.querySelector('[data-testid=presentation-delete-slide]')),
+    slideshowMenu: Boolean(document.querySelector('[data-testid=presentation-slideshow-menu]')),
+  }))()`)
+  check('PowerPoint editing toolbar reuses the compact Word and Excel dimensions',
+    editToolbar.height >= 40 && editToolbar.height <= 42
+      && editToolbar.newSlide && editToolbar.edit && editToolbar.duplicate
+      && editToolbar.remove && editToolbar.slideshowMenu,
+    JSON.stringify(editToolbar))
+
+  await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide-menu]').click(); true")
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-import-outline]') && document.querySelector('[data-testid=presentation-reuse-slides]')",
+    'new slide dropdown')
+  check('new slide dropdown exposes outline import and reuse slides', true)
+  await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
+
+  await evaluate(send, "document.querySelector('[data-testid=presentation-slideshow-menu]').click(); true")
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-start-from-beginning]') && document.querySelector('[data-testid=presentation-start-from-current]')",
+    'slideshow dropdown')
+  check('slideshow dropdown exposes beginning and current-slide starts', true)
+  await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
   check('thumbnail number and preview use compact left spacing',
     initial.thumbnailNumberLeftInset <= 5 && initial.thumbnailFrameLeftInset <= 27,
     `${initial.thumbnailNumberLeftInset}px / ${initial.thumbnailFrameLeftInset}px`)
