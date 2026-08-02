@@ -1015,13 +1015,18 @@ try {
       "Boolean(document.querySelector('[data-testid=presentation-new-slide]') && !document.querySelector('[data-testid=presentation-new-slide]').disabled)",
       'enabled new slide control')
     await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide]').click(); true")
-    await waitFor(send, `(() => {
+    const newSlideResult = await waitFor(send, `(() => {
       const input = document.querySelector('[data-testid=presentation-page-input]');
       const total = Number(input?.nextElementSibling?.textContent.replace(/\D/g, ''));
+      const error = document.querySelector('[data-testid=presentation-edit-error]')?.textContent?.trim();
+      if (error) return { ok: false, error, total, page: input?.value };
       return document.querySelector('[data-testid=presentation-viewer]')?.dataset.presentationState === 'ready'
-        && total === 4 && input?.value === '2';
+        && total === 4
+        ? { ok: input?.value === '2', total, page: input?.value }
+        : null;
     })()`, 'new slide created through Office automation', 120_000)
-    check('New slide inserts after the current slide and selects it', true)
+    check('New slide inserts after the current slide and selects it', newSlideResult.ok, JSON.stringify(newSlideResult))
+    if (!newSlideResult.ok) throw new Error(`New slide operation failed: ${JSON.stringify(newSlideResult)}`)
 
     await evaluate(send, "document.querySelector('[data-testid=presentation-edit-slide]').click(); true")
     await waitFor(send, "Boolean(document.querySelector('[data-testid=presentation-text-dialog]'))", 'slide text editor', 120_000)
