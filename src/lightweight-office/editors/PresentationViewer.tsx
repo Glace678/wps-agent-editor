@@ -527,9 +527,6 @@ export function PresentationViewer({
     setLoadError(null)
     setErrorDetail('')
     setSlideCount(0)
-    setCurrentSlide(0)
-    setPageInput('1')
-    setZoom(100)
 
     const nextViewer = new PptxViewer(host, {
       fitMode: 'contain',
@@ -552,9 +549,17 @@ export function PresentationViewer({
 
     void (async () => {
       try {
-        const prepared = await readPresentationBuffer(filePath)
+        let buffer = presentationBufferFileRef.current === filePath
+          ? presentationBufferRef.current
+          : null
+        if (!buffer) {
+          const prepared = await readPresentationBuffer(filePath)
+          buffer = prepared.buffer
+          presentationBufferRef.current = buffer
+          presentationBufferFileRef.current = filePath
+        }
         if (cancelled) return
-        await nextViewer.open(prepared.buffer, {
+        await nextViewer.open(buffer, {
           renderMode: 'slide',
           signal: abortController.signal,
           lazyMedia: true,
@@ -564,13 +569,20 @@ export function PresentationViewer({
 
         const count = nextViewer.slideCount
         if (count === 0) throw new Error('The presentation contains no slides')
+        const desiredSlide = clamp(desiredSlideIndexRef.current, 0, count - 1)
+        if (desiredSlide !== nextViewer.currentSlideIndex) {
+          await nextViewer.goToSlide(desiredSlide)
+          if (cancelled) return
+        }
+        desiredSlideIndexRef.current = desiredSlide
         setSlideCount(count)
-        setCurrentSlide(nextViewer.currentSlideIndex)
+        setCurrentSlide(desiredSlide)
         setAspectRatio(
           nextViewer.slideWidth > 0 && nextViewer.slideHeight > 0
             ? nextViewer.slideWidth / nextViewer.slideHeight
             : DEFAULT_ASPECT_RATIO,
         )
+        prepareSlideRuntime(nextViewer, desiredSlide)
         setViewer(nextViewer)
         setLoading(false)
         onReady?.()
@@ -592,10 +604,12 @@ export function PresentationViewer({
       cancelled = true
       abortController.abort()
       nextViewer.destroy()
+      clearPresentationAnimations(animationRuntimeRef.current)
+      animationRuntimeRef.current = null
       if (viewerRef.current === nextViewer) viewerRef.current = null
       documentBridge.clear()
     }
-  }, [filePath, onReady, retryToken])
+  }, [contentRevision, filePath, onReady, prepareSlideRuntime, retryToken])
 
   useEffect(() => {
     setPageInput(String(currentSlide + 1))
@@ -604,12 +618,15 @@ export function PresentationViewer({
   useEffect(() => {
     const onFullscreenChange = () => {
       const active = document.fullscreenElement === rootRef.current
+      isPresentingRef.current = active
       setIsPresenting(active)
       setControlsVisible(true)
+      const activeViewer = viewerRef.current
+      if (activeViewer) prepareSlideRuntime(activeViewer, activeViewer.currentSlideIndex, active)
     }
     document.addEventListener('fullscreenchange', onFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
-  }, [])
+  }, [prepareSlideRuntime])
 
   const clearControlsTimer = useCallback(() => {
     if (controlsTimerRef.current !== null) {
