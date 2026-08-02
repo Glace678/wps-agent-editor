@@ -993,7 +993,7 @@ try {
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '2'",
     'toolbar slideshow from current')
   check('toolbar starts slideshow from the current slide', true)
-  await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
+  await evaluate(send, "document.querySelector('[data-testid=presentation-exit-slideshow]').click(); true")
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit current slideshow')
 
   await evaluate(send, "document.querySelector('[data-testid=presentation-thumbnail-3]').click(); true")
@@ -1005,7 +1005,7 @@ try {
     "document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting') && document.querySelector('[data-testid=presentation-page-input]').value === '1'",
     'toolbar slideshow from beginning')
   check('toolbar starts slideshow from the beginning', true)
-  await pressKey(send, { key: 'Escape', code: 'Escape', keyCode: 27 })
+  await evaluate(send, "document.querySelector('[data-testid=presentation-exit-slideshow]').click(); true")
   await waitFor(send, "!document.querySelector('[data-testid=presentation-viewer]').classList.contains('presentation-viewer--presenting')", 'exit beginning slideshow')
 
   if (hasLegacyFixture) {
