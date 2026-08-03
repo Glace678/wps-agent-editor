@@ -1066,6 +1066,14 @@ export function PresentationViewer({
       data: Boolean(viewer?.presentationData),
       slideNodes: slide0?.nodes?.length ?? -1,
       slideNode0: slide0?.nodes?.[0] ? `${slide0.nodes[0].nodeType}:${slide0.nodes[0].id}` : 'none',
+      bounds: currentSlideTextEntries.map((entry) => ({
+        id: entry.nodeId,
+        x: Math.round(entry.bounds.x),
+        y: Math.round(entry.bounds.y),
+        w: Math.round(entry.bounds.w),
+        h: Math.round(entry.bounds.h),
+        text: entry.text.slice(0, 20),
+      })),
     }))
 
     const hit = currentSlideTextEntries.find((entry) => (
