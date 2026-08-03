@@ -280,7 +280,10 @@ try {
     error: document.querySelector('[data-testid="presentation-edit-error"]')?.textContent ?? null,
     box: Boolean(document.querySelector('[data-testid="presentation-inline-edit"]')),
     state: document.querySelector('[data-testid="presentation-viewer"]')?.dataset.presentationState,
-    slideText: document.querySelector('.presentation-slide-host')?.textContent?.slice(0, 80),
+    slideText: document.querySelector('.presentation-slide-host')?.textContent?.slice(0, 120),
+    hostChildren: [...document.querySelector('.presentation-slide-host')?.children ?? []].map((el) => el.tagName),
+    slideNodes: [...document.querySelectorAll('.presentation-slide-host [data-testid="presentation-slide-host"] *, .presentation-slide-host *')]
+      .filter((el) => el.children.length === 0 && el.textContent.trim()).map((el) => el.textContent.slice(0, 40)),
   }))()`)
   console.log('AFTER COMMIT:', JSON.stringify(afterCommit))
   const changed = await waitFor(
