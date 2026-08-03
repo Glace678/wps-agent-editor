@@ -1434,13 +1434,6 @@ export function PresentationViewer({
         if (rect.width <= 0 || rect.height <= 0) return null
         const scaleX = rect.width / data.width
         const scaleY = rect.height / data.height
-        document.documentElement.setAttribute('data-debug-metrics', JSON.stringify({
-          w: data.width,
-          h: data.height,
-          rectW: rect.width,
-          left: Math.round(inlineEdit.entry.bounds.x * scaleX),
-          top: Math.round(inlineEdit.entry.bounds.y * scaleY),
-        }))
         return {
           left: inlineEdit.entry.bounds.x * scaleX,
           top: inlineEdit.entry.bounds.y * scaleY,
