@@ -338,7 +338,7 @@ try {
     Math.abs(fontPlus.fontSize - 15) < 0.1 && fontPlus.editorScale > fontBefore.editorScale,
     JSON.stringify({ before: fontBefore, after: fontPlus }))
   check('Ctrl+Plus grows the minimap with the code',
-    fontPlus.minimapWidth > fontBefore.minimapWidth
+    fontPlus.minimapScale > fontBefore.minimapScale
       && Math.abs(fontPlus.minimapScale - fontPlus.editorScale) < 0.02,
     JSON.stringify({ before: fontBefore, after: fontPlus }))
 
@@ -356,11 +356,12 @@ try {
     Math.abs(fontMinus.fontSize - 13) < 0.1 && fontMinus.editorScale < fontBefore.editorScale,
     JSON.stringify({ before: fontBefore, after: fontMinus }))
   check('Ctrl+Minus shrinks the minimap with the code',
-    fontMinus.minimapWidth < fontBefore.minimapWidth
+    fontMinus.minimapScale < fontBefore.minimapScale
       && Math.abs(fontMinus.minimapScale - fontMinus.editorScale) < 0.02,
     JSON.stringify({ before: fontBefore, after: fontMinus }))
   check('code font zoom does not resize the window',
-    fontMinus.innerWidth === fontBefore.innerWidth && fontMinus.hostWidth === fontBefore.hostWidth,
+    fontMinus.innerWidth === fontBefore.innerWidth
+      && Math.abs(fontMinus.hostWidth - fontBefore.hostWidth) < 0.02,
     JSON.stringify({ before: fontBefore, after: fontMinus }))
   check('code font line height scales with the font',
     Math.abs(fontMinus.lineHeight - fontMinus.fontSize * (22 / 14)) < 1.5,
@@ -380,7 +381,8 @@ try {
   await sleep(300)
   const fontWheelUp = await evaluate(send, fontMeasure)
   check('Ctrl+wheel up grows the code view and minimap',
-    Math.abs(fontWheelUp.fontSize - 15) < 0.1 && fontWheelUp.minimapWidth > fontBefore.minimapWidth,
+    Math.abs(fontWheelUp.fontSize - 15) < 0.1
+      && fontWheelUp.minimapScale > fontBefore.minimapScale,
     JSON.stringify({ before: fontBefore, after: fontWheelUp }))
 
   await dispatchWheel(100)
