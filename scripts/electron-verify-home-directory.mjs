@@ -185,7 +185,7 @@ try {
   const menuText = await evaluate(send, `(${menuExpr}).textContent`)
   const hasTitle = menuText.includes('切换主目录')
   const hasDefault = await evaluate(send, `Boolean(${menuItemByText('系统默认主目录')})`)
-  const hasChooseFolder = await evaluate(send, `Boolean(${menuItemByText('选择文件夹...'))}`)
+  const hasChooseFolder = await evaluate(send, `Boolean(${menuItemByText('选择文件夹...')})`)
   const recentItems = await evaluate(send, `[...(${menuExpr}).querySelectorAll('[data-testid^="home-menu-recent-"]')].map((el) => el.textContent.trim())`)
   await screenshot(send, 'v1-home-menu.png')
   record('V1 right-click opens home switcher with all sections',
