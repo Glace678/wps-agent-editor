@@ -88,6 +88,20 @@ function apply(file, replacements) {
 // ---------------------------------------------------------------------------
 apply('aiden0z-pptx-renderer.es.js', [
   {
+    label: 'migrate compact implicit tab width',
+    optional: true,
+    from: `            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : 914400;
+            break;
+          }
+        }
+        if (tabSizeEmu === null) tabSizeEmu = 914400;`,
+    to: `            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : F * r * 25400;
+            break;
+          }
+        }
+        if (tabSizeEmu === null) tabSizeEmu = F * r * 25400;`,
+  },
+  {
     label: 'migrate tab grid offset formula',
     from: `      if (A.marginLeft !== void 0 && A.marginLeft > 0 && (R || A.bulletNone === !0)) {
         tabSizePx = Math.min(tabSizePx, A.marginLeft);
@@ -179,6 +193,20 @@ apply('aiden0z-pptx-renderer.es.js', [
 // dist/aiden0z-pptx-renderer.browser.es.js
 // ---------------------------------------------------------------------------
 apply('aiden0z-pptx-renderer.browser.es.js', [
+  {
+    label: 'migrate compact implicit tab width',
+    optional: true,
+    from: `            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : 914400;
+            break;
+          }
+        }
+        if (tabSizeEmu === null) tabSizeEmu = 914400;`,
+    to: `            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : A * o * 25400;
+            break;
+          }
+        }
+        if (tabSizeEmu === null) tabSizeEmu = A * o * 25400;`,
+  },
   {
     label: 'migrate tab grid offset formula',
     from: `      if (C.marginLeft !== void 0 && C.marginLeft > 0 && (I || C.bulletNone === !0)) {
@@ -273,6 +301,12 @@ apply('aiden0z-pptx-renderer.browser.es.js', [
 // dist/aiden0z-pptx-renderer.cjs
 // ---------------------------------------------------------------------------
 apply('aiden0z-pptx-renderer.cjs', [
+  {
+    label: 'migrate compact implicit tab width',
+    optional: true,
+    from: `tabSizeEmu=tabDefTabSz!==void 0?tabDefTabSz:914400;break}}if(tabSizeEmu===null)tabSizeEmu=914400`,
+    to: `tabSizeEmu=tabDefTabSz!==void 0?tabDefTabSz:F*r*25400;break}}if(tabSizeEmu===null)tabSizeEmu=F*r*25400`,
+  },
   {
     label: 'migrate tab grid offset formula',
     from: `tabSizePx=Math.min(tabSizePx,A.marginLeft)}M.style.tabSize=`,
