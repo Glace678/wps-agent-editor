@@ -700,6 +700,7 @@ try {
         header: getComputedStyle(header).backgroundColor,
         input: getComputedStyle(input).backgroundColor,
         border: getComputedStyle(popup).borderColor,
+        radius: getComputedStyle(popup).borderRadius,
         shadow: getComputedStyle(popup).boxShadow,
       }
     }
@@ -740,8 +741,79 @@ try {
         && surface.list === surface.popup
         && surface.header === surface.popup
         && surface.input === 'rgb(48, 48, 48)'
+        && surface.radius === '6px'
         && surface.popup !== darkPickerSurfaces.worksheet,
       JSON.stringify({ worksheet: darkPickerSurfaces.worksheet, surface }),
+    )
+  }
+  const dropdownSurfaceContracts = await evaluate(send, `(() => {
+    const shell = document.querySelector('[data-testid="excel-editor-shell"]')
+    if (!shell) return null
+    const specs = [
+      ['toolbar-list', 'fortune-toolbar-select'],
+      ['color-picker', 'fortune-toolbar-color-picker'],
+      ['more-tools', 'fortune-toolbar-more-container'],
+      ['toolbar-submenu', 'toolbar-item-sub-menu'],
+      ['condition-format', 'condition-format-sub-menu'],
+      ['filter', 'fortune-context-menu luckysheet-cols-menu fortune-filter-menu'],
+      ['filter-color', 'luckysheet-filter-bycolor-submenu'],
+      ['zoom', 'fortune-zoom-ratio-menu'],
+      ['sheet-list', 'fortune-context-menu luckysheet-cols-menu fortune-sheet-list'],
+    ]
+    const fixture = document.createElement('div')
+    fixture.style.cssText = 'position:absolute;left:-10000px;top:-10000px;visibility:hidden;'
+    shell.append(fixture)
+    const surfaces = Object.fromEntries(specs.map(([name, className]) => {
+      const element = document.createElement('div')
+      element.className = className
+      fixture.append(element)
+      const style = getComputedStyle(element)
+      return [name, {
+        background: style.backgroundColor,
+        border: style.borderColor,
+        radius: style.borderRadius,
+        shadow: style.boxShadow,
+      }]
+    }))
+    for (const [name, id] of [
+      ['custom-color', 'fortune-custom-color'],
+      ['sheet-color', 'fortune-change-color'],
+      ['data-validation', 'luckysheet-dataVerification-dropdown-List'],
+    ]) {
+      const element = document.createElement('div')
+      element.id = id
+      fixture.append(element)
+      const style = getComputedStyle(element)
+      surfaces[name] = {
+        background: style.backgroundColor,
+        border: style.borderColor,
+        radius: style.borderRadius,
+        shadow: style.boxShadow,
+      }
+    }
+    const select = document.createElement('select')
+    const option = document.createElement('option')
+    select.append(option)
+    fixture.append(select)
+    surfaces['native-select'] = {
+      background: getComputedStyle(select).backgroundColor,
+      optionBackground: getComputedStyle(option).backgroundColor,
+      border: getComputedStyle(select).borderColor,
+      radius: getComputedStyle(select).borderRadius,
+    }
+    fixture.remove()
+    return surfaces
+  })()`)
+  for (const [kind, surface] of Object.entries(dropdownSurfaceContracts || {})) {
+    check(
+      `${kind} dropdown uses the shared charcoal rounded surface`,
+      surface.background === 'rgb(37, 37, 37)'
+        && surface.radius === '6px'
+        && surface.border === 'rgb(74, 74, 74)'
+        && (kind === 'native-select'
+          ? surface.optionBackground === surface.background
+          : surface.shadow !== 'none'),
+      JSON.stringify(surface),
     )
   }
   check(

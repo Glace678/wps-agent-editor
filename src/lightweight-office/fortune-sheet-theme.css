@@ -1,5 +1,6 @@
 /* Fortune Sheet has no theme API. Keep every override scoped to the Excel editor. */
 .excel-editor-shell {
+  --excel-dropdown-radius: 6px;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -196,6 +197,29 @@
   background: var(--fortune-dark-active);
 }
 
+/* Keep every Excel-owned dropdown on the same rounded surface. Native
+   worksheet context menus and dialogs intentionally remain separate. */
+.excel-editor-shell .fortune-toolbar-select,
+.excel-editor-shell .fortune-toolbar-color-picker,
+.excel-editor-shell .fortune-toolbar-more-container,
+.excel-editor-shell .toolbar-item-sub-menu,
+.excel-editor-shell .condition-format-sub-menu,
+.excel-editor-shell .fortune-filter-menu,
+.excel-editor-shell .luckysheet-filter-bycolor-submenu,
+.excel-editor-shell .fortune-zoom-ratio-menu,
+.excel-editor-shell .fortune-sheet-list,
+.excel-editor-shell #fortune-custom-color,
+.excel-editor-shell #fortune-change-color,
+.excel-editor-shell #luckysheet-dataVerification-dropdown-List {
+  box-sizing: border-box;
+  border-radius: var(--excel-dropdown-radius);
+  background-clip: padding-box;
+}
+
+.excel-editor-shell .fortune-container select {
+  border-radius: var(--excel-dropdown-radius);
+}
+
 /* Menus, popovers and dialogs, including the font-family picker. */
 .dark .excel-editor-shell .fortune-toolbar-select,
 .dark .excel-editor-shell .fortune-toolbar-color-picker,
@@ -220,6 +244,28 @@
   color: var(--fortune-dark-text);
   border-color: var(--fortune-dark-border);
   box-shadow: 0 8px 24px rgb(0 0 0 / 70%);
+}
+
+/* Dropdowns sit one level above the pure-black worksheet. Keep their shared
+   border and shadow visible even when a Fortune popup has no native border. */
+.dark .excel-editor-shell .fortune-toolbar-select,
+.dark .excel-editor-shell .fortune-toolbar-color-picker,
+.dark .excel-editor-shell .fortune-toolbar-more-container,
+.dark .excel-editor-shell .toolbar-item-sub-menu,
+.dark .excel-editor-shell .condition-format-sub-menu,
+.dark .excel-editor-shell .fortune-filter-menu,
+.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu,
+.dark .excel-editor-shell .fortune-zoom-ratio-menu,
+.dark .excel-editor-shell .fortune-sheet-list,
+.dark .excel-editor-shell #fortune-custom-color,
+.dark .excel-editor-shell #fortune-change-color,
+.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List {
+  background: var(--fortune-dark-picker-bg);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-picker-border);
+  box-shadow:
+    0 0 0 1px var(--fortune-dark-picker-border),
+    0 10px 28px rgb(0 0 0 / 72%);
 }
 
 .dark .excel-editor-shell .fortune-modal-container {
@@ -249,6 +295,19 @@
   color: var(--fortune-dark-text);
 }
 
+.dark .excel-editor-shell .fortune-toolbar-select-option:hover,
+.dark .excel-editor-shell .fortune-border-select-option:hover,
+.dark .excel-editor-shell .fortune-border-style-picker-menu:hover,
+.dark .excel-editor-shell .condition-format-item:hover,
+.dark .excel-editor-shell .fortune-filter-menu .luckysheet-cols-menuitem:hover,
+.dark .excel-editor-shell .fortune-filter-menu .luckysheet-cols-menuitem-hover,
+.dark .excel-editor-shell .fortune-zoom-ratio-item:hover,
+.dark .excel-editor-shell .fortune-sheet-list :hover,
+.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List .dropdown-List-item:hover {
+  background: var(--fortune-dark-picker-hover);
+  color: var(--fortune-dark-text);
+}
+
 /* Fortune Sheet ships static font and size menus. Excel upgrades these two
    menus into Word-style editable pickers: a pinned search field, filtered
    choices, arrow-key focus, and Enter to apply the highlighted/custom value.
@@ -263,6 +322,7 @@
   isolation: isolate;
   box-sizing: border-box;
   background: #fff;
+  border-radius: var(--excel-dropdown-radius);
 }
 
 .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind] .fortune-toolbar-select {
@@ -275,6 +335,9 @@
   /* Fortune default padding; keep list scrollable under a fixed header. */
   overscroll-behavior: contain;
   box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* Font / size / format popup width is set by JS from text metrics
@@ -448,6 +511,12 @@
   caret-color: var(--fortune-dark-text);
 }
 
+.dark .excel-editor-shell .fortune-container select,
+.dark .excel-editor-shell .fortune-container option {
+  background-color: var(--fortune-dark-picker-bg);
+  border-color: var(--fortune-dark-picker-border);
+}
+
 .dark .excel-editor-shell .fortune-container input::placeholder,
 .dark .excel-editor-shell .fortune-container textarea::placeholder {
   color: var(--fortune-dark-muted);
@@ -476,7 +545,7 @@
 .dark .excel-editor-shell #range-dialog .dialog-title,
 .dark .excel-editor-shell #fortune-location-condition .title,
 .dark .excel-editor-shell .fortune-sort-title {
-  background: var(--fortune-dark-bg);
+  background: var(--fortune-dark-picker-bg);
   color: var(--fortune-dark-text);
   border-color: var(--fortune-dark-border);
 }
@@ -554,12 +623,12 @@
 
 .dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .title,
 .dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .item {
-  background: var(--fortune-dark-bg);
+  background: var(--fortune-dark-picker-bg);
   color: var(--fortune-dark-text);
 }
 
 .dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .item:hover {
-  background: var(--fortune-dark-hover);
+  background: var(--fortune-dark-picker-hover);
 }
 
 .dark .excel-editor-shell .filter-caret.right {
