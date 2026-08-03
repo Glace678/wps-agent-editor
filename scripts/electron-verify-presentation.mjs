@@ -752,9 +752,11 @@ try {
     const baselineNode = findTextNode('中文空格基准');
     const indentedNode = findTextNode('中文空格测试');
     const singleSpaceNode = findTextNode('中文单空格测试');
+    const tabNode = findTextNode('中文Tab测试');
     const baseline = baselineNode && glyphRect(baselineNode, '中');
     const indented = indentedNode && glyphRect(indentedNode, '中');
     const singleSpace = singleSpaceNode && glyphRect(singleSpaceNode, '中');
+    const tabbed = tabNode && glyphRect(tabNode, '中');
     const preservedSpaces = indentedNode?.previousSibling instanceof HTMLElement
       && indentedNode.previousSibling.classList.contains('presentation-preserved-spaces')
       ? indentedNode.previousSibling
@@ -763,9 +765,11 @@ try {
       && singleSpaceNode.previousSibling.classList.contains('presentation-preserved-spaces')
       ? singleSpaceNode.previousSibling
       : null;
-    if (!baseline || !indented || !singleSpace || !preservedSpaces || !preservedSingleSpace) return null;
+    if (!baseline || !indented || !singleSpace || !tabbed || !preservedSpaces || !preservedSingleSpace) return null;
     const preservedSpaceStyle = getComputedStyle(preservedSpaces);
     const preservedSingleSpaceStyle = getComputedStyle(preservedSingleSpace);
+    const tabRunStyle = getComputedStyle(tabNode.parentElement);
+    const tabParagraphStyle = getComputedStyle(tabNode.parentElement.parentElement);
     return {
       baselineLeft: baseline.left,
       indentedLeft: indented.left,
@@ -784,6 +788,9 @@ try {
       singleWhiteSpace: preservedSingleSpaceStyle.whiteSpace,
       singleDisplay: preservedSingleSpaceStyle.display,
       singleContentWhiteSpace: getComputedStyle(singleSpaceNode.parentElement).whiteSpace,
+      tabIndentInCjkGlyphs: (tabbed.left - baseline.left) / baseline.width,
+      tabSizeInCjkGlyphs: parseFloat(tabParagraphStyle.tabSize) / baseline.width,
+      tabWhiteSpace: tabRunStyle.whiteSpace,
     };
   })()`)
   check('two leading half-width spaces keep normal Chinese font metrics',
@@ -803,6 +810,14 @@ try {
       && chineseLeadingSpaces.singleWhiteSpace === 'pre'
       && chineseLeadingSpaces.singleDisplay === 'inline-block'
       && chineseLeadingSpaces.singleContentWhiteSpace === 'normal',
+    JSON.stringify(chineseLeadingSpaces))
+  check('an implicit Tab before Chinese uses the compact two-glyph width',
+    chineseLeadingSpaces
+      && chineseLeadingSpaces.tabIndentInCjkGlyphs > 1.6
+      && chineseLeadingSpaces.tabIndentInCjkGlyphs < 2.4
+      && chineseLeadingSpaces.tabSizeInCjkGlyphs > 1.6
+      && chineseLeadingSpaces.tabSizeInCjkGlyphs < 2.4
+      && chineseLeadingSpaces.tabWhiteSpace === 'pre-wrap',
     JSON.stringify(chineseLeadingSpaces))
   check('slide is fitted inside a stable visible stage', initial.width > 350 && initial.height > 190 && initial.width <= initial.stageWidth && initial.height <= initial.stageHeight, JSON.stringify(initial))
   check('toolbar fits without horizontal clipping', initial.toolbarScrollWidth <= initial.toolbarClientWidth + 1, `${initial.toolbarScrollWidth}/${initial.toolbarClientWidth}`)
