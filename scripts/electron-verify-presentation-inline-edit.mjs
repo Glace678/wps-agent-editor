@@ -370,6 +370,8 @@ try {
   cdp.close()
 } catch (e) {
   record('harness', false, String(e))
+  const relevant = log.join('').split('\n').filter((l) => /Slide render failed|PresentationViewer|nodeerror|nodeId|ERROR|Error/.test(l))
+  console.error('RELEVANT LOG:', JSON.stringify(relevant.slice(-20), null, 1))
 } finally {
   try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch {}
   await sleep(1200)
