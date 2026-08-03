@@ -244,15 +244,15 @@ export function FileManager({ onCollapse }: FileManagerProps) {
                 {t('appShell.refresh')}
               </TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenu.Root open={homeMenuOpen} onOpenChange={setHomeMenuOpen} modal={false}>
-                  <DropdownMenu.Trigger
-                    asChild
-                    onPointerDown={(event) => {
-                      if (event.button === 0) event.preventDefault()
-                    }}
-                  >
+            <Tooltip open={homeMenuOpen ? false : undefined}>
+              <DropdownMenu.Root open={homeMenuOpen} onOpenChange={setHomeMenuOpen} modal={false}>
+                <DropdownMenu.Trigger
+                  asChild
+                  onPointerDown={(event) => {
+                    if (event.button === 0) event.preventDefault()
+                  }}
+                >
+                  <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -264,74 +264,74 @@ export function FileManager({ onCollapse }: FileManagerProps) {
                     >
                       <Home className="h-3.5 w-3.5" />
                     </Button>
-                  </DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      sideOffset={2}
-                      align="start"
-                      className={homeMenuContentClass}
-                      data-testid="home-directory-menu"
-                      onCloseAutoFocus={(event) => event.preventDefault()}
+                  </TooltipTrigger>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    sideOffset={2}
+                    align="start"
+                    className={homeMenuContentClass}
+                    data-testid="home-directory-menu"
+                    onCloseAutoFocus={(event) => event.preventDefault()}
+                  >
+                    <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                      <Home className="h-3.5 w-3.5" />
+                      <span className="truncate">{t('appShell.homeMenuTitle')}</span>
+                    </div>
+                    <DropdownMenu.Item
+                      className={homeMenuItemClass}
+                      disabled={!systemHome}
+                      onSelect={() => { if (systemHome) applyMainDirectory(systemHome) }}
+                      data-testid="home-menu-default"
                     >
-                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-                        <Home className="h-3.5 w-3.5" />
-                        <span className="truncate">{t('appShell.homeMenuTitle')}</span>
-                      </div>
-                      <DropdownMenu.Item
-                        className={homeMenuItemClass}
-                        disabled={!systemHome}
-                        onSelect={() => { if (systemHome) applyMainDirectory(systemHome) }}
-                        data-testid="home-menu-default"
-                      >
-                        <span className="flex w-4 shrink-0 items-center justify-center">
-                          {Boolean(effectiveMainDirectory && systemHome && sameDirectoryPath(effectiveMainDirectory, systemHome))
-                            && <Check className="h-4 w-4" />}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">{t('appShell.homeDefaultDirectory')}</span>
+                      <span className="flex w-4 shrink-0 items-center justify-center">
+                        {Boolean(effectiveMainDirectory && systemHome && sameDirectoryPath(effectiveMainDirectory, systemHome))
+                          && <Check className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{t('appShell.homeDefaultDirectory')}</span>
+                    </DropdownMenu.Item>
+
+                    <DropdownMenu.Separator className="my-1 h-px bg-border" />
+
+                    <div className="px-2 py-1 text-xs text-muted-foreground">
+                      {t('appShell.homeRecentDirectories')}
+                    </div>
+                    {recentDirectories.length === 0 ? (
+                      <DropdownMenu.Item className={homeMenuItemClass} disabled data-testid="home-menu-no-recent">
+                        {t('appShell.homeNoRecent')}
                       </DropdownMenu.Item>
-
-                      <DropdownMenu.Separator className="my-1 h-px bg-border" />
-
-                      <div className="px-2 py-1 text-xs text-muted-foreground">
-                        {t('appShell.homeRecentDirectories')}
-                      </div>
-                      {recentDirectories.length === 0 ? (
-                        <DropdownMenu.Item className={homeMenuItemClass} disabled data-testid="home-menu-no-recent">
-                          {t('appShell.homeNoRecent')}
+                    ) : (
+                      recentDirectories.slice(0, 8).map((dir, index) => (
+                        <DropdownMenu.Item
+                          key={dir}
+                          className={homeMenuItemClass}
+                          onSelect={() => applyMainDirectory(dir)}
+                          data-testid={`home-menu-recent-${index}`}
+                        >
+                          <span className="flex w-4 shrink-0 items-center justify-center">
+                            {Boolean(effectiveMainDirectory && sameDirectoryPath(effectiveMainDirectory, dir))
+                              && <Check className="h-4 w-4" />}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate" title={dir}>{dir}</span>
                         </DropdownMenu.Item>
-                      ) : (
-                        recentDirectories.slice(0, 8).map((dir, index) => (
-                          <DropdownMenu.Item
-                            key={dir}
-                            className={homeMenuItemClass}
-                            onSelect={() => applyMainDirectory(dir)}
-                            data-testid={`home-menu-recent-${index}`}
-                          >
-                            <span className="flex w-4 shrink-0 items-center justify-center">
-                              {Boolean(effectiveMainDirectory && sameDirectoryPath(effectiveMainDirectory, dir))
-                                && <Check className="h-4 w-4" />}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate" title={dir}>{dir}</span>
-                          </DropdownMenu.Item>
-                        ))
-                      )}
+                      ))
+                    )}
 
-                      <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                    <DropdownMenu.Separator className="my-1 h-px bg-border" />
 
-                      <DropdownMenu.Item
-                        className={homeMenuItemClass}
-                        onSelect={() => { void chooseHomeFolder() }}
-                        data-testid="home-menu-choose-folder"
-                      >
-                        <span className="flex w-4 shrink-0 items-center justify-center">
-                          <FolderOpen className="h-4 w-4" />
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">{t('appShell.homeChooseFolder')}</span>
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu.Root>
-              </TooltipTrigger>
+                    <DropdownMenu.Item
+                      className={homeMenuItemClass}
+                      onSelect={() => { void chooseHomeFolder() }}
+                      data-testid="home-menu-choose-folder"
+                    >
+                      <span className="flex w-4 shrink-0 items-center justify-center">
+                        <FolderOpen className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{t('appShell.homeChooseFolder')}</span>
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
               <TooltipContent side="bottom" className="whitespace-nowrap rounded-[2px] border-0 bg-[#666] px-1.5 py-1.5 text-center text-[12px] leading-normal text-white shadow-none">
                 {t('appShell.homeDirectory')}
               </TooltipContent>
