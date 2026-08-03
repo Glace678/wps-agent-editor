@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const repoRoot = path.resolve(process.env.GIT_SYNC_REPOSITORY ?? process.cwd())
 const reconciliationIntervalMs = 5_000
+const pushAttemptTimeoutMs = 30_000
 const gitCandidates = process.platform === 'win32'
   ? [
       process.env.GIT_EXECUTABLE,
@@ -59,7 +60,7 @@ async function pushWithRetry(args, attempts = 3, delayMs = 3_000) {
   let lastError = null
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      await git(['push', ...args])
+      await git(['push', ...args], { timeout: pushAttemptTimeoutMs })
       return
     } catch (error) {
       lastError = error
@@ -70,6 +71,14 @@ async function pushWithRetry(args, attempts = 3, delayMs = 3_000) {
     }
   }
   throw lastError
+}
+
+async function pushSnapshot() {
+  const branch = await gitOutput(['branch', '--show-current'])
+  const refspecs = branch && branch !== 'main'
+    ? [`HEAD:refs/heads/${branch}`, 'HEAD:refs/heads/main']
+    : ['HEAD:refs/heads/main']
+  await pushWithRetry(['--atomic', 'origin', ...refspecs])
 }
 
 async function syncSnapshot() {
@@ -104,8 +113,7 @@ async function syncSnapshot() {
 
     // Push even when nothing new was committed: a previous run may have failed
     // to push (e.g. transient network reset) and must not be silently skipped.
-    await pushWithRetry(['origin', 'HEAD'])
-    await pushWithRetry(['origin', 'HEAD:main'])
+    await pushSnapshot()
     pushPending = false
     console.log('[git-sync] Pushed the snapshot to GitHub.')
   } catch (error) {
