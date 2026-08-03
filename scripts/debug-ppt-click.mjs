@@ -153,6 +153,8 @@ try {
     mousedowns: window.__md,
     box: Boolean(document.querySelector('[data-testid="presentation-inline-edit"]')),
     debug: document.documentElement.getAttribute('data-debug-inline'),
+    textareas: document.querySelectorAll('textarea').length,
+    focused: document.activeElement?.tagName,
   }))()`)
   console.log('AFTER:', JSON.stringify(after))
   cdp.close()

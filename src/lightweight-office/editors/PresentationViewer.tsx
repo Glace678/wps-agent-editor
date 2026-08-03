@@ -1061,6 +1061,13 @@ export function PresentationViewer({
       && y >= entry.bounds.y
       && y <= entry.bounds.y + entry.bounds.h
     ))
+    document.documentElement.setAttribute('data-debug-inline', JSON.stringify({
+      point: [Math.round(x), Math.round(y)],
+      hit: hit ? { id: hit.nodeId, text: hit.text.slice(0, 20) } : null,
+      entries: currentSlideTextEntries.length,
+      inlineRef: inlineEditRef.current?.entry.nodeId ?? null,
+      slideNodes: viewer?.presentationData?.slides[0]?.nodes?.length ?? -1,
+    }))
     if (!hit) {
       inlineEditRef.current = null
       inlineEditTextRef.current = ''
