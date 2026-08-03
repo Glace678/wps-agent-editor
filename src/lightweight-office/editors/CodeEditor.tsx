@@ -53,7 +53,7 @@ const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>()
 let themesRegistered = false
 let languageDefaultsConfigured = false
 
-const CODE_FONT_SIZE_KEY = 'wps-code-editor-font-size'
+const LEGACY_CODE_FONT_SIZE_KEY = 'wps-code-editor-font-size'
 const CODE_FONT_SIZE_MIN = 8
 const CODE_FONT_SIZE_MAX = 32
 const CODE_FONT_SIZE_DEFAULT = 14
@@ -61,18 +61,6 @@ const CODE_FONT_LINE_HEIGHT_RATIO = 22 / 14
 
 function clampCodeFontSize(value: number): number {
   return Math.min(CODE_FONT_SIZE_MAX, Math.max(CODE_FONT_SIZE_MIN, value))
-}
-
-function loadCodeFontSize(): number {
-  try {
-    const raw = localStorage.getItem(CODE_FONT_SIZE_KEY)
-    if (!raw) return CODE_FONT_SIZE_DEFAULT
-    const value = Number(raw)
-    if (!Number.isFinite(value)) return CODE_FONT_SIZE_DEFAULT
-    return clampCodeFontSize(value)
-  } catch {
-    return CODE_FONT_SIZE_DEFAULT
-  }
 }
 
 function configureMonaco(): void {
@@ -225,7 +213,7 @@ export function CodeEditor({
   const onShellPreviousTabRef = useRef(onShellPreviousTab)
   const onShellCloseTabRef = useRef(onShellCloseTab)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [fontSize, setFontSize] = useState(loadCodeFontSize)
+  const [fontSize, setFontSize] = useState(CODE_FONT_SIZE_DEFAULT)
   const [isRunning, setIsRunning] = useState(false)
   const [runResult, setRunResult] = useState<CodeRunResult | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -246,6 +234,22 @@ export function CodeEditor({
 
   const changeFontSize = useCallback((delta: number) => {
     setFontSize((previous) => clampCodeFontSize(previous + delta))
+  }, [])
+
+  const resetFontSize = useCallback(() => {
+    setFontSize(CODE_FONT_SIZE_DEFAULT)
+  }, [])
+
+  useEffect(() => {
+    setFontSize(CODE_FONT_SIZE_DEFAULT)
+  }, [filePath])
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem(LEGACY_CODE_FONT_SIZE_KEY)
+    } catch {
+      // ignore
+    }
   }, [])
 
   const saveCurrent = useCallback(async () => {
@@ -473,8 +477,8 @@ export function CodeEditor({
           automaticLayout: true,
           contextmenu: false,
           fontFamily: 'Cascadia Code, Consolas, monospace',
-          fontSize,
-          lineHeight: Math.round(fontSize * CODE_FONT_LINE_HEIGHT_RATIO),
+          fontSize: CODE_FONT_SIZE_DEFAULT,
+          lineHeight: Math.round(CODE_FONT_SIZE_DEFAULT * CODE_FONT_LINE_HEIGHT_RATIO),
           fontLigatures: true,
           minimap: { enabled: true, maxColumn: 100, renderCharacters: false },
           bracketPairColorization: { enabled: true, independentColorPoolPerBracketType: true },
@@ -564,35 +568,22 @@ export function CodeEditor({
   }, [filePath, language])
 
   useEffect(() => {
-    const editor = editorRef.current
-    if (editor) {
-      editor.updateOptions({
-        fontSize,
-        lineHeight: Math.round(fontSize * CODE_FONT_LINE_HEIGHT_RATIO),
-      })
-    }
-    try {
-      localStorage.setItem(CODE_FONT_SIZE_KEY, String(fontSize))
-    } catch {
-      // ignore
-    }
-  }, [fontSize])
-
-  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((!event.ctrlKey && !event.metaKey) || event.altKey) return
       const target = event.target
       if (!(target instanceof Element) || !target.closest('[data-code-editor-root]')) return
       const isPlus = event.key === '+' || event.key === '=' || event.code === 'Equal' || event.code === 'NumpadAdd'
       const isMinus = event.key === '-' || event.key === '_' || event.code === 'Minus' || event.code === 'NumpadSubtract'
-      if (!isPlus && !isMinus) return
+      const isReset = event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0'
+      if (!isPlus && !isMinus && !isReset) return
       event.preventDefault()
       event.stopPropagation()
-      changeFontSize(isPlus ? 1 : -1)
+      if (isReset) resetFontSize()
+      else changeFontSize(isPlus ? 1 : -1)
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [changeFontSize])
+  }, [changeFontSize, resetFontSize])
 
   useEffect(() => {
     const applyTheme = () => monaco.editor.setTheme(getDarkTheme() ? 'wps-code-dark' : 'wps-code-light')
@@ -689,6 +680,14 @@ export function CodeEditor({
     ],
   ]
 
+  const editorZoom = fontSize / CODE_FONT_SIZE_DEFAULT
+  const editorHostStyle: CSSProperties = {
+    width: `${100 / editorZoom}%`,
+    height: `${100 / editorZoom}%`,
+    transform: `scale(${editorZoom})`,
+    transformOrigin: 'left top',
+  }
+
   return (
     <TooltipProvider delayDuration={450}>
       <div ref={rootRef} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background" data-manages-document-zoom data-code-editor-root data-testid="code-editor-root">
@@ -727,7 +726,13 @@ export function CodeEditor({
         </div>
 
         <div className="relative min-h-0 flex-1">
-          <div ref={editorHostRef} className="absolute inset-0" data-testid="monaco-editor-host" />
+          <div
+            ref={editorHostRef}
+            className="absolute left-0 top-0"
+            data-testid="monaco-editor-host"
+            data-code-zoom={editorZoom}
+            style={editorHostStyle}
+          />
           {loadState === 'loading' && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-background text-sm text-muted-foreground">
               {t('codeEditor.loading')}

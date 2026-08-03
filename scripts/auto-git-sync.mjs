@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const repoRoot = path.resolve(process.env.GIT_SYNC_REPOSITORY ?? process.cwd())
-const debounceMs = 1_000
+const reconciliationIntervalMs = 5_000
 const gitCandidates = process.platform === 'win32'
   ? [
       process.env.GIT_EXECUTABLE,
@@ -53,7 +53,7 @@ function timestamp() {
 
 let syncing = false
 let syncQueued = false
-let timer = null
+let pushPending = true
 
 async function pushWithRetry(args, attempts = 3, delayMs = 3_000) {
   let lastError = null
@@ -80,17 +80,21 @@ async function syncSnapshot() {
 
   syncing = true
   try {
-    // Network fixes for flaky HTTPS connections to GitHub (HTTP/2 is often reset by the GFW).
-    await git(['config', 'http.version', 'HTTP/1.1'])
-    await git(['config', 'http.postBuffer', '524288000'])
-
-    await git(['add', '--all'])
-    const hasChanges = await hasStagedChanges()
-    if (hasChanges) {
-      const branch = await gitOutput(['branch', '--show-current'])
-      await git(['commit', '-m', `chore(sync): automatic snapshot ${timestamp()}`])
-      console.log(`[git-sync] Committed a snapshot on ${branch}.`)
+    const worktreeStatus = await gitOutput(['status', '--porcelain', '--untracked-files=normal'])
+    if (worktreeStatus) {
+      await git(['add', '--all'])
+      const hasChanges = await hasStagedChanges()
+      if (hasChanges) {
+        const branch = await gitOutput(['branch', '--show-current'])
+        await git(['commit', '-m', `chore(sync): automatic snapshot ${timestamp()}`])
+        pushPending = true
+        console.log(`[git-sync] Committed a snapshot on ${branch}.`)
+      }
     }
+
+    // A successful push clears this flag. Failed pushes remain pending and are
+    // retried by the reconciliation loop without uploading every five seconds.
+    if (!pushPending) return
 
     const remote = await gitOutput(['remote', 'get-url', 'origin']).catch(() => '')
     if (!remote) {
@@ -102,6 +106,7 @@ async function syncSnapshot() {
     // to push (e.g. transient network reset) and must not be silently skipped.
     await pushWithRetry(['origin', 'HEAD'])
     await pushWithRetry(['origin', 'HEAD:main'])
+    pushPending = false
     console.log('[git-sync] Pushed the snapshot to GitHub.')
   } catch (error) {
     const detail = error && typeof error === 'object' && 'stderr' in error ? error.stderr : error
@@ -110,17 +115,17 @@ async function syncSnapshot() {
     syncing = false
     if (syncQueued) {
       syncQueued = false
-      scheduleSync()
+      requestSync()
     }
   }
 }
 
-function scheduleSync() {
-  if (timer) clearTimeout(timer)
-  timer = setTimeout(() => {
-    timer = null
-    void syncSnapshot()
-  }, debounceMs)
+function requestSync() {
+  if (syncing) {
+    syncQueued = true
+    return
+  }
+  void syncSnapshot()
 }
 
 async function main() {
@@ -129,17 +134,26 @@ async function main() {
     throw new Error(`Run this command from the repository root: ${topLevel}`)
   }
 
+  // Network fixes for flaky HTTPS connections to GitHub (HTTP/2 is often reset by the GFW).
+  await git(['config', 'http.version', 'HTTP/1.1'])
+  await git(['config', 'http.postBuffer', '524288000'])
+
   if (process.argv.includes('--once')) {
     await syncSnapshot()
     return
   }
 
   console.log(`[git-sync] Watching ${repoRoot}`)
-  console.log('[git-sync] Each detected code save is committed after one second of inactivity and pushed when origin is configured.')
+  console.log('[git-sync] Each detected code change is committed and pushed immediately when origin is configured.')
   watch(repoRoot, { recursive: true }, (_eventType, filename) => {
     if (!filename || filename === '.git' || filename.startsWith(`.git${path.sep}`)) return
-    scheduleSync()
+    requestSync()
   })
+
+  // Reconcile on startup and periodically so changes are not stranded when an
+  // editor saves before the watcher starts or the OS drops a file event.
+  setInterval(requestSync, reconciliationIntervalMs)
+  await syncSnapshot()
 }
 
 await main()

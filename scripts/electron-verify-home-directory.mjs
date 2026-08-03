@@ -192,7 +192,30 @@ try {
     hasTitle && hasDefault && hasChooseFolder && recentItems.some((text) => text.includes(dirA)),
     `title=${hasTitle} default=${hasDefault} chooseFolder=${hasChooseFolder} recent=${JSON.stringify(recentItems)}`)
 
+  // close the menu before hovering (the tooltip is suppressed while the menu is open)
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await waitFor(send, `!(${menuExpr})`, 'menu closed after V1', 5000)
+
+  // ---------- V1b: hovering the home button still shows its tooltip ----------
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 12, y: 12 })
+  await sleep(250)
+  const hoverPoint = await centerOf(send, homeButtonExpr, 'home button')
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hoverPoint.x - 1, y: hoverPoint.y - 1 })
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hoverPoint.x, y: hoverPoint.y })
+  await sleep(1500)
+  const tooltipVisible = await evaluate(send, `(() => {
+    const tooltip = [...document.querySelectorAll('[role="tooltip"]')]
+      .find((el) => el.textContent.includes('主目录'))
+    if (!tooltip) return false
+    const style = getComputedStyle(tooltip)
+    return style.display !== 'none' && style.visibility !== 'hidden' && tooltip.getBoundingClientRect().width > 0
+  })()`)
+  record('V1b home button tooltip still works', tooltipVisible, `visible=${tooltipVisible}`)
+
   // ---------- V2: default system home is the initial main directory ----------
+  await rightClick(send, homeButtonExpr, 'home button right-click for V2')
+  await waitFor(send, `Boolean(${menuExpr})`, 'home directory menu open', 8000)
   const defaultChecked = await evaluate(send, `Boolean(${menuItemByText('系统默认主目录')}?.querySelector('svg'))`)
   const systemHome = await evaluate(send, `window.api.file.getHome()`)
   record('V2 system home checked while no custom main directory', defaultChecked, `systemHome=${systemHome}`)

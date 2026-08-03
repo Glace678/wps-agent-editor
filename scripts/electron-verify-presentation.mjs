@@ -1204,6 +1204,9 @@ try {
     await waitFor(send,
       "Boolean(document.querySelector('[data-testid=presentation-new-slide]') && !document.querySelector('[data-testid=presentation-new-slide]').disabled)",
       'enabled new slide control')
+    await waitFor(send,
+      "document.querySelector('[data-testid=presentation-page-input]')?.value === '1'",
+      'settled first slide before new slide', 10_000)
     const newSlideStartedAt = Date.now()
     await evaluate(send, "document.querySelector('[data-testid=presentation-new-slide]').click(); true")
     await waitFor(send,
