@@ -127,6 +127,8 @@ export const fr = {
     slideTitle: 'Titre',
     slideBody: 'Contenu',
     outline: 'Plan',
+    outlineTab: 'Plan',
+    slidesTab: 'Diapositives',
     outlinePlaceholder: 'Titre de la diapositive\n  Point de contenu\nDiapositive suivante',
     apply: 'Appliquer',
     cancel: 'Annuler',

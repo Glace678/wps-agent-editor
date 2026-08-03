@@ -127,6 +127,8 @@ export const de = {
     slideTitle: 'Titel',
     slideBody: 'Inhalt',
     outline: 'Gliederung',
+    outlineTab: 'Gliederung',
+    slidesTab: 'Folien',
     outlinePlaceholder: 'Folientitel\n  Inhaltspunkt\nNächste Folie',
     apply: 'Übernehmen',
     cancel: 'Abbrechen',

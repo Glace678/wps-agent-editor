@@ -53,6 +53,28 @@ const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>()
 let themesRegistered = false
 let languageDefaultsConfigured = false
 
+const CODE_FONT_SIZE_KEY = 'wps-code-editor-font-size'
+const CODE_FONT_SIZE_MIN = 8
+const CODE_FONT_SIZE_MAX = 32
+const CODE_FONT_SIZE_DEFAULT = 14
+const CODE_FONT_LINE_HEIGHT_RATIO = 22 / 14
+
+function clampCodeFontSize(value: number): number {
+  return Math.min(CODE_FONT_SIZE_MAX, Math.max(CODE_FONT_SIZE_MIN, value))
+}
+
+function loadCodeFontSize(): number {
+  try {
+    const raw = localStorage.getItem(CODE_FONT_SIZE_KEY)
+    if (!raw) return CODE_FONT_SIZE_DEFAULT
+    const value = Number(raw)
+    if (!Number.isFinite(value)) return CODE_FONT_SIZE_DEFAULT
+    return clampCodeFontSize(value)
+  } catch {
+    return CODE_FONT_SIZE_DEFAULT
+  }
+}
+
 function configureMonaco(): void {
   if (!themesRegistered) {
     monaco.editor.defineTheme('wps-code-light', {
@@ -203,6 +225,7 @@ export function CodeEditor({
   const onShellPreviousTabRef = useRef(onShellPreviousTab)
   const onShellCloseTabRef = useRef(onShellCloseTab)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [fontSize, setFontSize] = useState(loadCodeFontSize)
   const [isRunning, setIsRunning] = useState(false)
   const [runResult, setRunResult] = useState<CodeRunResult | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -220,6 +243,10 @@ export function CodeEditor({
   onShellNextTabRef.current = onShellNextTab
   onShellPreviousTabRef.current = onShellPreviousTab
   onShellCloseTabRef.current = onShellCloseTab
+
+  const changeFontSize = useCallback((delta: number) => {
+    setFontSize((previous) => clampCodeFontSize(previous + delta))
+  }, [])
 
   const saveCurrent = useCallback(async () => {
     const model = modelRef.current
@@ -446,8 +473,8 @@ export function CodeEditor({
           automaticLayout: true,
           contextmenu: false,
           fontFamily: 'Cascadia Code, Consolas, monospace',
-          fontSize: 14,
-          lineHeight: 22,
+          fontSize,
+          lineHeight: Math.round(fontSize * CODE_FONT_LINE_HEIGHT_RATIO),
           fontLigatures: true,
           minimap: { enabled: true, maxColumn: 100, renderCharacters: false },
           bracketPairColorization: { enabled: true, independentColorPoolPerBracketType: true },
@@ -508,8 +535,23 @@ export function CodeEditor({
     }
 
     void mount()
+
+    let wheelAccumulator = 0
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      event.stopPropagation()
+      wheelAccumulator += event.deltaY
+      const steps = Math.trunc(wheelAccumulator / 100)
+      if (steps === 0) return
+      wheelAccumulator -= steps * 100
+      changeFontSize(-steps)
+    }
+    host.addEventListener('wheel', onWheel, { passive: false, capture: true })
+
     return () => {
       cancelled = true
+      host.removeEventListener('wheel', onWheel, { capture: true })
       if (editor) {
         const viewState = editor.saveViewState()
         if (viewState) viewStates.set(filePath, viewState)
@@ -520,6 +562,37 @@ export function CodeEditor({
       if (modelRef.current?.uri.toString() === uri.toString()) modelRef.current = null
     }
   }, [filePath, language])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (editor) {
+      editor.updateOptions({
+        fontSize,
+        lineHeight: Math.round(fontSize * CODE_FONT_LINE_HEIGHT_RATIO),
+      })
+    }
+    try {
+      localStorage.setItem(CODE_FONT_SIZE_KEY, String(fontSize))
+    } catch {
+      // ignore
+    }
+  }, [fontSize])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((!event.ctrlKey && !event.metaKey) || event.altKey) return
+      const target = event.target
+      if (!(target instanceof Element) || !target.closest('[data-code-editor-root]')) return
+      const isPlus = event.key === '+' || event.key === '=' || event.code === 'Equal' || event.code === 'NumpadAdd'
+      const isMinus = event.key === '-' || event.key === '_' || event.code === 'Minus' || event.code === 'NumpadSubtract'
+      if (!isPlus && !isMinus) return
+      event.preventDefault()
+      event.stopPropagation()
+      changeFontSize(isPlus ? 1 : -1)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [changeFontSize])
 
   useEffect(() => {
     const applyTheme = () => monaco.editor.setTheme(getDarkTheme() ? 'wps-code-dark' : 'wps-code-light')
@@ -618,7 +691,7 @@ export function CodeEditor({
 
   return (
     <TooltipProvider delayDuration={450}>
-      <div ref={rootRef} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background" data-code-editor-root data-testid="code-editor-root">
+      <div ref={rootRef} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background" data-manages-document-zoom data-code-editor-root data-testid="code-editor-root">
         <div className="flex h-9 shrink-0 items-center gap-1 border-b bg-card px-2">
           <Button
             type="button"

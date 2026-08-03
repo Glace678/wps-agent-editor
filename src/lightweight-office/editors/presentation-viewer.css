@@ -1,8 +1,8 @@
 .presentation-icon-button {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
   align-items: center;
   justify-content: center;
   border-radius: 4px;
@@ -28,15 +28,15 @@
 }
 
 .presentation-icon-button > svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   stroke-width: 1.8;
 }
 
 .presentation-toolbar-separator {
   width: 1px;
-  height: 22px;
-  margin: 0 3px;
+  height: 20px;
+  margin: 0 2px;
   background: rgb(0 0 0 / 12%);
 }
 
@@ -47,14 +47,14 @@
 
 .presentation-command-button {
   display: inline-flex;
-  min-height: 28px;
+  min-height: 26px;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid rgb(0 0 0 / 12%);
   border-radius: 4px;
   background: #fff;
-  padding: 0 9px;
+  padding: 0 7px;
   color: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -68,20 +68,20 @@
 
 .presentation-split-command {
   display: inline-flex;
-  height: 28px;
+  height: 26px;
   flex: 0 0 auto;
   align-items: stretch;
 }
 
 .presentation-split-command-main {
-  min-height: 28px;
+  min-height: 26px;
   border-radius: 4px 0 0 4px;
 }
 
 .presentation-split-command-arrow {
   display: inline-flex;
-  width: 23px;
-  flex: 0 0 23px;
+  width: 21px;
+  flex: 0 0 21px;
   align-items: center;
   justify-content: center;
   border: 1px solid rgb(0 0 0 / 12%);
@@ -133,8 +133,8 @@
 }
 
 .presentation-zoom-value {
-  width: 50px;
-  height: 28px;
+  width: 46px;
+  height: 26px;
   border-radius: 4px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -156,6 +156,11 @@
 .presentation-slide-host {
   color-scheme: light;
   contain: layout paint style;
+}
+
+.presentation-preserved-spaces {
+  display: inline-block;
+  white-space: pre;
 }
 
 .presentation-slide-host--changing > div {
@@ -385,33 +390,179 @@
 .presentation-thumbnail-pane {
   min-width: 168px;
   max-width: 420px;
+}
+
+.presentation-sidebar-tabs {
+  display: flex;
+  height: 35px;
+  flex: 0 0 35px;
+  align-items: stretch;
+  border-bottom: 1px solid rgb(0 0 0 / 12%);
+  background: #fafafa;
+}
+
+.presentation-sidebar-tab {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0 7px;
+  color: #555;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presentation-sidebar-tab::after {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 2px;
+  content: '';
+  background: transparent;
+}
+
+.presentation-sidebar-tab:hover {
+  background: rgb(0 0 0 / 4%);
+  color: #222;
+}
+
+.presentation-sidebar-tab[aria-selected='true'] {
+  color: #b83b20;
+}
+
+.presentation-sidebar-tab[aria-selected='true']::after {
+  background: #d24726;
+}
+
+.presentation-sidebar-tab:focus-visible {
+  outline: 2px solid rgb(210 71 38 / 55%);
+  outline-offset: -2px;
+}
+
+.dark .presentation-sidebar-tabs {
+  border-color: rgb(255 255 255 / 12%);
+  background: #202224;
+}
+
+.dark .presentation-sidebar-tab {
+  color: #bfc1c4;
+}
+
+.dark .presentation-sidebar-tab:hover {
+  background: rgb(255 255 255 / 6%);
+  color: #fff;
+}
+
+.dark .presentation-sidebar-tab[aria-selected='true'] {
+  color: #f08a6f;
+}
+
+.presentation-sidebar-panel {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
   scrollbar-gutter: stable;
 }
 
-.presentation-thumbnail-pane::-webkit-scrollbar {
+.presentation-sidebar-panel::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-.presentation-thumbnail-pane::-webkit-scrollbar-track {
+.presentation-sidebar-panel::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.presentation-thumbnail-pane::-webkit-scrollbar-thumb {
+.presentation-sidebar-panel::-webkit-scrollbar-thumb {
   border-radius: 4px;
   background: rgb(95 95 95 / 38%);
 }
 
-.presentation-thumbnail-pane::-webkit-scrollbar-thumb:hover {
+.presentation-sidebar-panel::-webkit-scrollbar-thumb:hover {
   background: rgb(75 75 75 / 55%);
 }
 
-.dark .presentation-thumbnail-pane::-webkit-scrollbar-thumb {
+.dark .presentation-sidebar-panel::-webkit-scrollbar-thumb {
   background: rgb(255 255 255 / 28%);
 }
 
-.dark .presentation-thumbnail-pane::-webkit-scrollbar-thumb:hover {
+.dark .presentation-sidebar-panel::-webkit-scrollbar-thumb:hover {
   background: rgb(255 255 255 / 44%);
+}
+
+.presentation-outline-panel {
+  padding: 4px 0 8px;
+}
+
+.presentation-outline-item {
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid rgb(0 0 0 / 7%);
+  padding: 9px 9px 10px 5px;
+  color: #282828;
+}
+
+.presentation-outline-item:hover {
+  background: rgb(0 0 0 / 4%);
+}
+
+.presentation-outline-item--active {
+  border-left-color: #d24726;
+  background: rgb(210 71 38 / 7%);
+}
+
+.presentation-outline-number {
+  width: 22px;
+  flex: 0 0 22px;
+  padding-top: 1px;
+  color: #858585;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.presentation-outline-title {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+}
+
+.presentation-outline-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  color: #666;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.presentation-outline-body > span {
+  overflow-wrap: anywhere;
+}
+
+.dark .presentation-outline-item {
+  border-bottom-color: rgb(255 255 255 / 7%);
+  color: #f0f0f0;
+}
+
+.dark .presentation-outline-item:hover {
+  background: rgb(255 255 255 / 5%);
+}
+
+.dark .presentation-outline-item--active {
+  background: rgb(210 71 38 / 13%);
+}
+
+.dark .presentation-outline-number,
+.dark .presentation-outline-body {
+  color: #a9abad;
 }
 
 .presentation-thumbnail-frame {

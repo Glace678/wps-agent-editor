@@ -127,6 +127,8 @@ export const pt = {
     slideTitle: 'Título',
     slideBody: 'Conteúdo',
     outline: 'Esquema',
+    outlineTab: 'Tópicos',
+    slidesTab: 'Slides',
     outlinePlaceholder: 'Título do slide\n  Ponto de conteúdo\nPróximo slide',
     apply: 'Aplicar',
     cancel: 'Cancelar',

@@ -127,6 +127,8 @@ export const zhCN = {
     slideTitle: '标题',
     slideBody: '正文',
     outline: '文字大纲',
+    outlineTab: '大纲',
+    slidesTab: '幻灯片',
     outlinePlaceholder: '幻灯片标题\n  内容要点\n下一张幻灯片',
     apply: '应用',
     cancel: '取消',

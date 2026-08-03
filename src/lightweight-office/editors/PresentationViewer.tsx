@@ -1,7 +1,9 @@
 import {
+  buildTextIndex,
   PptxViewer,
   RECOMMENDED_ZIP_LIMITS,
   type SlideHandle,
+  type PresentationData,
 } from '@aiden0z/pptx-renderer'
 import {
   ChevronDown,
@@ -98,6 +100,12 @@ interface ViewportSize {
 
 type LoadError = 'legacy' | 'document' | null
 type SlideDirection = 'next' | 'previous'
+type SidebarView = 'outline' | 'slides'
+
+interface PresentationOutlineSlide {
+  title: string
+  body: string
+}
 
 interface WheelNavigationGesture {
   accumulatedDelta: number
@@ -161,10 +169,135 @@ function parseOutlineSlides(outline: string): PresentationSlideText[] {
   return slides
 }
 
+function normalizeOutlineText(value: string): string {
+  return value
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+function buildPresentationOutline(presentation: PresentationData | null): PresentationOutlineSlide[] {
+  if (!presentation) return []
+
+  try {
+    const textIndex = buildTextIndex(presentation)
+
+    return presentation.slides.map((slide, slideIndex) => {
+      const slidePathPrefix = `slides/${slideIndex}/nodes/`
+      const titleNodeIds = new Set(
+        slide.nodes
+          .filter((node) => ['title', 'ctrTitle'].includes(node.placeholder?.type ?? ''))
+          .map((node) => node.id),
+      )
+      const excludedNodeIds = new Set(
+        slide.nodes
+          .filter((node) => ['dt', 'ftr', 'sldNum'].includes(node.placeholder?.type ?? ''))
+          .map((node) => node.id),
+      )
+      const entries = textIndex
+        .filter((entry) => (
+          entry.slideIndex === slideIndex
+          && entry.nodePath.startsWith(slidePathPrefix)
+          && !excludedNodeIds.has(entry.nodeId)
+        ))
+        .map((entry) => ({ ...entry, text: normalizeOutlineText(entry.text) }))
+        .filter((entry) => entry.text)
+
+      const titleEntry = entries.find((entry) => titleNodeIds.has(entry.nodeId))
+      if (titleEntry) {
+        return {
+          title: titleEntry.text.replace(/\n+/g, ' '),
+          body: entries
+            .filter((entry) => entry.nodePath !== titleEntry.nodePath)
+            .map((entry) => entry.text)
+            .join('\n'),
+        }
+      }
+
+      const [fallbackTitleEntry, ...remainingEntries] = entries
+      const [title = '', ...fallbackBody] = fallbackTitleEntry?.text.split('\n') ?? []
+      return {
+        title,
+        body: [...fallbackBody, ...remainingEntries.map((entry) => entry.text)]
+          .filter(Boolean)
+          .join('\n'),
+      }
+    })
+  } catch (error) {
+    console.warn('[PresentationViewer] Unable to build presentation outline:', error)
+    return presentation.slides.map(() => ({ title: '', body: '' }))
+  }
+}
+
 function mainSlideElement(host: HTMLElement | null): HTMLElement | null {
   const wrapper = host?.firstElementChild
   const slide = wrapper?.firstElementChild
   return slide instanceof HTMLElement ? slide : null
+}
+
+const RENDERER_PRESERVED_SPACE_PAIR = / \u00a0/g
+const LEADING_CJK_SPACE = /^ +(?=[\u3400-\u9fff\uf900-\ufaff])/
+const PRESENTATION_SPACE_SEQUENCE = / {2,}|^ (?=[\u3400-\u9fff\uf900-\ufaff])/g
+
+function normalizeRenderedPresentationSpaces(root: HTMLElement): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const textNodes: Array<{ node: Text; normalizedText: string }> = []
+  let node = walker.nextNode()
+
+  while (node) {
+    const textNode = node as Text
+    const normalizedText = textNode.data.replace(RENDERER_PRESERVED_SPACE_PAIR, '  ')
+    if (normalizedText !== textNode.data || LEADING_CJK_SPACE.test(normalizedText)) {
+      textNodes.push({ node: textNode, normalizedText })
+    }
+    node = walker.nextNode()
+  }
+
+  for (const { node: textNode, normalizedText } of textNodes) {
+    const fragment = document.createDocumentFragment()
+    let cursor = 0
+
+    for (const match of normalizedText.matchAll(PRESENTATION_SPACE_SEQUENCE)) {
+      const index = match.index ?? 0
+      if (index > cursor) fragment.append(normalizedText.slice(cursor, index))
+      const spaces = document.createElement('span')
+      spaces.className = 'presentation-preserved-spaces'
+      spaces.textContent = ' '.repeat(match[0].length)
+      fragment.append(spaces)
+      cursor = index + match[0].length
+    }
+
+    if (cursor < normalizedText.length) fragment.append(normalizedText.slice(cursor))
+    textNode.replaceWith(fragment)
+  }
+
+  // WPS (and other producers) often write a paragraph's indentation as a run
+  // containing only a single space, split from the CJK text. A lone space run
+  // collapses to zero width under white-space: normal (the renderer only
+  // preserves runs of two or more spaces), so wrap space-only runs that sit at
+  // the start of a paragraph line just like the other preserved spaces above.
+  const leadingSpaceOnlyNode = /^ +$/
+  const spaceWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let spaceNode = spaceWalker.nextNode()
+  while (spaceNode) {
+    const spaceTextNode = spaceNode as Text
+    const parent = spaceTextNode.parentElement
+    if (
+      leadingSpaceOnlyNode.test(spaceTextNode.data)
+      && parent
+      && parent.childNodes.length === 1
+      && parent.parentElement
+      && parent.parentElement.firstElementChild === parent
+    ) {
+      const spaces = document.createElement('span')
+      spaces.className = 'presentation-preserved-spaces'
+      spaces.textContent = spaceTextNode.data
+      spaceTextNode.replaceWith(spaces)
+    }
+    spaceNode = spaceWalker.nextNode()
+  }
 }
 
 function PresentationToolbarTooltip({ label, children }: { label: string; children: ReactNode }) {
@@ -224,7 +357,9 @@ function SlideThumbnail({
         return
       }
       handleRef.current = handle
-      void handle.ready.catch(() => setRenderFailed(true))
+      void handle.ready
+        .then(() => normalizeRenderedPresentationSpaces(host))
+        .catch(() => setRenderFailed(true))
     }
 
     if (typeof IntersectionObserver === 'undefined') {
@@ -286,6 +421,55 @@ function SlideThumbnail({
   )
 }
 
+function SlideOutlineItem({
+  index,
+  active,
+  title,
+  body,
+  fallbackTitle,
+  onSelect,
+}: {
+  index: number
+  active: boolean
+  title: string
+  body: string
+  fallbackTitle: string
+  onSelect: (index: number) => void
+}) {
+  const itemRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (active) itemRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
+  return (
+    <button
+      ref={itemRef}
+      type="button"
+      className={cn(
+        'presentation-outline-item flex w-full items-start text-left',
+        active && 'presentation-outline-item--active',
+      )}
+      aria-current={active ? 'page' : undefined}
+      aria-label={title ? `${fallbackTitle}: ${title}` : fallbackTitle}
+      data-testid={`presentation-outline-slide-${index + 1}`}
+      onClick={() => onSelect(index)}
+    >
+      <span className="presentation-outline-number" aria-hidden="true">{index + 1}</span>
+      <span className="min-w-0 flex-1">
+        <span className="presentation-outline-title">{title || fallbackTitle}</span>
+        {body ? (
+          <span className="presentation-outline-body">
+            {body.split('\n').map((line, lineIndex) => (
+              <span key={`${lineIndex}-${line}`}>{line}</span>
+            ))}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  )
+}
+
 export function PresentationViewer({
   filePath,
   onReady,
@@ -330,6 +514,11 @@ export function PresentationViewer({
   const [zoom, setZoom] = useState(100)
   const [pageInput, setPageInput] = useState('1')
   const [showThumbnails, setShowThumbnails] = useState(true)
+  const [sidebarView, setSidebarView] = useState<SidebarView>('slides')
+  const [outlineCache, setOutlineCache] = useState<{
+    viewer: PptxViewer
+    slides: PresentationOutlineSlide[]
+  } | null>(null)
   const [thumbnailPaneWidth, setThumbnailPaneWidth] = useState(readStoredThumbnailPaneWidth)
   const [isPresenting, setIsPresenting] = useState(false)
   const [controlsVisible, setControlsVisible] = useState(true)
@@ -435,7 +624,7 @@ export function PresentationViewer({
   }, [getThumbnailPaneMaxWidth])
 
   useEffect(() => {
-    if (!showThumbnails || isPresenting) return
+    if (!showThumbnails || isPresenting || sidebarView !== 'slides') return
     const pane = thumbnailPaneRef.current
     if (!pane) return
 
@@ -452,7 +641,21 @@ export function PresentationViewer({
     const observer = new ResizeObserver(updateScale)
     observer.observe(pane)
     return () => observer.disconnect()
-  }, [aspectRatio, isPresenting, showThumbnails, viewer])
+  }, [aspectRatio, isPresenting, showThumbnails, sidebarView, viewer])
+
+  useEffect(() => {
+    if (!viewer) {
+      if (outlineCache) setOutlineCache(null)
+      return
+    }
+    if (sidebarView !== 'outline' || outlineCache?.viewer === viewer) return
+    setOutlineCache({
+      viewer,
+      slides: buildPresentationOutline(viewer.presentationData),
+    })
+  }, [outlineCache, sidebarView, viewer])
+
+  const presentationOutline = outlineCache?.viewer === viewer ? outlineCache.slides : []
 
   const slideSize = useMemo(() => {
     const padding = isPresenting ? 24 : 48
@@ -546,6 +749,7 @@ export function PresentationViewer({
         if (!cancelled) setCurrentSlide(index)
       },
       onSlideRendered: (index, element) => {
+        normalizeRenderedPresentationSpaces(element)
         queueMicrotask(() => {
           if (cancelled || viewerRef.current !== nextViewer) return
           if (mainSlideElement(host) !== element) return
@@ -979,6 +1183,19 @@ export function PresentationViewer({
     commitThumbnailPaneWidth(nextWidth)
   }, [commitThumbnailPaneWidth, getThumbnailPaneMaxWidth])
 
+  const onSidebarTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    let nextView: SidebarView | null = null
+    if (event.key === 'ArrowLeft' || event.key === 'Home') nextView = 'outline'
+    else if (event.key === 'ArrowRight' || event.key === 'End') nextView = 'slides'
+    if (!nextView) return
+
+    event.preventDefault()
+    setSidebarView(nextView)
+    thumbnailPaneRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-testid="presentation-${nextView}-tab"]`)
+      ?.focus()
+  }, [])
+
   useEffect(() => () => {
     thumbnailResizeCleanupRef.current?.()
   }, [])
@@ -1104,7 +1321,7 @@ export function PresentationViewer({
       onMouseMove={revealPresentationControls}
     >
       <div
-        className="presentation-toolbar flex h-[41px] shrink-0 items-center gap-1 overflow-hidden border-b border-black/10 bg-[#f8f8f8] px-2 dark:border-white/10 dark:bg-[#202224]"
+        className="presentation-toolbar flex h-[38px] shrink-0 items-center gap-0.5 overflow-hidden border-b border-black/10 bg-[#f8f8f8] px-1.5 dark:border-white/10 dark:bg-[#202224]"
         role="toolbar"
         aria-label={t('presentationViewer.toolbar')}
       >
@@ -1228,9 +1445,9 @@ export function PresentationViewer({
             <ChevronLeft />
           </button>
         </PresentationToolbarTooltip>
-        <div className="flex h-8 items-center gap-1 px-1 text-[12px] tabular-nums">
+        <div className="flex h-7 items-center gap-1 px-0.5 text-[11px] tabular-nums">
           <input
-            className="h-7 w-12 rounded-[4px] border border-black/15 bg-white px-1.5 text-center text-[12px] text-[#222] outline-none focus:border-[#d24726] dark:border-white/15"
+            className="h-6 w-10 rounded-[4px] border border-black/15 bg-white px-1 text-center text-[11px] text-[#222] outline-none focus:border-[#d24726] dark:border-white/15"
             type="text"
             inputMode="numeric"
             aria-label={t('presentationViewer.slideNumber')}
@@ -1241,7 +1458,7 @@ export function PresentationViewer({
             onBlur={commitPageInput}
             onKeyDown={onPageInputKeyDown}
           />
-          <span className="min-w-[44px] text-muted-foreground">/ {slideCount || 0}</span>
+          <span className="min-w-[34px] text-muted-foreground">/ {slideCount || 0}</span>
         </div>
         <PresentationToolbarTooltip label={t('presentationViewer.nextSlide')}>
           <button
@@ -1384,24 +1601,94 @@ export function PresentationViewer({
           <>
             <aside
               ref={thumbnailPaneRef}
-              className="presentation-thumbnail-pane shrink-0 overflow-x-hidden overflow-y-auto bg-[#f5f5f5] py-1 dark:bg-[#191b1d]"
+              className="presentation-thumbnail-pane flex shrink-0 flex-col overflow-hidden bg-[#f5f5f5] dark:bg-[#191b1d]"
               style={thumbnailPaneStyle}
               aria-label={t('presentationViewer.thumbnails')}
-              data-testid="presentation-thumbnails"
+              data-testid="presentation-sidebar"
             >
-              {viewer
-                ? Array.from({ length: slideCount }, (_, index) => (
-                    <SlideThumbnail
-                      key={index}
-                      viewer={viewer}
-                      index={index}
-                      active={index === currentSlide}
-                      label={t('presentationViewer.slideLabel', { number: index + 1 })}
-                      aspectRatio={aspectRatio}
-                      onSelect={(next) => void goToSlide(next)}
-                    />
-                  ))
-                : null}
+              <div
+                className="presentation-sidebar-tabs"
+                role="tablist"
+                aria-label={`${t('presentationViewer.outlineTab')} / ${t('presentationViewer.slidesTab')}`}
+                data-testid="presentation-sidebar-tabs"
+              >
+                <button
+                  type="button"
+                  id="presentation-outline-tab"
+                  className="presentation-sidebar-tab"
+                  role="tab"
+                  aria-selected={sidebarView === 'outline'}
+                  aria-controls="presentation-outline-panel"
+                  tabIndex={sidebarView === 'outline' ? 0 : -1}
+                  data-testid="presentation-outline-tab"
+                  onClick={() => setSidebarView('outline')}
+                  onKeyDown={onSidebarTabKeyDown}
+                >
+                  {t('presentationViewer.outlineTab')}
+                </button>
+                <button
+                  type="button"
+                  id="presentation-slides-tab"
+                  className="presentation-sidebar-tab"
+                  role="tab"
+                  aria-selected={sidebarView === 'slides'}
+                  aria-controls="presentation-slides-panel"
+                  tabIndex={sidebarView === 'slides' ? 0 : -1}
+                  data-testid="presentation-slides-tab"
+                  onClick={() => setSidebarView('slides')}
+                  onKeyDown={onSidebarTabKeyDown}
+                >
+                  {t('presentationViewer.slidesTab')}
+                </button>
+              </div>
+
+              {sidebarView === 'slides' ? (
+                <div
+                  id="presentation-slides-panel"
+                  className="presentation-sidebar-panel py-1"
+                  role="tabpanel"
+                  aria-labelledby="presentation-slides-tab"
+                  data-testid="presentation-thumbnails"
+                >
+                  {viewer
+                    ? Array.from({ length: slideCount }, (_, index) => (
+                        <SlideThumbnail
+                          key={index}
+                          viewer={viewer}
+                          index={index}
+                          active={index === currentSlide}
+                          label={t('presentationViewer.slideLabel', { number: index + 1 })}
+                          aspectRatio={aspectRatio}
+                          onSelect={(next) => void goToSlide(next)}
+                        />
+                      ))
+                    : null}
+                </div>
+              ) : (
+                <div
+                  id="presentation-outline-panel"
+                  className="presentation-sidebar-panel presentation-outline-panel"
+                  role="tabpanel"
+                  aria-labelledby="presentation-outline-tab"
+                  data-testid="presentation-outline"
+                >
+                  {Array.from({ length: slideCount }, (_, index) => {
+                    const slide = presentationOutline[index]
+                    const fallbackTitle = t('presentationViewer.slideLabel', { number: index + 1 })
+                    return (
+                      <SlideOutlineItem
+                        key={index}
+                        index={index}
+                        active={index === currentSlide}
+                        title={slide?.title ?? ''}
+                        body={slide?.body ?? ''}
+                        fallbackTitle={fallbackTitle}
+                        onSelect={(next) => void goToSlide(next)}
+                      />
+                    )
+                  })}
+                </div>
+              )}
             </aside>
             <div
               role="separator"

@@ -25,7 +25,7 @@
     "verify:code-editor": "node scripts/electron-verify-code-editor.mjs",
     "verify:presentation": "node scripts/electron-verify-presentation.mjs",
     "verify:excel-scroll": "node scripts/electron-verify-excel-scroll-performance.mjs",
-    "postinstall": "node -e \"try{require('fs').readFileSync('node_modules/electron/path.txt')}catch(e){console.log('Run: npm run install:electron')}\"",
+    "postinstall": "node -e \"try{require('fs').readFileSync('node_modules/electron/path.txt')}catch(e){console.log('Run: npm run install:electron')}\" && node scripts/patch-pptx-renderer.mjs",
     "install:electron": "powershell -ExecutionPolicy Bypass -File scripts/install-electron.ps1"
   },
   "dependencies": {

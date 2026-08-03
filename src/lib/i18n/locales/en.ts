@@ -125,6 +125,8 @@ export const en = {
     slideTitle: 'Title',
     slideBody: 'Content',
     outline: 'Outline',
+    outlineTab: 'Outline',
+    slidesTab: 'Slides',
     outlinePlaceholder: 'Slide title\n  Supporting point\nNext slide',
     apply: 'Apply',
     cancel: 'Cancel',

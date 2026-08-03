@@ -127,6 +127,8 @@ export const ja = {
     slideTitle: 'タイトル',
     slideBody: '内容',
     outline: 'アウトライン',
+    outlineTab: 'アウトライン',
+    slidesTab: 'スライド',
     outlinePlaceholder: 'スライドのタイトル\n  内容のポイント\n次のスライド',
     apply: '適用',
     cancel: 'キャンセル',

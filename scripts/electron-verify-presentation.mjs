@@ -14,6 +14,7 @@ const electronPath = require('electron')
 const rendererEntry = path.join(root, 'out', 'renderer', 'index.html')
 const cacheDirectory = path.join(root, '.cache')
 const screenshotPath = path.join(cacheDirectory, 'electron-verify-presentation.png')
+const outlineScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-outline.png')
 const toolbarTooltipScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-toolbar-tooltip.png')
 const resizerScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-resizer.png')
 const fullscreenScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-fullscreen.png')
@@ -26,6 +27,9 @@ const wmfFixturePath = path.join(fixtureDirectory, 'presentation-shape.wmf')
 const externalFixturePath = process.env.WPS_PRESENTATION_VERIFY_INPUT
   ? path.resolve(process.env.WPS_PRESENTATION_VERIFY_INPUT)
   : null
+const externalFixtureSlide = Number.parseInt(process.env.WPS_PRESENTATION_VERIFY_SLIDE ?? '', 10)
+const externalFixtureNeedle = process.env.WPS_PRESENTATION_VERIFY_TEXT ?? ''
+const externalScreenshotPath = path.join(cacheDirectory, 'electron-verify-presentation-external.png')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 let injectedSlideXml = ''
 let animationTargetShapeId = ''
@@ -189,6 +193,36 @@ async function createFixture() {
     fontSize: 17,
     align: 'center',
     color: '7C3A2A',
+    margin: 0,
+  })
+  first.addText('中文空格基准', {
+    x: 0.82,
+    y: 5.55,
+    w: 5.5,
+    h: 0.4,
+    fontFace: 'Microsoft YaHei',
+    fontSize: 18,
+    color: '152238',
+    margin: 0,
+  })
+  first.addText('  中文空格测试', {
+    x: 0.82,
+    y: 6.0,
+    w: 5.5,
+    h: 0.4,
+    fontFace: 'Microsoft YaHei',
+    fontSize: 18,
+    color: '152238',
+    margin: 0,
+  })
+  first.addText(' 中文单空格测试', {
+    x: 0.82,
+    y: 6.45,
+    w: 5.5,
+    h: 0.4,
+    fontFace: 'Microsoft YaHei',
+    fontSize: 18,
+    color: '152238',
     margin: 0,
   })
 
@@ -686,6 +720,80 @@ try {
   check('presentation routes to the dedicated viewer', initial.state === 'ready')
   check('all slides are exposed in the thumbnail rail', initial.slides === 3 && initial.thumbnails === 3, JSON.stringify(initial))
   check('first slide renders real text and layout nodes', initial.text.includes('Presentation playback') && initial.renderedNodes > 10, `${initial.renderedNodes} nodes`)
+  const chineseLeadingSpaces = await evaluate(send, `(() => {
+    const host = document.querySelector('[data-testid=presentation-slide-host]');
+    const findTextNode = (needle) => {
+      const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.data.includes(needle)) return node;
+      }
+      return null;
+    };
+    const glyphRect = (node, character) => {
+      const index = node.data.indexOf(character);
+      if (index < 0) return null;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + 1);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left, width: rect.width };
+    };
+    const baselineNode = findTextNode('中文空格基准');
+    const indentedNode = findTextNode('中文空格测试');
+    const singleSpaceNode = findTextNode('中文单空格测试');
+    const baseline = baselineNode && glyphRect(baselineNode, '中');
+    const indented = indentedNode && glyphRect(indentedNode, '中');
+    const singleSpace = singleSpaceNode && glyphRect(singleSpaceNode, '中');
+    const preservedSpaces = indentedNode?.previousSibling instanceof HTMLElement
+      && indentedNode.previousSibling.classList.contains('presentation-preserved-spaces')
+      ? indentedNode.previousSibling
+      : null;
+    const preservedSingleSpace = singleSpaceNode?.previousSibling instanceof HTMLElement
+      && singleSpaceNode.previousSibling.classList.contains('presentation-preserved-spaces')
+      ? singleSpaceNode.previousSibling
+      : null;
+    if (!baseline || !indented || !singleSpace || !preservedSpaces || !preservedSingleSpace) return null;
+    const preservedSpaceStyle = getComputedStyle(preservedSpaces);
+    const preservedSingleSpaceStyle = getComputedStyle(preservedSingleSpace);
+    return {
+      baselineLeft: baseline.left,
+      indentedLeft: indented.left,
+      glyphWidth: baseline.width,
+      indentWidth: indented.left - baseline.left,
+      indentInCjkGlyphs: (indented.left - baseline.left) / baseline.width,
+      renderedPrefix: [...preservedSpaces.textContent]
+        .map((character) => character.codePointAt(0).toString(16)),
+      preservedSpaceWidth: preservedSpaces.getBoundingClientRect().width,
+      whiteSpace: preservedSpaceStyle.whiteSpace,
+      display: preservedSpaceStyle.display,
+      contentWhiteSpace: getComputedStyle(indentedNode.parentElement).whiteSpace,
+      singleIndentInCjkGlyphs: (singleSpace.left - baseline.left) / baseline.width,
+      singleRenderedPrefix: [...preservedSingleSpace.textContent]
+        .map((character) => character.codePointAt(0).toString(16)),
+      singleWhiteSpace: preservedSingleSpaceStyle.whiteSpace,
+      singleDisplay: preservedSingleSpaceStyle.display,
+      singleContentWhiteSpace: getComputedStyle(singleSpaceNode.parentElement).whiteSpace,
+    };
+  })()`)
+  check('two leading half-width spaces keep normal Chinese font metrics',
+    chineseLeadingSpaces
+      && chineseLeadingSpaces.indentInCjkGlyphs > 0.35
+      && chineseLeadingSpaces.indentInCjkGlyphs < 1.25
+      && chineseLeadingSpaces.renderedPrefix.join(',') === '20,20'
+      && chineseLeadingSpaces.whiteSpace === 'pre'
+      && chineseLeadingSpaces.display === 'inline-block'
+      && chineseLeadingSpaces.contentWhiteSpace === 'normal',
+    JSON.stringify(chineseLeadingSpaces))
+  check('one leading half-width space before Chinese keeps its natural width',
+    chineseLeadingSpaces
+      && chineseLeadingSpaces.singleIndentInCjkGlyphs > 0.1
+      && chineseLeadingSpaces.singleIndentInCjkGlyphs < 0.75
+      && chineseLeadingSpaces.singleRenderedPrefix.join(',') === '20'
+      && chineseLeadingSpaces.singleWhiteSpace === 'pre'
+      && chineseLeadingSpaces.singleDisplay === 'inline-block'
+      && chineseLeadingSpaces.singleContentWhiteSpace === 'normal',
+    JSON.stringify(chineseLeadingSpaces))
   check('slide is fitted inside a stable visible stage', initial.width > 350 && initial.height > 190 && initial.width <= initial.stageWidth && initial.height <= initial.stageHeight, JSON.stringify(initial))
   check('toolbar fits without horizontal clipping', initial.toolbarScrollWidth <= initial.toolbarClientWidth + 1, `${initial.toolbarScrollWidth}/${initial.toolbarClientWidth}`)
   const editToolbar = await evaluate(send, `(() => ({
@@ -721,6 +829,74 @@ try {
   check('thumbnail rail reserves no more than an 8px scrollbar',
     initial.thumbnailScrollbarWidth <= 8,
     `${initial.thumbnailScrollbarWidth}px`)
+
+  const sidebarTabs = await evaluate(send, `(() => {
+    const toolbar = document.querySelector('.presentation-toolbar').getBoundingClientRect();
+    const sidebar = document.querySelector('[data-testid=presentation-sidebar]').getBoundingClientRect();
+    const tabs = document.querySelector('[data-testid=presentation-sidebar-tabs]').getBoundingClientRect();
+    const outlineTab = document.querySelector('[data-testid=presentation-outline-tab]');
+    const slidesTab = document.querySelector('[data-testid=presentation-slides-tab]');
+    return {
+      toolbarBottom: toolbar.bottom,
+      sidebarTop: sidebar.top,
+      sidebarLeft: sidebar.left,
+      sidebarRight: sidebar.right,
+      tabsTop: tabs.top,
+      tabsLeft: tabs.left,
+      tabsRight: tabs.right,
+      outlineLabel: outlineTab.textContent.trim(),
+      slidesLabel: slidesTab.textContent.trim(),
+      slidesSelected: slidesTab.getAttribute('aria-selected'),
+    };
+  })()`)
+  check('outline and slide options sit at the top of the preview pane below the main toolbar',
+    Math.abs(sidebarTabs.tabsTop - sidebarTabs.sidebarTop) < 1
+      && sidebarTabs.tabsTop >= sidebarTabs.toolbarBottom - 1
+      && sidebarTabs.tabsLeft >= sidebarTabs.sidebarLeft - 1
+      && sidebarTabs.tabsRight <= sidebarTabs.sidebarRight + 1,
+    JSON.stringify(sidebarTabs))
+  check('preview pane exposes the requested Outline and Slides options',
+    sidebarTabs.outlineLabel === '大纲'
+      && sidebarTabs.slidesLabel === '幻灯片'
+      && sidebarTabs.slidesSelected === 'true',
+    JSON.stringify(sidebarTabs))
+
+  await evaluate(send, "document.querySelector('[data-testid=presentation-outline-tab]').click(); true")
+  await waitFor(send,
+    "document.querySelectorAll('[data-testid=presentation-outline] .presentation-outline-item').length === 3 && document.querySelector('[data-testid=presentation-outline]').textContent.includes('Ready to present')",
+    'presentation outline')
+  const outline = await evaluate(send, `(() => ({
+    selected: document.querySelector('[data-testid=presentation-outline-tab]').getAttribute('aria-selected'),
+    slides: [...document.querySelectorAll('[data-testid=presentation-outline] .presentation-outline-item')]
+      .map((item) => item.textContent.trim()),
+  }))()`)
+  check('Outline displays text from every slide in the presentation',
+    outline.selected === 'true'
+      && outline.slides.length === 3
+      && outline.slides[0].includes('Presentation playback')
+      && outline.slides[0].includes('PPTX renderer verification')
+      && outline.slides[1].includes('Quarterly performance')
+      && outline.slides[2].includes('Ready to present'),
+    JSON.stringify(outline))
+
+  await evaluate(send, "document.querySelector('[data-testid=presentation-outline-slide-2]').click(); true")
+  await waitFor(send,
+    "document.querySelector('[data-testid=presentation-page-input]').value === '2' && document.querySelector('[data-testid=presentation-outline-slide-2]').getAttribute('aria-current') === 'page'",
+    'outline navigation')
+  check('clicking an outline entry navigates to and highlights that slide', true)
+  const outlineScreenshotSize = await captureScreenshot(send, outlineScreenshotPath)
+  check('presentation outline screenshot captured',
+    outlineScreenshotSize > 20_000,
+    outlineScreenshotPath)
+
+  await evaluate(send, "document.querySelector('[data-testid=presentation-outline-slide-1]').click(); true")
+  await waitFor(send, "document.querySelector('[data-testid=presentation-page-input]').value === '1'", 'first outline slide')
+  await evaluate(send, "document.querySelector('[data-testid=presentation-slides-tab]').click(); true")
+  await waitFor(send,
+    "document.querySelectorAll('[data-testid=presentation-thumbnails] .presentation-thumbnail').length === 3",
+    'slide thumbnails after outline')
+  check('Slides switches the preview pane back to rendered thumbnails',
+    await evaluate(send, "document.querySelector('[data-testid=presentation-slides-tab]').getAttribute('aria-selected') === 'true'"))
 
   const thumbnailToggleCenter = await evaluate(send, `(() => {
     const rect = document.querySelector('[data-testid=presentation-thumbnail-toggle]').getBoundingClientRect();
@@ -1167,6 +1343,67 @@ try {
       slideCount: document.querySelectorAll('[data-testid=presentation-thumbnails] button').length,
     }))()`)
     check('external presentation renders', state === 'ready', JSON.stringify(detail))
+
+    if (state === 'ready' && Number.isInteger(externalFixtureSlide) && externalFixtureSlide > 0) {
+      await evaluate(send,
+        `document.querySelector('[data-testid=presentation-thumbnail-${externalFixtureSlide}]')?.click(); true`)
+      await waitFor(send,
+        `document.querySelector('[data-testid=presentation-page-input]')?.value === '${externalFixtureSlide}'`,
+        'external presentation target slide')
+      if (externalFixtureNeedle) {
+        await waitFor(send,
+          `document.querySelector('[data-testid=presentation-slide-host]')?.textContent.includes(${JSON.stringify(externalFixtureNeedle)})`,
+          'external presentation target text')
+      }
+
+      const spacing = externalFixtureNeedle
+        ? await evaluate(send, `(() => {
+            const host = document.querySelector('[data-testid=presentation-slide-host]');
+            const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              const index = node.data.indexOf(${JSON.stringify(externalFixtureNeedle)});
+              if (index < 0) continue;
+              const preservedSpaces = node.previousSibling instanceof HTMLElement
+                && node.previousSibling.classList.contains('presentation-preserved-spaces')
+                ? node.previousSibling
+                : null;
+              const prefixRange = document.createRange();
+              prefixRange.setStart(node, 0);
+              prefixRange.setEnd(node, index);
+              const glyphRange = document.createRange();
+              glyphRange.setStart(node, index);
+              glyphRange.setEnd(node, index + 1);
+              const prefixRect = prefixRange.getBoundingClientRect();
+              const glyphRect = glyphRange.getBoundingClientRect();
+              const style = getComputedStyle(node.parentElement);
+              const preservedSpaceStyle = preservedSpaces ? getComputedStyle(preservedSpaces) : null;
+              const preservedSpaceWidth = preservedSpaces?.getBoundingClientRect().width ?? 0;
+              const measuredPrefixWidth = prefixRect.width + preservedSpaceWidth;
+              return {
+                text: (preservedSpaces?.textContent ?? '') + node.data,
+                prefixCodePoints: [...(preservedSpaces?.textContent ?? ''), ...node.data.slice(0, index)]
+                  .map((character) => character.codePointAt(0).toString(16)),
+                prefixWidth: measuredPrefixWidth,
+                glyphWidth: glyphRect.width,
+                prefixInCjkGlyphs: measuredPrefixWidth / glyphRect.width,
+                fontFamily: style.fontFamily,
+                fontSize: style.fontSize,
+                letterSpacing: style.letterSpacing,
+                wordSpacing: style.wordSpacing,
+                whiteSpace: preservedSpaceStyle?.whiteSpace ?? style.whiteSpace,
+                display: preservedSpaceStyle?.display ?? style.display,
+                contentWhiteSpace: style.whiteSpace,
+                textAlign: getComputedStyle(node.parentElement.closest('p') ?? node.parentElement).textAlign,
+              };
+            }
+            return null;
+          })()`)
+        : null
+      check('external presentation target slide renders', true, JSON.stringify(spacing))
+      const screenshotSize = await captureScreenshot(send, externalScreenshotPath)
+      check('external presentation target screenshot captured', screenshotSize > 20_000, externalScreenshotPath)
+    }
   }
 
   const unexpectedErrors = rendererErrors.filter((message) => !/ResizeObserver loop/i.test(String(message)))

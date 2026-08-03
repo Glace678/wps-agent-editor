@@ -127,6 +127,8 @@ export const ar = {
     slideTitle: 'العنوان',
     slideBody: 'المحتوى',
     outline: 'المخطط',
+    outlineTab: 'المخطط',
+    slidesTab: 'الشرائح',
     outlinePlaceholder: 'عنوان الشريحة\n  نقطة محتوى\nالشريحة التالية',
     apply: 'تطبيق',
     cancel: 'إلغاء',

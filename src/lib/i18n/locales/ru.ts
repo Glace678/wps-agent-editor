@@ -127,6 +127,8 @@ export const ru = {
     slideTitle: 'Заголовок',
     slideBody: 'Содержимое',
     outline: 'Структура',
+    outlineTab: 'Структура',
+    slidesTab: 'Слайды',
     outlinePlaceholder: 'Заголовок слайда\n  Пункт содержимого\nСледующий слайд',
     apply: 'Применить',
     cancel: 'Отмена',
