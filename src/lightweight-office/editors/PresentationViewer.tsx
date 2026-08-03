@@ -115,6 +115,14 @@ interface WheelNavigationGesture {
   idleTimer: number | null
 }
 
+interface InlineTextEdit {
+  slideIndex: number
+  entry: TextIndexEntry
+  text: string
+}
+
+const NON_EDITABLE_PLACEHOLDER_TYPES = new Set(['dt', 'ftr', 'sldNum'])
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
@@ -533,6 +541,10 @@ export function PresentationViewer({
   const [editDialogMode, setEditDialogMode] = useState<PresentationEditDialogMode | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
+  const [inlineEdit, setInlineEdit] = useState<InlineTextEdit | null>(null)
+  const [inlineEditText, setInlineEditText] = useState('')
+  const inlineEditRef = useRef<InlineTextEdit | null>(null)
+  const inlineEditTextRef = useRef('')
   const thumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
   const preferredThumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
 
