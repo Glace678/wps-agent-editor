@@ -1030,7 +1030,7 @@ export function PresentationViewer({
     setInlineEdit(null)
     setInlineEditText('')
     if (!edit || editBusy || loading) return
-    const text = edit.text.trim()
+    const text = (inlineEditTextRef.current ?? edit.text).trim()
     if (text === edit.entry.text.trim()) return
     void executeEditOperation({
       type: 'updateNodeText',
