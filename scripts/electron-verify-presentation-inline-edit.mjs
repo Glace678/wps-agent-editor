@@ -130,6 +130,15 @@ const pptxPath = path.join(fixtureDir, 'editable.pptx')
   slide.addText('Secondary Text', { x: 0.5, y: 3.8, w: 6, h: 0.8, fontSize: 20, fontFace: 'Arial', color: '555555' })
   await pptx.writeFile({ fileName: pptxPath })
 }
+{
+  const JSZip = (await import('jszip')).default
+  const zip = await JSZip.loadAsync(fs.readFileSync(pptxPath))
+  const slideXml = await zip.file('ppt/slides/slide1.xml').async('string')
+  const texts = [...slideXml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1])
+  const shapeIds = [...slideXml.matchAll(/<p:cNvPr id="(\d+)"/g)].map((m) => m[1])
+  console.log('SOURCE TEXTS:', JSON.stringify(texts))
+  console.log('SOURCE SHAPE IDS:', JSON.stringify(shapeIds))
+}
 
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-ppt-inline-profile-'))
 
