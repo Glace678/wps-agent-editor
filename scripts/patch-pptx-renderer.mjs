@@ -146,6 +146,8 @@ apply('aiden0z-pptx-renderer.es.js', [
       'A.marginLeft',
       'R',
       'M.style.tabSize',
+      'F',
+      'r',
     ),
   },
   {
@@ -238,6 +240,8 @@ apply('aiden0z-pptx-renderer.browser.es.js', [
       'C.marginLeft',
       'I',
       '_.style.tabSize',
+      'A',
+      'o',
     ),
   },
   {
