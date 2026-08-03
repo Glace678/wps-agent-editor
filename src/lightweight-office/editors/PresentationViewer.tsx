@@ -1853,10 +1853,47 @@ export function PresentationViewer({
           >
             <div
               ref={slideHostRef}
-              className="presentation-slide-host shrink-0 overflow-hidden bg-white shadow-[0_4px_22px_rgba(0,0,0,0.24)]"
+              className="presentation-slide-host relative shrink-0 overflow-hidden bg-white shadow-[0_4px_22px_rgba(0,0,0,0.24)]"
               style={{ width: slideSize.width, height: slideSize.height }}
               data-testid="presentation-slide-host"
-            />
+              onMouseDown={onSlideHostMouseDown}
+            >
+              {inlineEditMetrics ? (
+                <div
+                  className="presentation-inline-edit"
+                  data-testid="presentation-inline-edit"
+                  style={inlineEditMetrics}
+                >
+                  <textarea
+                    autoFocus
+                    aria-label={t('presentationViewer.editSlideText')}
+                    value={inlineEditText}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      inlineEditTextRef.current = event.target.value
+                      setInlineEditText(event.target.value)
+                    }}
+                    onBlur={commitInlineEdit}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        inlineEditRef.current = null
+                        inlineEditTextRef.current = ''
+                        setInlineEdit(null)
+                        setInlineEditText('')
+                        return
+                      }
+                      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                        event.preventDefault()
+                        commitInlineEdit()
+                        return
+                      }
+                      event.stopPropagation()
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
 
           {loading ? (
