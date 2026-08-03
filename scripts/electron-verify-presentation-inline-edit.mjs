@@ -205,6 +205,18 @@ try {
   )
   await sleep(600)
 
+  const initialSlideText = await evaluate(send, `(() => {
+    const text = document.querySelector('.presentation-slide-host')?.textContent ?? ''
+    return {
+      title: text.includes('Editable Title'),
+      body: text.includes('Editable Body Line'),
+      secondary: text.includes('Secondary Text'),
+    }
+  })()`)
+  record('initial rendering keeps all three source text boxes',
+    initialSlideText?.title && initialSlideText?.body && initialSlideText?.secondary,
+    JSON.stringify(initialSlideText))
+
   // ---------- V1: click the title text -> edit box appears over it ----------
   const titlePoint = await centerOfText(send, 'Editable Title')
   await clickAt(send, titlePoint.x, titlePoint.y)
@@ -259,7 +271,9 @@ try {
 
   // ---------- V3: edit + Ctrl+Enter applies the change ----------
   await evaluate(send, `(() => {
-    document.querySelector('[data-testid="presentation-inline-edit"] textarea').focus()
+    const textarea = document.querySelector('[data-testid="presentation-inline-edit"] textarea')
+    textarea.focus()
+    textarea.select()
     return true
   })()`)
   await send('Input.insertText', { text: 'Changed Title Now' })
@@ -302,7 +316,22 @@ try {
     60000,
   )
   await screenshot(send, 'v3-after-edit.png')
-  record('V3 edited text is applied and re-rendered', Boolean(changed))
+  const updatedSlideText = await evaluate(send, `(() => {
+    const text = document.querySelector('.presentation-slide-host')?.textContent ?? ''
+    return {
+      changedTitle: text.includes('Changed Title Now'),
+      oldTitle: text.includes('Editable Title'),
+      body: text.includes('Editable Body Line'),
+      secondary: text.includes('Secondary Text'),
+    }
+  })()`)
+  record('V3 edited text is applied while all three text boxes remain rendered',
+    Boolean(changed)
+      && updatedSlideText?.changedTitle
+      && !updatedSlideText?.oldTitle
+      && updatedSlideText?.body
+      && updatedSlideText?.secondary,
+    JSON.stringify(updatedSlideText))
 
   // ---------- V4: click empty slide space cancels without changes ----------
   const bodyPoint = await centerOfText(send, 'Editable Body Line')

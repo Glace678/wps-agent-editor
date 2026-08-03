@@ -1025,12 +1025,13 @@ export function PresentationViewer({
 
   const commitInlineEdit = useCallback(() => {
     const edit = inlineEditRef.current
+    const pendingText = inlineEditTextRef.current
     inlineEditRef.current = null
     inlineEditTextRef.current = ''
     setInlineEdit(null)
     setInlineEditText('')
     if (!edit || editBusy || loading) return
-    const text = (inlineEditTextRef.current ?? edit.text).trim()
+    const text = pendingText.trim()
     if (text === edit.entry.text.trim()) return
     void executeEditOperation({
       type: 'updateNodeText',
