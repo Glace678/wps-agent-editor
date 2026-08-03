@@ -303,6 +303,55 @@ try {
   )
   check('Run Code executes TypeScript and captures stdout', output.includes('Hello Monaco'))
 
+  const fontMeasure = `(() => {
+    const viewLine = document.querySelector('.monaco-editor .view-line');
+    const host = document.querySelector('[data-testid=monaco-editor-host]').getBoundingClientRect();
+    return {
+      fontSize: viewLine ? getComputedStyle(viewLine).fontSize : '',
+      lineHeight: viewLine ? viewLine.getBoundingClientRect().height : 0,
+      hostWidth: host.width,
+      innerWidth,
+    };
+  })()`
+  await evaluate(send, "document.querySelector('.monaco-editor textarea')?.focus(); true")
+  const fontBefore = await evaluate(send, fontMeasure)
+  check('code editor font starts at the 14px default', fontBefore.fontSize === '14px', JSON.stringify(fontBefore))
+
+  await pressKey(send, { key: '+', code: 'Equal', keyCode: 187, modifiers: 2 })
+  await sleep(300)
+  const fontPlus = await evaluate(send, fontMeasure)
+  check('Ctrl+Plus grows the code font', fontPlus.fontSize === '15px', `fontSize ${fontBefore.fontSize} -> ${fontPlus.fontSize}`)
+
+  await pressKey(send, { key: '-', code: 'Minus', keyCode: 189, modifiers: 2 })
+  await sleep(300)
+  const fontMinus = await evaluate(send, fontMeasure)
+  check('Ctrl+Minus shrinks the code font', fontMinus.fontSize === '14px', `fontSize ${fontPlus.fontSize} -> ${fontMinus.fontSize}`)
+  check('code font zoom does not resize the window',
+    fontMinus.innerWidth === fontBefore.innerWidth && fontMinus.hostWidth === fontBefore.hostWidth,
+    JSON.stringify({ before: fontBefore, after: fontMinus }))
+  check('code font line height scales with the font',
+    Math.abs(fontMinus.lineHeight - fontMinus.fontSize.match(/\d+/)?.[0] * (22 / 14)) < 1.5,
+    `fontSize=${fontMinus.fontSize} lineHeight=${fontMinus.lineHeight}`)
+
+  const dispatchWheel = (deltaY) => evaluate(send, `(() => {
+    const host = document.querySelector('[data-testid=monaco-editor-host]');
+    host.dispatchEvent(new WheelEvent('wheel', {
+      deltaX: 0, deltaY: ${deltaY}, ctrlKey: true, bubbles: true, cancelable: true,
+    }));
+    return true;
+  })()`)
+  await dispatchWheel(-100)
+  await sleep(300)
+  const fontWheelUp = await evaluate(send, fontMeasure)
+  check('Ctrl+wheel up grows the code font', fontWheelUp.fontSize === '15px', `fontSize ${fontMinus.fontSize} -> ${fontWheelUp.fontSize}`)
+
+  await dispatchWheel(100)
+  await sleep(300)
+  const fontWheelDown = await evaluate(send, fontMeasure)
+  check('Ctrl+wheel down shrinks the code font', fontWheelDown.fontSize === '14px', `fontSize ${fontWheelUp.fontSize} -> ${fontWheelDown.fontSize}`)
+  const storedFontSize = await evaluate(send, "localStorage.getItem('wps-code-editor-font-size')")
+  check('code font size is persisted', storedFontSize === '14', `stored=${storedFontSize}`)
+
   await evaluate(send, `(() => {
     const target = document.querySelector('.monaco-editor .view-lines');
     target.dispatchEvent(new MouseEvent('contextmenu', {

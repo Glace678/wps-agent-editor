@@ -55,6 +55,23 @@ let syncing = false
 let syncQueued = false
 let timer = null
 
+async function pushWithRetry(args, attempts = 3, delayMs = 3_000) {
+  let lastError = null
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await git(['push', ...args])
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt === attempts) break
+      const detail = error && typeof error === 'object' && 'stderr' in error ? error.stderr : error
+      console.log(`[git-sync] Push attempt ${attempt}/${attempts} failed, retrying in ${delayMs}ms: ${detail}`)
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
+  throw lastError
+}
+
 async function syncSnapshot() {
   if (syncing) {
     syncQueued = true
@@ -63,12 +80,17 @@ async function syncSnapshot() {
 
   syncing = true
   try {
-    await git(['add', '--all'])
-    if (!await hasStagedChanges()) return
+    // Network fixes for flaky HTTPS connections to GitHub (HTTP/2 is often reset by the GFW).
+    await git(['config', 'http.version', 'HTTP/1.1'])
+    await git(['config', 'http.postBuffer', '524288000'])
 
-    const branch = await gitOutput(['branch', '--show-current'])
-    await git(['commit', '-m', `chore(sync): automatic snapshot ${timestamp()}`])
-    console.log(`[git-sync] Committed a snapshot on ${branch}.`)
+    await git(['add', '--all'])
+    const hasChanges = await hasStagedChanges()
+    if (hasChanges) {
+      const branch = await gitOutput(['branch', '--show-current'])
+      await git(['commit', '-m', `chore(sync): automatic snapshot ${timestamp()}`])
+      console.log(`[git-sync] Committed a snapshot on ${branch}.`)
+    }
 
     const remote = await gitOutput(['remote', 'get-url', 'origin']).catch(() => '')
     if (!remote) {
@@ -76,8 +98,10 @@ async function syncSnapshot() {
       return
     }
 
-    await git(['push', 'origin', 'HEAD'])
-    await git(['push', 'origin', 'HEAD:main'])
+    // Push even when nothing new was committed: a previous run may have failed
+    // to push (e.g. transient network reset) and must not be silently skipped.
+    await pushWithRetry(['origin', 'HEAD'])
+    await pushWithRetry(['origin', 'HEAD:main'])
     console.log('[git-sync] Pushed the snapshot to GitHub.')
   } catch (error) {
     const detail = error && typeof error === 'object' && 'stderr' in error ? error.stderr : error

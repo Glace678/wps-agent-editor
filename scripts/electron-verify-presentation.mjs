@@ -805,7 +805,7 @@ try {
     slideshowMenu: Boolean(document.querySelector('[data-testid=presentation-slideshow-menu]')),
   }))()`)
   check('PowerPoint editing toolbar reuses the compact Word and Excel dimensions',
-    editToolbar.height >= 40 && editToolbar.height <= 42
+    editToolbar.height >= 37.5 && editToolbar.height <= 38.5
       && editToolbar.newSlide && editToolbar.edit && editToolbar.duplicate
       && editToolbar.remove && editToolbar.slideshowMenu,
     JSON.stringify(editToolbar))
