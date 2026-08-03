@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Check, ExternalLink, Key, Plus, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-react'
 import type { ProviderDefinition, CustomProviderConfig } from '@/types/provider'
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
+
+const MIN_LIST_WIDTH = 168
+const MAX_LIST_WIDTH = 336
+const DEFAULT_LIST_WIDTH = 224
 
 interface ProviderSettingsProps {
   onClose: () => void
