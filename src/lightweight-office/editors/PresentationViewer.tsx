@@ -280,6 +280,7 @@ function normalizeRenderedPresentationSpaces(root: HTMLElement): void {
   // the start of a paragraph line just like the other preserved spaces above.
   const leadingSpaceOnlyNode = /^ +$/
   const spaceWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const leadingSpaceNodes: Text[] = []
   let spaceNode = spaceWalker.nextNode()
   while (spaceNode) {
     const spaceTextNode = spaceNode as Text
@@ -287,16 +288,20 @@ function normalizeRenderedPresentationSpaces(root: HTMLElement): void {
     if (
       leadingSpaceOnlyNode.test(spaceTextNode.data)
       && parent
+      && !parent.classList.contains('presentation-preserved-spaces')
       && parent.childNodes.length === 1
       && parent.parentElement
       && parent.parentElement.firstElementChild === parent
     ) {
-      const spaces = document.createElement('span')
-      spaces.className = 'presentation-preserved-spaces'
-      spaces.textContent = spaceTextNode.data
-      spaceTextNode.replaceWith(spaces)
+      leadingSpaceNodes.push(spaceTextNode)
     }
     spaceNode = spaceWalker.nextNode()
+  }
+  for (const spaceTextNode of leadingSpaceNodes) {
+    const spaces = document.createElement('span')
+    spaces.className = 'presentation-preserved-spaces'
+    spaces.textContent = spaceTextNode.data
+    spaceTextNode.replaceWith(spaces)
   }
 }
 
