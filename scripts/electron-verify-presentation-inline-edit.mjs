@@ -223,12 +223,16 @@ try {
   // ---------- V3b: direct API probe of updateNodeText ----------
   const apiProbe = await evaluate(send, `(async () => {
     const prepared = await window.api.lw.readPresentation(${JSON.stringify(pptxPath)})
-    const buffer = typeof prepared === 'string' ? atob(prepared) : prepared.buffer
     const result = await window.api.lw.editPresentation({
-      data: buffer,
+      data: prepared.data,
       operation: { type: 'updateNodeText', slideIndex: 0, nodeId: '2', text: 'API PROBE TEXT' },
     })
-    return { errorCode: result?.errorCode ?? null, slideCount: result?.slideCount, hasData: Boolean(result?.data) }
+    return {
+      error: result?.errorCode ?? null,
+      slideCount: result?.slideCount,
+      hasData: Boolean(result?.data),
+      converter: result?.converter ?? null,
+    }
   })()`)
   console.log('API PROBE:', JSON.stringify(apiProbe))
 
