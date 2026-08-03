@@ -1025,14 +1025,6 @@ export function PresentationViewer({
 
   const commitInlineEdit = useCallback(() => {
     const edit = inlineEditRef.current
-    document.documentElement.setAttribute('data-debug-commit', JSON.stringify({
-      hadEdit: Boolean(edit),
-      nodeId: edit?.entry.nodeId ?? null,
-      text: edit?.text.slice(0, 20) ?? null,
-      busy: editBusy,
-      loading,
-      at: Date.now(),
-    }))
     inlineEditRef.current = null
     inlineEditTextRef.current = ''
     setInlineEdit(null)
@@ -1070,13 +1062,6 @@ export function PresentationViewer({
       && y >= entry.bounds.y
       && y <= entry.bounds.y + entry.bounds.h
     ))
-    document.documentElement.setAttribute('data-debug-inline', JSON.stringify({
-      point: [Math.round(x), Math.round(y)],
-      hit: hit ? { id: hit.nodeId, text: hit.text.slice(0, 20) } : null,
-      entries: currentSlideTextEntries.length,
-      inlineRef: inlineEditRef.current?.entry.nodeId ?? null,
-      slideNodes: viewer?.presentationData?.slides[0]?.nodes?.length ?? -1,
-    }))
     if (!hit) {
       inlineEditRef.current = null
       inlineEditTextRef.current = ''
@@ -1089,6 +1074,7 @@ export function PresentationViewer({
       commitInlineEdit()
     }
     event.preventDefault()
+    suppressStageClickFocusRef.current = true
     const nextEdit: InlineTextEdit = { slideIndex: currentSlide, entry: hit, text: hit.text }
     inlineEditRef.current = nextEdit
     inlineEditTextRef.current = hit.text
@@ -1412,6 +1398,13 @@ export function PresentationViewer({
   }
 
   const onStageClick = (event: ReactMouseEvent<HTMLElement>) => {
+    // The click that opened the inline edit box targets the slide content
+    // (rendered before the box exists), so its focus-stealing behaviour must
+    // not blur the just-mounted textarea and close the box immediately.
+    if (suppressStageClickFocusRef.current) {
+      suppressStageClickFocusRef.current = false
+      return
+    }
     const target = event.target instanceof HTMLElement ? event.target : null
     if (target?.closest('[data-presentation-inline-edit]')) return
     rootRef.current?.focus({ preventScroll: true })
