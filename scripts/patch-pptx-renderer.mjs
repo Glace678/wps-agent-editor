@@ -325,7 +325,7 @@ apply('aiden0z-pptx-renderer.cjs', [
   {
     label: 'PowerPoint tab stop semantics',
     from: `const G=A.defaultTabSize??96;M.style.tabSize=\`\${G}px\``,
-    to: `let tabSizeEmu=null;const ownDefTabSz=b.properties?b.properties.numAttr("defTabSz"):void 0;if(ownDefTabSz!==void 0)tabSizeEmu=ownDefTabSz;else{const tabStyleLevels=[Ve(t.listStyle,L),layoutPhLevel,masterPhLevel,Ve(S,L),Ve(e.master.defaultTextStyle,L)];for(const tabLevel of tabStyleLevels){if(tabLevel&&tabLevel.exists()){const tabDefTabSz=tabLevel.numAttr("defTabSz");tabSizeEmu=tabDefTabSz!==void 0?tabDefTabSz:914400;break}}if(tabSizeEmu===null)tabSizeEmu=914400}let tabSizePx=X(tabSizeEmu);if(A.marginLeft!==void 0&&A.marginLeft>0&&(R||A.bulletNone===!0)){tabSizePx=Math.max(1,tabSizePx-A.marginLeft)}M.style.tabSize=\`\${tabSizePx}px\``,
+    to: `let tabSizeEmu=null;const ownDefTabSz=b.properties?b.properties.numAttr("defTabSz"):void 0;if(ownDefTabSz!==void 0)tabSizeEmu=ownDefTabSz;else{const tabStyleLevels=[Ve(t.listStyle,L),layoutPhLevel,masterPhLevel,Ve(S,L),Ve(e.master.defaultTextStyle,L)];for(const tabLevel of tabStyleLevels){if(tabLevel&&tabLevel.exists()){const tabDefTabSz=tabLevel.numAttr("defTabSz");tabSizeEmu=tabDefTabSz!==void 0?tabDefTabSz:F*r*25400;break}}if(tabSizeEmu===null)tabSizeEmu=F*r*25400}let tabSizePx=X(tabSizeEmu);if(A.marginLeft!==void 0&&A.marginLeft>0&&(R||A.bulletNone===!0)){tabSizePx=Math.max(1,tabSizePx-A.marginLeft)}M.style.tabSize=\`\${tabSizePx}px\``,
   },
   {
     label: 'tab runs wrap and honor the margin first stop',
