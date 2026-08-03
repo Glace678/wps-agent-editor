@@ -998,7 +998,13 @@ export function PresentationViewer({
 
   const currentSlideTextEntries = useMemo(() => {
     const data = viewer?.presentationData
-    if (!data) return []
+    const slide = data?.slides[currentSlide]
+    if (!data || !slide) return []
+    const excludedNodeIds = new Set(
+      slide.nodes
+        .filter((node) => NON_EDITABLE_PLACEHOLDER_TYPES.has(node.placeholder?.type ?? ''))
+        .map((node) => node.id),
+    )
     try {
       return buildTextIndex(data, {
         includeShapes: true,
@@ -1008,7 +1014,7 @@ export function PresentationViewer({
         entry.slideIndex === currentSlide
         && entry.textKind === 'shape'
         && entry.nodeType === 'shape'
-        && !NON_EDITABLE_PLACEHOLDER_TYPES.has(entry.nodePath.includes('placeholder') ? '' : '')
+        && !excludedNodeIds.has(entry.nodeId)
       ))
     } catch (error) {
       console.warn('[PresentationViewer] Unable to build editable text index:', error)
