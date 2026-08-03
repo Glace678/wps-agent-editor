@@ -91,6 +91,12 @@ function apply(file, replacements) {
 // ---------------------------------------------------------------------------
 apply('aiden0z-pptx-renderer.es.js', [
   {
+    label: 'migrate standard inherited tab width',
+    optional: true,
+    from: `            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : F * r * 25400;`,
+    to: `            tabSizeEmu = tabDefTabSz !== void 0 && tabDefTabSz !== 914400 ? tabDefTabSz : F * r * 25400;`,
+  },
+  {
     label: 'migrate compact implicit tab width',
     optional: true,
     from: `            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : 914400;
@@ -98,7 +104,7 @@ apply('aiden0z-pptx-renderer.es.js', [
           }
         }
         if (tabSizeEmu === null) tabSizeEmu = 914400;`,
-    to: `            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : F * r * 25400;
+    to: `            tabSizeEmu = tabDefTabSz !== void 0 && tabDefTabSz !== 914400 ? tabDefTabSz : F * r * 25400;
             break;
           }
         }
