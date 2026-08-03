@@ -545,6 +545,7 @@ export function PresentationViewer({
   const [inlineEditText, setInlineEditText] = useState('')
   const inlineEditRef = useRef<InlineTextEdit | null>(null)
   const inlineEditTextRef = useRef('')
+  const suppressStageClickFocusRef = useRef(false)
   const thumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
   const preferredThumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
 
