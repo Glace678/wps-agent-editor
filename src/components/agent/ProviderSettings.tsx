@@ -154,7 +154,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                      <RefreshCw className="h-4 w-4" />
                    </Button>
                  </TooltipTrigger>
-                 <TooltipContent side="bottom" className="whitespace-nowrap rounded-[2px] border-0 bg-[#666] px-1.5 py-1.5 text-center text-[12px] leading-normal text-white shadow-none">
+                 <TooltipContent side="bottom" className="whitespace-nowrap rounded-[4px] border-0 bg-[#666] px-1.5 py-1.5 text-center text-[12px] leading-normal text-white shadow-none">
                    {t('providerSettings.refresh')}
                  </TooltipContent>
                </Tooltip>
@@ -194,7 +194,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                              aria-label={t('providerSettings.configured')}
                            />
                          </TooltipTrigger>
-                         <TooltipContent side="right" className="whitespace-nowrap rounded-[2px] border-0 bg-[#666] px-1.5 py-1.5 text-center text-[12px] leading-normal text-white shadow-none">
+                         <TooltipContent side="right" className="whitespace-nowrap rounded-[4px] border-0 bg-[#666] px-1.5 py-1.5 text-center text-[12px] leading-normal text-white shadow-none">
                            {t('providerSettings.configured')}
                          </TooltipContent>
                        </Tooltip>
