@@ -1055,13 +1055,18 @@ export function PresentationViewer({
     const x = (event.clientX - rect.left) / scaleX
     const y = (event.clientY - rect.top) / scaleY
 
-    console.log('[DEBUG-inline] entries=', currentSlideTextEntries.length, 'slideW=', activeViewer.slideWidth, 'scaleX=', scaleX, 'point=', Math.round(x), Math.round(y))
-    if (currentSlideTextEntries.length === 0) {
-      console.log('[DEBUG-inline] entries empty, viewer?', Boolean(viewer), 'data?', Boolean(viewer?.presentationData), 'slides?', viewer?.presentationData?.slides.length)
-      const data = viewer?.presentationData
-      const slide0 = data?.slides[0]
-      console.log('[DEBUG-inline] slide0 nodes=', slide0?.nodes?.length)
-    }
+    const slide0 = viewer?.presentationData?.slides[0]
+    document.documentElement.setAttribute('data-debug-inline', JSON.stringify({
+      entries: currentSlideTextEntries.length,
+      slideW: activeViewer.slideWidth,
+      slideH: activeViewer.slideHeight,
+      scaleX,
+      point: [Math.round(x), Math.round(y)],
+      viewer: Boolean(viewer),
+      data: Boolean(viewer?.presentationData),
+      slideNodes: slide0?.nodes?.length ?? -1,
+      slideNode0: slide0?.nodes?.[0] ? `${slide0.nodes[0].nodeType}:${slide0.nodes[0].id}` : 'none',
+    }))
 
     const hit = currentSlideTextEntries.find((entry) => (
       x >= entry.bounds.x

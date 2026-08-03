@@ -152,12 +152,15 @@ try {
   const after = await evaluate(send, `(() => ({
     mousedowns: window.__md,
     box: Boolean(document.querySelector('[data-testid="presentation-inline-edit"]')),
+    debug: document.documentElement.getAttribute('data-debug-inline'),
   }))()`)
   console.log('AFTER:', JSON.stringify(after))
   cdp.close()
 } catch (e) {
   console.error('FAILED:', String(e))
-  console.error('LOG:', log.join('').slice(-500))
+  const debugLines = log.join('').split('\n').filter((l) => l.includes('DEBUG-inline'))
+  console.error('DEBUG LINES:', JSON.stringify(debugLines, null, 1))
+  console.error('LOG TAIL:', log.join('').slice(-800))
 } finally {
   try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }) } catch {}
   await sleep(1000)
