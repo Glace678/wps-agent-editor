@@ -1414,6 +1414,24 @@ export function PresentationViewer({
     width: thumbnailPaneWidth,
     '--presentation-thumbnail-scale': String(estimatedThumbnailScale(thumbnailPaneWidth)),
   } as CSSProperties
+  const inlineEditMetrics = inlineEdit && inlineEdit.slideIndex === currentSlide && !isPresenting
+    ? (() => {
+        const host = slideHostRef.current
+        const slideEl = host ? mainSlideElement(host) : null
+        const data = viewer?.presentationData
+        if (!slideEl || !data || data.width <= 0 || data.height <= 0) return null
+        const rect = slideEl.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) return null
+        const scaleX = rect.width / data.width
+        const scaleY = rect.height / data.height
+        return {
+          left: inlineEdit.entry.bounds.x * scaleX,
+          top: inlineEdit.entry.bounds.y * scaleY,
+          width: Math.max(1, inlineEdit.entry.bounds.w * scaleX),
+          height: Math.max(1, inlineEdit.entry.bounds.h * scaleY),
+        }
+      })()
+    : null
 
   return (
     <TooltipProvider delayDuration={450}>
