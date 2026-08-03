@@ -653,7 +653,6 @@ try {
     toolbar: styles.toolbar,
     formulaBar: styles.formulaBar,
     sheetTabs: styles.sheetTabs,
-    fontPicker: styles.fontPicker,
   })) {
     check(`${name} uses pure black`, style?.background === 'rgb(0, 0, 0)', JSON.stringify(style))
   }
@@ -662,6 +661,89 @@ try {
     styles.fontOption?.color === 'rgb(245, 245, 245)',
     `${styles.fontOptionText} ${JSON.stringify(styles.fontOption)}`,
   )
+  const darkPickerSurfaces = await evaluate(send, `(async () => {
+    const popupFor = (kind) => document.querySelector(
+      \`.fortune-toolbar-combo-popup[data-excel-picker-kind="\${kind}"]\`,
+    )
+    const waitForState = async (predicate) => {
+      const deadline = Date.now() + 5000
+      while (Date.now() < deadline) {
+        if (predicate()) return
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      throw new Error('Timed out waiting for Excel picker state')
+    }
+    const buttonFor = (kind) => {
+      const buttons = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
+      return buttons.find((button) => {
+        const label = [button.getAttribute('aria-label'), button.dataset.tips]
+          .filter(Boolean)
+          .join(' ')
+          .toLocaleLowerCase()
+        if (kind === 'font-size') {
+          return /font\\s*[- ]?\\s*size|字号|字號|字体大小|字體大小/i.test(label)
+        }
+        if (kind === 'format') return /format|格式|формат|書式/i.test(label)
+        return /font|字体|字體|шрифт/i.test(label)
+          && !/size|字号|字號|大小|color|颜色|顏色/i.test(label)
+      })
+    }
+    const readSurface = (kind) => {
+      const popup = popupFor(kind)
+      const list = popup?.querySelector('.fortune-toolbar-select')
+      const header = popup?.querySelector('.excel-toolbar-picker-search')
+      const input = popup?.querySelector('.excel-toolbar-picker-search-input')
+      if (!popup || !list || !header || !input) return null
+      return {
+        popup: getComputedStyle(popup).backgroundColor,
+        list: getComputedStyle(list).backgroundColor,
+        header: getComputedStyle(header).backgroundColor,
+        input: getComputedStyle(input).backgroundColor,
+        border: getComputedStyle(popup).borderColor,
+        shadow: getComputedStyle(popup).boxShadow,
+      }
+    }
+    const closePicker = async (kind) => {
+      if (!popupFor(kind)) return
+      buttonFor(kind)?.click()
+      await waitForState(() => !popupFor(kind))
+    }
+    const openPicker = async (kind) => {
+      const button = buttonFor(kind)
+      if (!button) return null
+      button.click()
+      await waitForState(() => Boolean(popupFor(kind)))
+      return readSurface(kind)
+    }
+
+    const surfaces = {
+      worksheet: getComputedStyle(document.querySelector('.fortune-container')).backgroundColor,
+      font: readSurface('font'),
+      fontSize: null,
+      format: null,
+    }
+    await closePicker('font')
+    surfaces.fontSize = await openPicker('font-size')
+    await closePicker('font-size')
+    surfaces.format = await openPicker('format')
+    await closePicker('format')
+    return surfaces
+  })()`, true)
+  for (const [kind, surface] of Object.entries({
+    font: darkPickerSurfaces.font,
+    fontSize: darkPickerSurfaces.fontSize,
+    format: darkPickerSurfaces.format,
+  })) {
+    check(
+      `${kind} picker uses a raised charcoal surface distinct from the black worksheet`,
+      surface?.popup === 'rgb(37, 37, 37)'
+        && surface.list === surface.popup
+        && surface.header === surface.popup
+        && surface.input === 'rgb(48, 48, 48)'
+        && surface.popup !== darkPickerSurfaces.worksheet,
+      JSON.stringify({ worksheet: darkPickerSurfaces.worksheet, surface }),
+    )
+  }
   check(
     'worksheet canvas is not post-processed in dark mode',
     styles.canvas?.filter === 'none',
@@ -681,13 +763,6 @@ try {
     JSON.stringify(styles.root),
   )
 
-  await evaluate(send, `(() => {
-    const button = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
-      .find((item) => /font|字体|字體/i.test(item.getAttribute('aria-label') || ''))
-    button?.click()
-    return true
-  })()`)
-  await waitFor(send, `!document.querySelector('.fortune-toolbar-combo-popup .fortune-toolbar-select-option')`)
   const contextMenuDispatched = await evaluate(send, `(() => {
     const cellArea = document.querySelector('.fortune-cell-area')
     if (!cellArea) return false
