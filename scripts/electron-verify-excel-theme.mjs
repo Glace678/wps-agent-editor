@@ -840,8 +840,7 @@ try {
   console.log(`[PASS] screenshot saved: ${screenshotPath}`)
 
   const toggledToLight = await evaluate(send, `(() => {
-    const button = [...document.querySelectorAll('button')]
-      .find((item) => /明亮模式|light/i.test(item.title || ''))
+    const button = document.querySelector('[data-testid="theme-toggle"]')
     if (!button) return false
     button.click()
     return true
