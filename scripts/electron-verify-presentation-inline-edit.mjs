@@ -231,6 +231,14 @@ try {
   })()`)
   await sleep(200)
   await pressCtrlEnter(send)
+  await sleep(4000)
+  const afterCommit = await evaluate(send, `(() => ({
+    error: document.querySelector('[data-testid="presentation-edit-error"]')?.textContent ?? null,
+    box: Boolean(document.querySelector('[data-testid="presentation-inline-edit"]')),
+    state: document.querySelector('[data-testid="presentation-viewer"]')?.dataset.presentationState,
+    slideText: document.querySelector('.presentation-slide-host')?.textContent?.slice(0, 80),
+  }))()`)
+  console.log('AFTER COMMIT:', JSON.stringify(afterCommit))
   const changed = await waitFor(
     send,
     `document.querySelector('.presentation-slide-host')?.textContent.includes('Changed Title Now')`,
