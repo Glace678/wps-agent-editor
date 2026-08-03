@@ -153,6 +153,8 @@ try {
     mousedowns: window.__md,
     box: Boolean(document.querySelector('[data-testid="presentation-inline-edit"]')),
     debug: document.documentElement.getAttribute('data-debug-inline'),
+    commit: document.documentElement.getAttribute('data-debug-commit'),
+    metrics: document.documentElement.getAttribute('data-debug-metrics'),
     textareas: document.querySelectorAll('textarea').length,
     focused: document.activeElement?.tagName,
   }))()`)

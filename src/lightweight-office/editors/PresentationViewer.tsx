@@ -1024,6 +1024,14 @@ export function PresentationViewer({
 
   const commitInlineEdit = useCallback(() => {
     const edit = inlineEditRef.current
+    document.documentElement.setAttribute('data-debug-commit', JSON.stringify({
+      hadEdit: Boolean(edit),
+      nodeId: edit?.entry.nodeId ?? null,
+      text: edit?.text.slice(0, 20) ?? null,
+      busy: editBusy,
+      loading,
+      at: Date.now(),
+    }))
     inlineEditRef.current = null
     inlineEditTextRef.current = ''
     setInlineEdit(null)
@@ -1432,6 +1440,13 @@ export function PresentationViewer({
         if (rect.width <= 0 || rect.height <= 0) return null
         const scaleX = rect.width / data.width
         const scaleY = rect.height / data.height
+        document.documentElement.setAttribute('data-debug-metrics', JSON.stringify({
+          w: data.width,
+          h: data.height,
+          rectW: rect.width,
+          left: Math.round(inlineEdit.entry.bounds.x * scaleX),
+          top: Math.round(inlineEdit.entry.bounds.y * scaleY),
+        }))
         return {
           left: inlineEdit.entry.bounds.x * scaleX,
           top: inlineEdit.entry.bounds.y * scaleY,
