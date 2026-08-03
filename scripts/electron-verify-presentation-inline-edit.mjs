@@ -224,7 +224,8 @@ try {
   await evaluate(send, `(() => {
     const textarea = document.querySelector('[data-testid="presentation-inline-edit"] textarea')
     textarea.focus()
-    textarea.value = 'Changed Title Now'
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(textarea, 'Changed Title Now')
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
     return true
   })()`)
