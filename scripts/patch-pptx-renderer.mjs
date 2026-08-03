@@ -1,11 +1,11 @@
 // Applies a local fix to @aiden0z/pptx-renderer (pinned to 1.2.4 in
 // package-lock.json) so that paragraph tab stops follow PowerPoint semantics:
 //
-// 1. The effective default tab size comes from the paragraph pPr defTabSz,
-//    then the highest-priority style level that exists (shape lstStyle,
-//    layout placeholder lstStyle, master placeholder lstStyle, master
-//    textStyles, master defaultTextStyle) — each level's own defTabSz, or the
-//    built-in 914400 EMU (96 px) when the level defines none. The presentation
+// 1. An explicit paragraph/style defTabSz follows the PowerPoint style
+//    priority (shape lstStyle, layout placeholder lstStyle, master placeholder
+//    lstStyle, master textStyles, master defaultTextStyle). When the effective
+//    level has no defTabSz, use a compact two-em fallback so a tab is about two
+//    CJK glyphs instead of the 96 px renderer default. The presentation
 //    defaultTextStyle defTabSz is never consulted (PowerPoint ignores it).
 // 2. For a non-bulleted paragraph with a left margin, PowerPoint places the
 //    first default tab stop at the margin. CSS tab stops are measured from the
@@ -23,8 +23,18 @@ import path from 'node:path'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = path.join(root, 'node_modules', '@aiden0z', 'pptx-renderer', 'dist')
+const COMPACT_TAB_CJK_GLYPHS = 2
+const EMU_PER_POINT = 12_700
 
-const tabSizeNew = (emus, styleLevel, marginLeft, noBullet, tabSizeVar) => `let tabSizeEmu = null;
+const tabSizeNew = (
+  emus,
+  styleLevel,
+  marginLeft,
+  noBullet,
+  tabSizeVar,
+  fontSizePt,
+  fontScale,
+) => `let tabSizeEmu = null;
       const ownDefTabSz = b.properties ? b.properties.numAttr("defTabSz") : void 0;
       if (ownDefTabSz !== void 0) tabSizeEmu = ownDefTabSz;
       else {
@@ -38,11 +48,11 @@ const tabSizeNew = (emus, styleLevel, marginLeft, noBullet, tabSizeVar) => `let 
         for (const tabLevel of tabStyleLevels) {
           if (tabLevel && tabLevel.exists()) {
             const tabDefTabSz = tabLevel.numAttr("defTabSz");
-            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : 914400;
+            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : ${fontSizePt} * ${fontScale} * ${EMU_PER_POINT * COMPACT_TAB_CJK_GLYPHS};
             break;
           }
         }
-        if (tabSizeEmu === null) tabSizeEmu = 914400;
+        if (tabSizeEmu === null) tabSizeEmu = ${fontSizePt} * ${fontScale} * ${EMU_PER_POINT * COMPACT_TAB_CJK_GLYPHS};
       }
       let tabSizePx = ${emus.toPx}(tabSizeEmu);
       if (${marginLeft} !== void 0 && ${marginLeft} > 0 && (${noBullet} || ${emus.bulletNone} === !0)) {
@@ -54,12 +64,16 @@ function apply(file, replacements) {
   const target = path.join(distDir, file)
   const source = readFileSync(target, 'utf8')
   let output = source
-  for (const { from, to, label } of replacements) {
+  for (const { from, to, label, optional = false } of replacements) {
     if (output.includes(to)) {
       console.log(`[SKIP] ${file}: ${label} (already applied)`)
       continue
     }
     const count = output.split(from).length - 1
+    if (count === 0 && optional) {
+      console.log(`[SKIP] ${file}: ${label} (legacy source not present)`)
+      continue
+    }
     if (count !== 1) {
       throw new Error(`${file}: ${label}: expected exactly 1 source occurrence, found ${count}`)
     }
