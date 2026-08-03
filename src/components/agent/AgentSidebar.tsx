@@ -174,7 +174,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
                   <Key className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="whitespace-nowrap rounded-[2px] border-0 bg-[#666] px-1.5 py-1.5 text-center text-[12px] leading-normal text-white shadow-none">
+              <TooltipContent side="bottom" className="whitespace-nowrap rounded-[4px] border-0 bg-[#666] px-1.5 py-1.5 text-center text-[12px] leading-normal text-white shadow-none">
                 {t('providerSettings.title')}
               </TooltipContent>
             </Tooltip>
