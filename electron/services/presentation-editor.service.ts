@@ -120,7 +120,7 @@ foreach ($entry in @(
           try {
             if ([int]$shape.Id -ne $targetId) { continue }
             if ([int]$shape.HasTextFrame -eq 0) { throw 'PRESENTATION_NODE_NOT_TEXT' }
-            $shape.TextFrame.TextRange.Text = ([string]$operation.text).Replace("\``r\``n", "\``r").Replace("\``n", "\``r")
+            $shape.TextFrame.TextRange.Text = ([string]$operation.text).Replace("`r`n", "`r").Replace("`n", "`r")
             $found = $true
             break
           } catch {}
