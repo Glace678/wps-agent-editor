@@ -225,6 +225,16 @@ async function createFixture() {
     color: '152238',
     margin: 0,
   })
+  first.addText('\t中文Tab测试', {
+    x: 0.82,
+    y: 6.88,
+    w: 5.5,
+    h: 0.4,
+    fontFace: 'Microsoft YaHei',
+    fontSize: 18,
+    color: '152238',
+    margin: 0,
+  })
 
   const second = pptx.addSlide()
   second.background = { color: 'FFFFFF' }
