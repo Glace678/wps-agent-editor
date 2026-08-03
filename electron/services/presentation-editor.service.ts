@@ -112,6 +112,22 @@ foreach ($entry in @(
         Set-SlideText $presentation $slide ([string]$operation.title) ([string]$operation.body)
         $mutated = $true
       }
+      'updateNodeText' {
+        $slide = $presentation.Slides.Item($currentIndex + 1)
+        $targetId = [int]$operation.nodeId
+        $found = $false
+        foreach ($shape in @($slide.Shapes)) {
+          try {
+            if ([int]$shape.Id -ne $targetId) { continue }
+            if ([int]$shape.HasTextFrame -eq 0) { throw 'PRESENTATION_NODE_NOT_TEXT' }
+            $shape.TextFrame.TextRange.Text = ([string]$operation.text).Replace("`r`n", "`r").Replace("`n", "`r")
+            $found = $true
+            break
+          } catch {}
+        }
+        if (-not $found) { throw 'PRESENTATION_NODE_NOT_FOUND' }
+        $mutated = $true
+      }
       'duplicate' {
         $range = $presentation.Slides.Item($currentIndex + 1).Duplicate()
         $currentIndex = [int]$range.Item(1).SlideIndex - 1
