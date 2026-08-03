@@ -1417,9 +1417,10 @@ export function PresentationViewer({
   }
 
   const onStageClick = (event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target instanceof HTMLElement ? event.target : null
+    if (target?.closest('[data-presentation-inline-edit]')) return
     rootRef.current?.focus({ preventScroll: true })
     if (!isPresenting || event.button !== 0) return
-    const target = event.target instanceof HTMLElement ? event.target : null
     if (target?.closest('a, button, input, video, audio, [role="link"]')) return
     advancePresentation()
   }
