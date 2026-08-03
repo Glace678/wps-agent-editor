@@ -245,7 +245,24 @@ try {
   await sleep(300)
   const typed = await evaluate(send, `document.querySelector('[data-testid="presentation-inline-edit"] textarea')?.value ?? null`)
   console.log('TYPED VALUE:', JSON.stringify(typed))
+  await evaluate(send, `(() => {
+    window.__keys = []
+    window.addEventListener('keydown', (e) => {
+      window.__keys.push({ at: 'window', key: e.key, ctrl: e.ctrlKey, target: e.target?.tagName })
+    }, true)
+    document.addEventListener('keydown', (e) => {
+      window.__keys.push({ at: 'document', key: e.key, ctrl: e.ctrlKey, target: e.target?.tagName })
+    }, true)
+    const ta = document.querySelector('[data-testid="presentation-inline-edit"] textarea')
+    ta.addEventListener('keydown', (e) => {
+      window.__keys.push({ at: 'textarea', key: e.key, ctrl: e.ctrlKey, target: e.target?.tagName, defaultPrevented: e.defaultPrevented })
+    }, true)
+    return true
+  })()`)
   await pressCtrlEnter(send)
+  await sleep(500)
+  const keyLog = await evaluate(send, `window.__keys`)
+  console.log('KEY LOG:', JSON.stringify(keyLog))
   await sleep(4000)
   const afterCommit = await evaluate(send, `(() => ({
     error: document.querySelector('[data-testid="presentation-edit-error"]')?.textContent ?? null,
