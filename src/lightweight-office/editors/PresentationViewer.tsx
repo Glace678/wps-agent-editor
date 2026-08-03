@@ -4,6 +4,7 @@ import {
   RECOMMENDED_ZIP_LIMITS,
   type SlideHandle,
   type PresentationData,
+  type TextIndexEntry,
 } from '@aiden0z/pptx-renderer'
 import {
   ChevronDown,
