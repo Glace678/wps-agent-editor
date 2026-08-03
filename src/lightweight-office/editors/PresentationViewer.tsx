@@ -996,6 +996,91 @@ export function PresentationViewer({
     }
   }, [describeEditError, onDirty])
 
+  const currentSlideTextEntries = useMemo(() => {
+    const data = viewer?.presentationData
+    if (!data) return []
+    try {
+      return buildTextIndex(data, {
+        includeShapes: true,
+        includeTables: false,
+        includeGroups: false,
+      }).filter((entry) => (
+        entry.slideIndex === currentSlide
+        && entry.textKind === 'shape'
+        && entry.nodeType === 'shape'
+        && !NON_EDITABLE_PLACEHOLDER_TYPES.has(entry.nodePath.includes('placeholder') ? '' : '')
+      ))
+    } catch (error) {
+      console.warn('[PresentationViewer] Unable to build editable text index:', error)
+      return []
+    }
+  }, [currentSlide, viewer])
+
+  const commitInlineEdit = useCallback(() => {
+    const edit = inlineEditRef.current
+    inlineEditRef.current = null
+    inlineEditTextRef.current = ''
+    setInlineEdit(null)
+    setInlineEditText('')
+    if (!edit || editBusy || loading) return
+    const text = edit.text.trim()
+    if (text === edit.entry.text.trim()) return
+    void executeEditOperation({
+      type: 'updateNodeText',
+      slideIndex: edit.slideIndex,
+      nodeId: edit.entry.nodeId,
+      text,
+    })
+  }, [editBusy, executeEditOperation, loading])
+
+  const onSlideHostMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isPresenting || loading || editBusy) return
+    const host = slideHostRef.current
+    const slideEl = host ? mainSlideElement(host) : null
+    const activeViewer = viewerRef.current
+    if (!slideEl || !activeViewer) return
+    const rect = slideEl.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    const target = event.target instanceof HTMLElement ? event.target : null
+    if (target?.closest('[data-presentation-inline-edit]')) return
+
+    const scaleX = rect.width / activeViewer.slideWidth
+    const scaleY = rect.height / activeViewer.slideHeight
+    const x = (event.clientX - rect.left) / scaleX
+    const y = (event.clientY - rect.top) / scaleY
+
+    const hit = currentSlideTextEntries.find((entry) => (
+      x >= entry.bounds.x
+      && x <= entry.bounds.x + entry.bounds.w
+      && y >= entry.bounds.y
+      && y <= entry.bounds.y + entry.bounds.h
+    ))
+    if (!hit) {
+      inlineEditRef.current = null
+      inlineEditTextRef.current = ''
+      setInlineEdit(null)
+      setInlineEditText('')
+      return
+    }
+
+    if (inlineEditRef.current && inlineEditRef.current.entry.nodeId !== hit.nodeId) {
+      commitInlineEdit()
+    }
+    event.preventDefault()
+    const nextEdit: InlineTextEdit = { slideIndex: currentSlide, entry: hit, text: hit.text }
+    inlineEditRef.current = nextEdit
+    inlineEditTextRef.current = hit.text
+    setInlineEditText(hit.text)
+    setInlineEdit(nextEdit)
+  }, [commitInlineEdit, currentSlide, currentSlideTextEntries, editBusy, isPresenting, loading])
+
+  useEffect(() => {
+    inlineEditRef.current = null
+    inlineEditTextRef.current = ''
+    setInlineEdit(null)
+    setInlineEditText('')
+  }, [currentSlide])
+
   const addSlide = useCallback(() => {
     void executeEditOperation({ type: 'add', afterSlideIndex: currentSlide })
   }, [currentSlide, executeEditOperation])
