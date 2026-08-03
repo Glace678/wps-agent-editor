@@ -7,6 +7,7 @@ export type PresentationEditOperation =
   | { type: 'inspect'; slideIndex: number }
   | { type: 'add'; afterSlideIndex: number }
   | { type: 'updateText'; slideIndex: number; title: string; body: string }
+  | { type: 'updateNodeText'; slideIndex: number; nodeId: string; text: string }
   | { type: 'duplicate'; slideIndex: number }
   | { type: 'delete'; slideIndex: number }
   | { type: 'importOutline'; afterSlideIndex: number; slides: PresentationSlideText[] }
