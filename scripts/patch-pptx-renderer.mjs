@@ -1,12 +1,14 @@
 // Applies a local fix to @aiden0z/pptx-renderer (pinned to 1.2.4 in
 // package-lock.json) so that paragraph tab stops follow PowerPoint semantics:
 //
-// 1. An explicit paragraph/style defTabSz follows the PowerPoint style
-//    priority (shape lstStyle, layout placeholder lstStyle, master placeholder
-//    lstStyle, master textStyles, master defaultTextStyle). When the effective
-//    level has no defTabSz, use a compact two-em fallback so a tab is about two
-//    CJK glyphs instead of the 96 px renderer default. The presentation
-//    defaultTextStyle defTabSz is never consulted (PowerPoint ignores it).
+// 1. An explicit paragraph defTabSz and custom inherited values follow the
+//    PowerPoint style priority (shape lstStyle, layout placeholder lstStyle,
+//    master placeholder lstStyle, master textStyles, master defaultTextStyle).
+//    The standard inherited 914400 EMU value is producer boilerplate in most
+//    decks, so treat it like a missing value and use a compact two-em default.
+//    This keeps a tab around two CJK glyphs instead of four at 18 pt. The
+//    presentation defaultTextStyle defTabSz is never consulted (PowerPoint
+//    ignores it).
 // 2. For a non-bulleted paragraph with a left margin, PowerPoint places the
 //    first default tab stop at the margin. CSS tab stops are measured from the
 //    content edge, so the first leading tab is rendered as a margin-width
@@ -25,6 +27,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = path.join(root, 'node_modules', '@aiden0z', 'pptx-renderer', 'dist')
 const COMPACT_TAB_CJK_GLYPHS = 2
 const EMU_PER_POINT = 12_700
+const POWERPOINT_STANDARD_TAB_EMU = 914_400
 
 const tabSizeNew = (
   emus,
@@ -48,7 +51,7 @@ const tabSizeNew = (
         for (const tabLevel of tabStyleLevels) {
           if (tabLevel && tabLevel.exists()) {
             const tabDefTabSz = tabLevel.numAttr("defTabSz");
-            tabSizeEmu = tabDefTabSz !== void 0 ? tabDefTabSz : ${fontSizePt} * ${fontScale} * ${EMU_PER_POINT * COMPACT_TAB_CJK_GLYPHS};
+            tabSizeEmu = tabDefTabSz !== void 0 && tabDefTabSz !== ${POWERPOINT_STANDARD_TAB_EMU} ? tabDefTabSz : ${fontSizePt} * ${fontScale} * ${EMU_PER_POINT * COMPACT_TAB_CJK_GLYPHS};
             break;
           }
         }
