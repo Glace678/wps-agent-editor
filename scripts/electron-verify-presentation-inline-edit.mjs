@@ -220,6 +220,18 @@ try {
     JSON.stringify(boxInfo))
   record('V2 the box shows the clicked region text', boxInfo?.value === 'Editable Title', `value=${JSON.stringify(boxInfo?.value)}`)
 
+  // ---------- V3b: direct API probe of updateNodeText ----------
+  const apiProbe = await evaluate(send, `(async () => {
+    const prepared = await window.api.lw.readPresentation(${JSON.stringify(pptxPath)})
+    const buffer = typeof prepared === 'string' ? atob(prepared) : prepared.buffer
+    const result = await window.api.lw.editPresentation({
+      data: buffer,
+      operation: { type: 'updateNodeText', slideIndex: 0, nodeId: '2', text: 'API PROBE TEXT' },
+    })
+    return { errorCode: result?.errorCode ?? null, slideCount: result?.slideCount, hasData: Boolean(result?.data) }
+  })()`)
+  console.log('API PROBE:', JSON.stringify(apiProbe))
+
   // ---------- V3: edit + Ctrl+Enter applies the change ----------
   await evaluate(send, `(() => {
     document.querySelector('[data-testid="presentation-inline-edit"] textarea').focus()
