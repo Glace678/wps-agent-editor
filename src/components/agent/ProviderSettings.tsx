@@ -33,6 +33,35 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     defaultModel: 'gpt-4o-mini',
     protocol: 'openai-compatible',
   })
+  const listWidthRef = useRef(DEFAULT_LIST_WIDTH)
+  const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH)
+
+  const startListResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !event.isPrimary) return
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = listWidthRef.current
+    const previousUserSelect = document.body.style.userSelect
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.max(
+        MIN_LIST_WIDTH,
+        Math.min(MAX_LIST_WIDTH, startWidth + moveEvent.clientX - startX),
+      )
+      listWidthRef.current = nextWidth
+      setListWidth(nextWidth)
+    }
+    const onPointerEnd = () => {
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerEnd)
+      document.removeEventListener('pointercancel', onPointerEnd)
+      document.body.style.userSelect = previousUserSelect
+    }
+    document.body.style.userSelect = 'none'
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerEnd)
+    document.addEventListener('pointercancel', onPointerEnd)
+  }, [])
 
   const load = async (): Promise<ProviderDefinition[]> => {
     const [list, auth] = await Promise.all([
@@ -168,7 +197,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex w-56 flex-col border-r">
+          <div className="flex shrink-0 flex-col" style={{ width: listWidth }}>
             <div className="p-2">
               <Input
                 placeholder={t('providerSettings.search')}
@@ -212,6 +241,16 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                 <Plus className="h-3 w-3" /> {t('providerSettings.addCustom')}
               </Button>
             </div>
+          </div>
+
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            data-testid="provider-list-resizer"
+            onPointerDown={startListResize}
+            className="group flex w-1.5 shrink-0 cursor-col-resize touch-none items-stretch justify-center outline-none"
+          >
+            <div className="w-px bg-border transition-colors group-hover:bg-[#d24726] group-active:bg-[#d24726]" />
           </div>
 
           <div className="min-w-0 flex-1 overflow-y-auto p-5">
