@@ -222,14 +222,13 @@ try {
 
   // ---------- V3: edit + Ctrl+Enter applies the change ----------
   await evaluate(send, `(() => {
-    const textarea = document.querySelector('[data-testid="presentation-inline-edit"] textarea')
-    textarea.focus()
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
-    setter.call(textarea, 'Changed Title Now')
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    document.querySelector('[data-testid="presentation-inline-edit"] textarea').focus()
     return true
   })()`)
-  await sleep(200)
+  await send('Input.insertText', { text: 'Changed Title Now' })
+  await sleep(300)
+  const typed = await evaluate(send, `document.querySelector('[data-testid="presentation-inline-edit"] textarea')?.value ?? null`)
+  console.log('TYPED VALUE:', JSON.stringify(typed))
   await pressCtrlEnter(send)
   await sleep(4000)
   const afterCommit = await evaluate(send, `(() => ({
