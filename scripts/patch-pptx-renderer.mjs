@@ -112,6 +112,7 @@ apply('aiden0z-pptx-renderer.es.js', [
   },
   {
     label: 'migrate tab grid offset formula',
+    optional: true,
     from: `      if (A.marginLeft !== void 0 && A.marginLeft > 0 && (R || A.bulletNone === !0)) {
         tabSizePx = Math.min(tabSizePx, A.marginLeft);
       }
@@ -224,6 +225,7 @@ apply('aiden0z-pptx-renderer.browser.es.js', [
   },
   {
     label: 'migrate tab grid offset formula',
+    optional: true,
     from: `      if (C.marginLeft !== void 0 && C.marginLeft > 0 && (I || C.bulletNone === !0)) {
         tabSizePx = Math.min(tabSizePx, C.marginLeft);
       }
@@ -330,6 +332,7 @@ apply('aiden0z-pptx-renderer.cjs', [
   },
   {
     label: 'migrate tab grid offset formula',
+    optional: true,
     from: `tabSizePx=Math.min(tabSizePx,A.marginLeft)}M.style.tabSize=`,
     to: `tabSizePx=Math.max(1,tabSizePx-A.marginLeft)}M.style.tabSize=`,
   },
