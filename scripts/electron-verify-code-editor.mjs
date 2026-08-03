@@ -231,6 +231,7 @@ try {
   })()`)
   await waitFor(send, `performance.timeOrigin !== ${JSON.stringify(previousTimeOrigin)}`, 'renderer reload')
   await waitFor(send, "document.getElementById('root')?.childElementCount > 0", 'reloaded React application')
+  await evaluate(send, "localStorage.setItem('wps-code-editor-font-size', '28'); true")
   const visibleCodeFiles = await waitFor(
     send,
     `(() => {
@@ -305,33 +306,68 @@ try {
 
   const fontMeasure = `(() => {
     const viewLine = document.querySelector('.monaco-editor .view-line');
+    const editor = document.querySelector('.monaco-editor');
+    const minimap = document.querySelector('.monaco-editor .minimap');
     const host = document.querySelector('[data-testid=monaco-editor-host]').getBoundingClientRect();
+    const editorRect = editor?.getBoundingClientRect();
+    const minimapRect = minimap?.getBoundingClientRect();
+    const editorScale = editor?.offsetWidth ? editorRect.width / editor.offsetWidth : 0;
+    const minimapScale = minimap?.offsetWidth ? minimapRect.width / minimap.offsetWidth : 0;
+    const computedFontSize = viewLine ? parseFloat(getComputedStyle(viewLine).fontSize) : 0;
     return {
-      fontSize: viewLine ? getComputedStyle(viewLine).fontSize : '',
+      fontSize: computedFontSize * editorScale,
       lineHeight: viewLine ? viewLine.getBoundingClientRect().height : 0,
+      editorScale,
+      minimapScale,
+      minimapWidth: minimapRect?.width ?? 0,
       hostWidth: host.width,
       innerWidth,
     };
   })()`
   await evaluate(send, "document.querySelector('.monaco-editor textarea')?.focus(); true")
   const fontBefore = await evaluate(send, fontMeasure)
-  check('code editor font starts at the 14px default', fontBefore.fontSize === '14px', JSON.stringify(fontBefore))
+  check('code editor ignores a stored old size and starts at the 14px default',
+    Math.abs(fontBefore.fontSize - 14) < 0.05, JSON.stringify(fontBefore))
+  check('legacy code font size persistence is cleared',
+    await evaluate(send, "localStorage.getItem('wps-code-editor-font-size')") === null)
 
   await pressKey(send, { key: '+', code: 'Equal', keyCode: 187, modifiers: 2 })
   await sleep(300)
   const fontPlus = await evaluate(send, fontMeasure)
-  check('Ctrl+Plus grows the code font', fontPlus.fontSize === '15px', `fontSize ${fontBefore.fontSize} -> ${fontPlus.fontSize}`)
+  check('Ctrl+Plus grows the complete code view',
+    Math.abs(fontPlus.fontSize - 15) < 0.1 && fontPlus.editorScale > fontBefore.editorScale,
+    JSON.stringify({ before: fontBefore, after: fontPlus }))
+  check('Ctrl+Plus grows the minimap with the code',
+    fontPlus.minimapWidth > fontBefore.minimapWidth
+      && Math.abs(fontPlus.minimapScale - fontPlus.editorScale) < 0.02,
+    JSON.stringify({ before: fontBefore, after: fontPlus }))
+
+  await pressKey(send, { key: '0', code: 'Digit0', keyCode: 48, modifiers: 2 })
+  await sleep(300)
+  const fontReset = await evaluate(send, fontMeasure)
+  check('Ctrl+0 restores the default code zoom',
+    Math.abs(fontReset.fontSize - 14) < 0.05 && Math.abs(fontReset.editorScale - 1) < 0.02,
+    JSON.stringify(fontReset))
 
   await pressKey(send, { key: '-', code: 'Minus', keyCode: 189, modifiers: 2 })
   await sleep(300)
   const fontMinus = await evaluate(send, fontMeasure)
-  check('Ctrl+Minus shrinks the code font', fontMinus.fontSize === '14px', `fontSize ${fontPlus.fontSize} -> ${fontMinus.fontSize}`)
+  check('Ctrl+Minus shrinks the complete code view',
+    Math.abs(fontMinus.fontSize - 13) < 0.1 && fontMinus.editorScale < fontBefore.editorScale,
+    JSON.stringify({ before: fontBefore, after: fontMinus }))
+  check('Ctrl+Minus shrinks the minimap with the code',
+    fontMinus.minimapWidth < fontBefore.minimapWidth
+      && Math.abs(fontMinus.minimapScale - fontMinus.editorScale) < 0.02,
+    JSON.stringify({ before: fontBefore, after: fontMinus }))
   check('code font zoom does not resize the window',
     fontMinus.innerWidth === fontBefore.innerWidth && fontMinus.hostWidth === fontBefore.hostWidth,
     JSON.stringify({ before: fontBefore, after: fontMinus }))
   check('code font line height scales with the font',
-    Math.abs(fontMinus.lineHeight - fontMinus.fontSize.match(/\d+/)?.[0] * (22 / 14)) < 1.5,
+    Math.abs(fontMinus.lineHeight - fontMinus.fontSize * (22 / 14)) < 1.5,
     `fontSize=${fontMinus.fontSize} lineHeight=${fontMinus.lineHeight}`)
+
+  await pressKey(send, { key: '0', code: 'Digit0', keyCode: 48, modifiers: 2 })
+  await sleep(300)
 
   const dispatchWheel = (deltaY) => evaluate(send, `(() => {
     const host = document.querySelector('[data-testid=monaco-editor-host]');
@@ -343,14 +379,32 @@ try {
   await dispatchWheel(-100)
   await sleep(300)
   const fontWheelUp = await evaluate(send, fontMeasure)
-  check('Ctrl+wheel up grows the code font', fontWheelUp.fontSize === '15px', `fontSize ${fontMinus.fontSize} -> ${fontWheelUp.fontSize}`)
+  check('Ctrl+wheel up grows the code view and minimap',
+    Math.abs(fontWheelUp.fontSize - 15) < 0.1 && fontWheelUp.minimapWidth > fontBefore.minimapWidth,
+    JSON.stringify({ before: fontBefore, after: fontWheelUp }))
 
   await dispatchWheel(100)
   await sleep(300)
   const fontWheelDown = await evaluate(send, fontMeasure)
-  check('Ctrl+wheel down shrinks the code font', fontWheelDown.fontSize === '14px', `fontSize ${fontWheelUp.fontSize} -> ${fontWheelDown.fontSize}`)
-  const storedFontSize = await evaluate(send, "localStorage.getItem('wps-code-editor-font-size')")
-  check('code font size is persisted', storedFontSize === '14', `stored=${storedFontSize}`)
+  check('Ctrl+wheel down returns the code view and minimap to default',
+    Math.abs(fontWheelDown.fontSize - 14) < 0.05
+      && Math.abs(fontWheelDown.minimapScale - 1) < 0.02,
+    JSON.stringify({ before: fontWheelUp, after: fontWheelDown }))
+
+  await pressKey(send, { key: '+', code: 'Equal', keyCode: 187, modifiers: 2 })
+  await sleep(200)
+  check('switching to another code file resets the zoom', await openFile(send, fixtures[0].filePath))
+  await waitFor(
+    send,
+    `document.querySelector('[data-testid=code-editor-root]')?.textContent.includes('C')
+      && document.querySelector('.monaco-editor .view-lines')?.textContent.includes('include')`,
+    'default zoom after switching code files',
+  )
+  const fontAfterFileSwitch = await evaluate(send, fontMeasure)
+  check('newly opened code uses the 14px default size',
+    Math.abs(fontAfterFileSwitch.fontSize - 14) < 0.05
+      && Math.abs(fontAfterFileSwitch.editorScale - 1) < 0.02,
+    JSON.stringify(fontAfterFileSwitch))
 
   await evaluate(send, `(() => {
     const target = document.querySelector('.monaco-editor .view-lines');
