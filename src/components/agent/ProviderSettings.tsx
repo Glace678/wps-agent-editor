@@ -179,7 +179,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                   <button
                     key={p.id}
                     data-testid={`provider-option-${p.id}`}
-                   className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-accent ${
+                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-accent ${
                      selectedId === p.id ? 'bg-accent' : ''
                    }`}
                    onClick={() => { setSelectedId(p.id); setApiKey('') }}
