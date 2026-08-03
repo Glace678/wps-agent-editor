@@ -405,18 +405,18 @@
   box-shadow: 0 1px 0 rgb(0 0 0 / 35%);
 }
 
-.dark .excel-editor-shell .excel-toolbar-picker-search-input {
+.dark .excel-editor-shell .fortune-container .excel-toolbar-picker-search-input {
   color: var(--fortune-dark-text);
   background: var(--fortune-dark-picker-field-bg);
   border-color: var(--fortune-dark-picker-border);
 }
 
-.dark .excel-editor-shell .excel-toolbar-picker-search-input::placeholder {
+.dark .excel-editor-shell .fortune-container .excel-toolbar-picker-search-input::placeholder {
   color: var(--fortune-dark-muted, #a3a3a3);
   opacity: 1;
 }
 
-.dark .excel-editor-shell .excel-toolbar-picker-search-input:focus {
+.dark .excel-editor-shell .fortune-container .excel-toolbar-picker-search-input:focus {
   border-color: #918cff;
   box-shadow: 0 0 0 2px rgb(145 140 255 / 25%);
 }
