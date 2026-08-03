@@ -227,6 +227,9 @@ try {
       data: prepared.data,
       operation: { type: 'updateNodeText', slideIndex: 0, nodeId: '2', text: 'API PROBE TEXT' },
     })
+    if (result.data) {
+      await window.api.lw.saveFile(${JSON.stringify(path.join(fixtureDir, 'probed.pptx'))}, result.data)
+    }
     return {
       error: result?.errorCode ?? null,
       slideCount: result?.slideCount,
@@ -235,6 +238,15 @@ try {
     }
   })()`)
   console.log('API PROBE:', JSON.stringify(apiProbe))
+  if (apiProbe?.hasData) {
+    const JSZip = (await import('jszip')).default
+    const zip = await JSZip.loadAsync(fs.readFileSync(path.join(fixtureDir, 'probed.pptx')))
+    const slideXml = await zip.file('ppt/slides/slide1.xml').async('string')
+    const texts = [...slideXml.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1])
+    const shapeIds = [...slideXml.matchAll(/<p:cNvPr id="(\d+)"/g)].map((m) => m[1])
+    console.log('PROBE SLIDE TEXTS:', JSON.stringify(texts))
+    console.log('PROBE SHAPE IDS:', JSON.stringify(shapeIds))
+  }
 
   // ---------- V3: edit + Ctrl+Enter applies the change ----------
   await evaluate(send, `(() => {
