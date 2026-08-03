@@ -1055,27 +1055,6 @@ export function PresentationViewer({
     const x = (event.clientX - rect.left) / scaleX
     const y = (event.clientY - rect.top) / scaleY
 
-    const slide0 = viewer?.presentationData?.slides[0]
-    document.documentElement.setAttribute('data-debug-inline', JSON.stringify({
-      entries: currentSlideTextEntries.length,
-      slideW: activeViewer.slideWidth,
-      slideH: activeViewer.slideHeight,
-      scaleX,
-      point: [Math.round(x), Math.round(y)],
-      viewer: Boolean(viewer),
-      data: Boolean(viewer?.presentationData),
-      slideNodes: slide0?.nodes?.length ?? -1,
-      slideNode0: slide0?.nodes?.[0] ? `${slide0.nodes[0].nodeType}:${slide0.nodes[0].id}` : 'none',
-      bounds: currentSlideTextEntries.map((entry) => ({
-        id: entry.nodeId,
-        x: Math.round(entry.bounds.x),
-        y: Math.round(entry.bounds.y),
-        w: Math.round(entry.bounds.w),
-        h: Math.round(entry.bounds.h),
-        text: entry.text.slice(0, 20),
-      })),
-    }))
-
     const hit = currentSlideTextEntries.find((entry) => (
       x >= entry.bounds.x
       && x <= entry.bounds.x + entry.bounds.w
