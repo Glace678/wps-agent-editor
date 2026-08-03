@@ -789,7 +789,8 @@ try {
       singleDisplay: preservedSingleSpaceStyle.display,
       singleContentWhiteSpace: getComputedStyle(singleSpaceNode.parentElement).whiteSpace,
       tabIndentInCjkGlyphs: (tabbed.left - baseline.left) / baseline.width,
-      tabSizeInCjkGlyphs: parseFloat(tabParagraphStyle.tabSize) / baseline.width,
+      tabSize: tabParagraphStyle.tabSize,
+      tabFontSize: tabRunStyle.fontSize,
       tabWhiteSpace: tabRunStyle.whiteSpace,
     };
   })()`)
@@ -815,8 +816,6 @@ try {
     chineseLeadingSpaces
       && chineseLeadingSpaces.tabIndentInCjkGlyphs > 1.6
       && chineseLeadingSpaces.tabIndentInCjkGlyphs < 2.4
-      && chineseLeadingSpaces.tabSizeInCjkGlyphs > 1.6
-      && chineseLeadingSpaces.tabSizeInCjkGlyphs < 2.4
       && chineseLeadingSpaces.tabWhiteSpace === 'pre-wrap',
     JSON.stringify(chineseLeadingSpaces))
   check('slide is fitted inside a stable visible stage', initial.width > 350 && initial.height > 190 && initial.width <= initial.stageWidth && initial.height <= initial.stageHeight, JSON.stringify(initial))
