@@ -748,7 +748,8 @@ try {
   }
   const dropdownSurfaceContracts = await evaluate(send, `(() => {
     const shell = document.querySelector('[data-testid="excel-editor-shell"]')
-    if (!shell) return null
+    const container = shell?.querySelector('.fortune-container')
+    if (!container) return null
     const specs = [
       ['toolbar-list', 'fortune-toolbar-select'],
       ['color-picker', 'fortune-toolbar-color-picker'],
@@ -762,7 +763,7 @@ try {
     ]
     const fixture = document.createElement('div')
     fixture.style.cssText = 'position:absolute;left:-10000px;top:-10000px;visibility:hidden;'
-    shell.append(fixture)
+    container.append(fixture)
     const surfaces = Object.fromEntries(specs.map(([name, className]) => {
       const element = document.createElement('div')
       element.className = className

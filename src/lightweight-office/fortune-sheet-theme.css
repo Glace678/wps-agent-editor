@@ -540,12 +540,17 @@
 .dark .excel-editor-shell #fortune-custom-color .color-reset,
 .dark .excel-editor-shell #fortune-custom-color .custom-color,
 .dark .excel-editor-shell #fortune-change-color .color-reset,
-.dark .excel-editor-shell #fortune-change-color .custom-color,
+.dark .excel-editor-shell #fortune-change-color .custom-color {
+  background: var(--fortune-dark-picker-bg);
+  color: var(--fortune-dark-text);
+  border-color: var(--fortune-dark-picker-border);
+}
+
 .dark .excel-editor-shell #fortune-search-replace #searchAllbox .boxTitle,
 .dark .excel-editor-shell #range-dialog .dialog-title,
 .dark .excel-editor-shell #fortune-location-condition .title,
 .dark .excel-editor-shell .fortune-sort-title {
-  background: var(--fortune-dark-picker-bg);
+  background: var(--fortune-dark-bg);
   color: var(--fortune-dark-text);
   border-color: var(--fortune-dark-border);
 }
@@ -554,7 +559,7 @@
 .dark .excel-editor-shell #fortune-change-color .color-reset:hover,
 .dark .excel-editor-shell .fortune-filter-menu .button-default:hover,
 .dark .excel-editor-shell .luckysheet-filter-bycolor-submenu .button-default:hover {
-  background: var(--fortune-dark-active);
+  background: var(--fortune-dark-picker-hover);
 }
 
 /* Formula help and search results. */
