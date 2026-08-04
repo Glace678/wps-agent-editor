@@ -44,6 +44,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   const [isTestingCustomConnection, setIsTestingCustomConnection] = useState(false)
   const [isCustomModelMenuOpen, setIsCustomModelMenuOpen] = useState(false)
   const listWidthRef = useRef(DEFAULT_LIST_WIDTH)
+  const customConnectionTestRef = useRef(0)
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH)
 
   const startListResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -151,8 +152,10 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   }
 
   const resetCustomConnectionTest = () => {
+    customConnectionTestRef.current += 1
     setDetectedModels([])
     setCustomTestError('')
+    setIsTestingCustomConnection(false)
     setIsCustomModelMenuOpen(false)
   }
 
@@ -166,6 +169,8 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   const handleTestCustomConnection = async () => {
     const testBaseURL = customForm.baseURL?.trim() || ''
     const testApiKey = customApiKey.trim()
+    const requestId = customConnectionTestRef.current + 1
+    customConnectionTestRef.current = requestId
 
     setIsTestingCustomConnection(true)
     setCustomTestError('')
@@ -174,6 +179,8 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
 
     try {
       const result = await window.api.customProvider.testConnection(testBaseURL, testApiKey)
+      // Ignore a late response after the user has edited the URL or API key.
+      if (requestId !== customConnectionTestRef.current) return
       if (!result.success) {
         const errorKey = result.error === 'invalid-base-url'
           ? 'invalidBaseUrl'
@@ -198,9 +205,10 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
       // Once /models succeeds, open the picker immediately so users can select from every detected model.
       setIsCustomModelMenuOpen(true)
     } catch {
+      if (requestId !== customConnectionTestRef.current) return
       setCustomTestError(t('providerSettings.testConnectionFailed'))
     } finally {
-      setIsTestingCustomConnection(false)
+      if (requestId === customConnectionTestRef.current) setIsTestingCustomConnection(false)
     }
   }
 
@@ -423,7 +431,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                   />
                 )}
                 <div className="flex gap-2">
-                  <Button onClick={() => void handleSaveCustom()} disabled={!customForm.baseURL?.trim() || !customForm.defaultModel?.trim()}>{t('providerSettings.create')}</Button>
+                  <Button data-testid="custom-provider-create" onClick={() => void handleSaveCustom()} disabled={!customForm.baseURL?.trim() || !customForm.defaultModel?.trim()}>{t('providerSettings.create')}</Button>
                   <Button variant="outline" onClick={closeCustomForm}>{t('providerSettings.cancel')}</Button>
                 </div>
               </div>
