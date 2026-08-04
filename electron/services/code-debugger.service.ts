@@ -337,6 +337,25 @@ async function createNodeSession(
       return
     }
     const method = String(message.method ?? '')
+    if (method === 'Debugger.scriptParsed') {
+      const parsed = message.params as { scriptId?: string; url?: string }
+      if (parsed.scriptId && parsed.url && isDebugScriptUrl(parsed.url, scriptPath)) {
+        // Execution is suspended while this event is dispatched, so breakpoints
+        // bound here apply before the script's first statement runs.
+        for (const bp of breakpoints) {
+          void cdp('Debugger.setBreakpoint', {
+            location: { scriptId: parsed.scriptId, lineNumber: bp.line - 1, columnNumber: 0 },
+          }).then((result) => {
+            const location = (result as { location?: { lineNumber?: number } })?.location
+            emit({
+              event: 'breakpoint-verified',
+              file: filePath,
+              line: (location?.lineNumber ?? bp.line - 1) + 1,
+            })
+          }).catch(() => {})
+        }
+      }
+    }
     if (method === 'Debugger.paused') {
       void onPaused(message.params as Parameters<typeof onPaused>[0])
     } else if (method === 'Debugger.resumed') {
