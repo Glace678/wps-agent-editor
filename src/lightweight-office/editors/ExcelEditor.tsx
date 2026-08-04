@@ -783,6 +783,88 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
   useEffect(() => {
     const shell = shellRef.current
+    if (!shell || !sheets || !fontLibraryReady) return
+
+    type PendingFontColorCommand = {
+      color: string | undefined
+      selection: ExcelSelection
+    }
+
+    let fallbackArmed = false
+    let pendingCommand: PendingFontColorCommand | null = null
+    const pendingTimers = new Set<number>()
+
+    const captureCommand = (color: string | undefined): PendingFontColorCommand | null => {
+      const api = workbookRef.current
+      const selection = api?.getSelection()
+      if (!api || !selection?.length) return null
+      return { color, selection: cloneExcelSelection(selection) }
+    }
+
+    const scheduleFallback = (command: PendingFontColorCommand) => {
+      const timer = window.setTimeout(() => {
+        pendingTimers.delete(timer)
+        const api = workbookRef.current
+        if (!api) return
+
+        // Let Fortune handle a genuine rich-text selection first. Its collapsed-
+        // caret branch is a no-op, so only write the whole cell when nothing changed.
+        if (!excelSelectionUsesFontColor(api, command.selection, command.color)) {
+          applyExcelFontColorToSelection(api, command.selection, command.color)
+        }
+        activeCellColorSyncRef.current()
+      }, 0)
+      pendingTimers.add(timer)
+    }
+
+    const handleFontColorPointer = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+
+      if (isExcelFontColorPickerTrigger(target)) {
+        const editorNeedsFallback = isExcelCellEditorActiveWithoutSelection(shell)
+        fallbackArmed = event.type === 'mousedown'
+          ? editorNeedsFallback
+          : fallbackArmed || editorNeedsFallback
+        return
+      }
+
+      const command = getExcelFontColorCommand(target)
+      if (command) {
+        const editorNeedsFallback = fallbackArmed
+          || isExcelCellEditorActiveWithoutSelection(shell)
+        if (editorNeedsFallback && !pendingCommand) {
+          pendingCommand = captureCommand(command.color)
+        }
+
+        if (event.type === 'click') {
+          const commandToApply = pendingCommand
+          pendingCommand = null
+          fallbackArmed = false
+          if (commandToApply) scheduleFallback(commandToApply)
+        }
+        return
+      }
+
+      if (event.type === 'mousedown') {
+        fallbackArmed = false
+        pendingCommand = null
+      }
+    }
+
+    shell.addEventListener('mousedown', handleFontColorPointer, true)
+    shell.addEventListener('click', handleFontColorPointer, true)
+
+    return () => {
+      shell.removeEventListener('mousedown', handleFontColorPointer, true)
+      shell.removeEventListener('click', handleFontColorPointer, true)
+      for (const timer of pendingTimers) window.clearTimeout(timer)
+      pendingTimers.clear()
+    }
+  }, [sheets, fontLibraryReady])
+
+  useEffect(() => {
+    const shell = shellRef.current
     if (!shell || !sheets) return
     if (localStorage.getItem('wps-smooth-excel-scroll-disabled') === '1') return
     return attachExcelFrameScroll(shell)
