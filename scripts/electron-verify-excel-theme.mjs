@@ -1296,6 +1296,8 @@ try {
         .map((segment) => segment.text).join(''),
       blueText: segments.filter((segment) => segment.color === 'rgb(15, 0, 240)')
         .map((segment) => segment.text).join(''),
+      magentaText: segments.filter((segment) => segment.color === 'rgb(255, 15, 240)')
+        .map((segment) => segment.text).join(''),
       yellowText: segments.filter((segment) => segment.color === 'rgb(240, 255, 15)')
         .map((segment) => segment.text).join(''),
       segments,
@@ -1542,11 +1544,11 @@ try {
     JSON.stringify(crossRunSelection),
   )
   await openFontColorPalette()
-  await clickFontColor('rgb(240, 255, 15)')
+  await clickFontColor('rgb(255, 15, 240)')
   const correctedCrossRuns = await readRichTextEditorColors()
   check(
     'font color applies to every character across three existing runs',
-    correctedCrossRuns?.yellowText === 'ABBC'
+    correctedCrossRuns?.magentaText === 'ABBC'
       && correctedCrossRuns?.redText === 'A'
       && correctedCrossRuns?.blueText === 'C',
     JSON.stringify(correctedCrossRuns),
@@ -1610,7 +1612,7 @@ try {
   const reopenedCrossRuns = await readRichTextEditorColors()
   check(
     'cross-run font color survives committing and reopening the cell',
-    reopenedCrossRuns?.yellowText === 'ABBC'
+    reopenedCrossRuns?.magentaText === 'ABBC'
       && reopenedCrossRuns?.redText === 'A'
       && reopenedCrossRuns?.blueText === 'C',
     JSON.stringify(reopenedCrossRuns),
