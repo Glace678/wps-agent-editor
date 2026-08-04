@@ -27,10 +27,6 @@ function isWorksheetCanvas(canvas: HTMLCanvasElement) {
     && canvas.closest('.excel-editor-shell') !== null
 }
 
-function isDarkMode() {
-  return document.documentElement.classList.contains('dark')
-}
-
 /**
  * Fortune sizes the worksheet backing store as ceil(cssWidth × DPR) device
  * pixels but leaves the CSS box at the integer cssWidth. At fractional DPR
