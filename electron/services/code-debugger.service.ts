@@ -284,6 +284,7 @@ async function createNodeSession(
     }>
   }) => {
     const frames = params.callFrames ?? []
+    console.log('[node-debug] paused event, frames=' + frames.length, JSON.stringify((frames[0] || {}).url), 'armed=' + armed)
     if (frames.length === 0) {
       // Internal pause (end of script) 鈥?resume silently.
       void cdp('Debugger.resume').catch(() => {})
