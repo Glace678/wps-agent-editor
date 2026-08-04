@@ -228,6 +228,7 @@ async function createNodeSession(
 
   let commandId = 0
   let setupFailed = false
+  let lastCommand: DebugCommand | null = null
   const lineCount = code.split('\n').length
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
   const cdp = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => new Promise((resolve, reject) => {
@@ -286,13 +287,15 @@ async function createNodeSession(
       void cdp('Debugger.resume').catch(() => {})
       return
     }
-    if (params.reason === 'other') {
-      // V8 emits a transient "other" pause when a pending breakpoint binds
-      // while the script is already executing. Real hits report 'breakpoint'
-      // (or 'ambiguous'); step pauses report 'step'.
+    const topLine = frames[0].location.lineNumber + 1
+    const isStepPause = lastCommand === 'step-over' || lastCommand === 'step-into' || lastCommand === 'step-out'
+    const atBreakpoint = breakpoints.some((bp) => bp.line === topLine)
+    if (!isStepPause && !atBreakpoint) {
+      // Binding artifact or a pause inside internal code — keep running.
       void cdp('Debugger.resume').catch(() => {})
       return
     }
+    lastCommand = null
     const variables = await collectVariables(frames[0])
     // Node reports empty URLs for CommonJS frames in some builds — map the
     // leading frames (our script) to the original file path. Frames whose line
@@ -339,10 +342,7 @@ async function createNodeSession(
     const method = String(message.method ?? '')
     if (method === 'Debugger.scriptParsed') {
       const parsed = message.params as { scriptId?: string; url?: string }
-      if (parsed.url && parsed.url.includes('prog.')) {
-        console.log('[node-debug] scriptParsed', JSON.stringify(parsed.url), 'match=' + (isDebugScriptUrl(parsed.url, scriptPath) ? 'yes' : 'no'))
-      }
-    if (parsed.scriptId && parsed.url && isDebugScriptUrl(parsed.url, scriptPath)) {
+      if (parsed.scriptId && parsed.url && isDebugScriptUrl(parsed.url, scriptPath)) {
         // Execution is suspended while this event is dispatched, so breakpoints
         // bound here apply before the script's first statement runs.
         for (const bp of breakpoints) {
@@ -459,6 +459,7 @@ async function createNodeSession(
       child.kill()
     },
     sendCommand(command) {
+      lastCommand = command
       const mapping: Record<DebugCommand, string> = {
         continue: 'Debugger.resume',
         'step-over': 'Debugger.stepOver',
