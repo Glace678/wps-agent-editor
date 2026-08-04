@@ -253,10 +253,11 @@ try {
   const multiMenuItems = await evaluate(cdp.send, `[...document.querySelectorAll('[data-testid="recent-file-context-menu"] [role="menuitem"]')].map((el) => el.textContent.trim())`)
   await screenshot(cdp.send, 'v1b-checkbox-multi-menu.png')
   record(
-    'V1b hover checkboxes multi-select with the single-file menu',
-    hiddenBeforeHover && visibleOnHover && themeAware && selectedCount === 3
+    'V1b checkboxes multi-select with the single-file menu',
+    checkboxAlwaysVisible?.opacity === '1' && checkboxAlwaysVisible?.pointerEvents === 'auto'
+      && themeAware && selectedCount === 3
       && JSON.stringify(multiMenuItems) === JSON.stringify(menuItems),
-    `hidden=${hiddenBeforeHover} visible=${visibleOnHover} theme=${themeAware} selected=${selectedCount}`,
+    `opacity=${checkboxAlwaysVisible?.opacity} pointerEvents=${checkboxAlwaysVisible?.pointerEvents} theme=${themeAware} selected=${selectedCount}`,
   )
   // ---------- V2: file info dialog ----------
   await leftClick(cdp.send, `document.querySelector('[data-testid="recent-menu-info"]')`, 'file info item')
