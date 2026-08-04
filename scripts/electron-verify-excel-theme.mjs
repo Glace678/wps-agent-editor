@@ -248,7 +248,21 @@ async function inspectPixels(pngBuffer, cellArea, screenshotRect) {
   const colors = new Set()
 
   const inspectRegion = (left, top, width, height) => {
-    const counts = { samples: 0, black: 0, white: 0, light: 0, mid: 0 }
+    const counts = {
+      samples: 0,
+      black: 0,
+      white: 0,
+      light: 0,
+      mid: 0,
+      red: 0,
+      blue: 0,
+      green: 0,
+      yellow: 0,
+      grayFill: 0,
+      grayText: 0,
+      darkGrayText: 0,
+    }
+    const near = (actual, expected, tolerance) => Math.abs(actual - expected) <= tolerance
     const startX = Math.max(0, Math.floor(left))
     const startY = Math.max(0, Math.floor(top))
     const endX = Math.min(image.width, Math.ceil(left + width))
@@ -265,6 +279,13 @@ async function inspectPixels(pngBuffer, cellArea, screenshotRect) {
         if (red >= 225 && green >= 225 && blue >= 225) counts.white += 1
         if (red >= 150 && green >= 150 && blue >= 150) counts.light += 1
         if (red >= 80 && green >= 80 && blue >= 80) counts.mid += 1
+        if (near(red, 255, 24) && near(green, 32, 24) && near(blue, 32, 24)) counts.red += 1
+        if (near(red, 22, 24) && near(green, 119, 24) && near(blue, 255, 24)) counts.blue += 1
+        if (near(red, 22, 18) && near(green, 160, 18) && near(blue, 93, 18)) counts.green += 1
+        if (near(red, 255, 18) && near(green, 204, 18) && near(blue, 25, 18)) counts.yellow += 1
+        if (near(red, 244, 8) && near(green, 244, 8) && near(blue, 244, 8)) counts.grayFill += 1
+        if (near(red, 85, 14) && near(green, 85, 14) && near(blue, 85, 14)) counts.grayText += 1
+        if (near(red, 68, 14) && near(green, 68, 14) && near(blue, 68, 14)) counts.darkGrayText += 1
       }
     }
     return counts
@@ -823,9 +844,9 @@ try {
     styles.canvas?.filter,
   )
   check(
-    'live cell editor matches the black worksheet',
-    styles.cellEditor?.background === 'rgb(0, 0, 0)'
-      && styles.cellEditor?.color === 'rgb(245, 245, 245)',
+    'live cell editor preserves the selected authored white fill and black font',
+    styles.cellEditor?.background === 'rgb(255, 255, 255)'
+      && styles.cellEditor?.color === 'rgb(0, 0, 0)',
     JSON.stringify(styles.cellEditor),
   )
   check(
@@ -897,8 +918,12 @@ try {
   check('Excel screenshot is nonblank', pixels.colorBuckets > 20, JSON.stringify(pixels))
   check('worksheet and chrome use a true dark surface', pixels.nearBlackRatio > 0.75, JSON.stringify(pixels))
   check('dark mode does not fall back to a white worksheet', pixels.nearWhiteRatio < 0.1, JSON.stringify(pixels))
-  check('plain cell is black with readable light text', pixels.cellRegions.plain.black > 700 && pixels.cellRegions.plain.light > 30, JSON.stringify(pixels.cellRegions.plain))
-  check('dark neutral workbook text is lifted to crisp near-white', pixels.cellRegions.gray.black > 400 && pixels.cellRegions.gray.white > 100, JSON.stringify(pixels.cellRegions.gray))
+  check('authored white cell remains white with black text', pixels.cellRegions.plain.white > 700 && pixels.cellRegions.plain.black > 10, JSON.stringify(pixels.cellRegions.plain))
+  check('authored red font remains red on white', pixels.cellRegions.red.white > 700 && pixels.cellRegions.red.red > 10, JSON.stringify(pixels.cellRegions.red))
+  check('authored blue font remains blue on white', pixels.cellRegions.blue.white > 700 && pixels.cellRegions.blue.blue > 10, JSON.stringify(pixels.cellRegions.blue))
+  check('authored green fill remains green with white text', pixels.cellRegions.green.green > 700 && pixels.cellRegions.green.white > 10, JSON.stringify(pixels.cellRegions.green))
+  check('authored yellow fill remains yellow with black text', pixels.cellRegions.yellow.yellow > 700 && pixels.cellRegions.yellow.black > 10, JSON.stringify(pixels.cellRegions.yellow))
+  check('authored gray fill and gray font remain unchanged', pixels.cellRegions.gray.grayFill > 700 && pixels.cellRegions.gray.grayText > 5, JSON.stringify(pixels.cellRegions.gray))
   for (const name of [
     'digits',
     'decimal',
@@ -908,7 +933,7 @@ try {
     'percentArial',
   ]) {
     const region = pixels.cellRegions[name]
-    check(`${name} sample matches the near-white live editor contrast`, region.black > 500 && region.white > 2, JSON.stringify(region))
+    check(`${name} keeps the black default fill and authored dark-gray font`, region.black > 500 && region.darkGrayText > 2, JSON.stringify(region))
   }
   console.log(`[PASS] screenshot saved: ${screenshotPath}`)
 
