@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { Check, ExternalLink, Key, Plus, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-react'
-import type { ProviderDefinition, CustomProviderConfig } from '@/types/provider'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { Check, ChevronDown, ExternalLink, Key, LoaderCircle, Plus, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-react'
+import type { ProviderDefinition, CustomProviderConfig, ProviderModel } from '@/types/provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -11,6 +12,15 @@ import { useTranslation } from '@/lib/i18n/runtime'
 const MIN_LIST_WIDTH = 168
 const MAX_LIST_WIDTH = 336
 const DEFAULT_LIST_WIDTH = 224
+
+function createCustomProviderForm(): Partial<CustomProviderConfig> {
+  return {
+    name: '',
+    baseURL: 'https://api.example.com/v1',
+    defaultModel: 'gpt-4o-mini',
+    protocol: 'openai-compatible',
+  }
+}
 
 interface ProviderSettingsProps {
   onClose: () => void
@@ -27,12 +37,12 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   const [baseURLSaved, setBaseURLSaved] = useState(false)
   const [search, setSearch] = useState('')
   const [showCustomForm, setShowCustomForm] = useState(false)
-  const [customForm, setCustomForm] = useState<Partial<CustomProviderConfig>>({
-    name: '',
-    baseURL: 'https://api.example.com/v1',
-    defaultModel: 'gpt-4o-mini',
-    protocol: 'openai-compatible',
-  })
+  const [customForm, setCustomForm] = useState<Partial<CustomProviderConfig>>(createCustomProviderForm)
+  const [customApiKey, setCustomApiKey] = useState('')
+  const [detectedModels, setDetectedModels] = useState<ProviderModel[]>([])
+  const [customTestError, setCustomTestError] = useState('')
+  const [isTestingCustomConnection, setIsTestingCustomConnection] = useState(false)
+  const [isCustomModelMenuOpen, setIsCustomModelMenuOpen] = useState(false)
   const listWidthRef = useRef(DEFAULT_LIST_WIDTH)
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_WIDTH)
 
@@ -140,17 +150,75 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     await load()
   }
 
+  const resetCustomConnectionTest = () => {
+    setDetectedModels([])
+    setCustomTestError('')
+    setIsCustomModelMenuOpen(false)
+  }
+
+  const closeCustomForm = () => {
+    setShowCustomForm(false)
+    setCustomForm(createCustomProviderForm())
+    setCustomApiKey('')
+    resetCustomConnectionTest()
+  }
+
+  const handleTestCustomConnection = async () => {
+    const testBaseURL = customForm.baseURL?.trim() || ''
+    const testApiKey = customApiKey.trim()
+
+    setIsTestingCustomConnection(true)
+    setCustomTestError('')
+    setDetectedModels([])
+    setIsCustomModelMenuOpen(false)
+
+    try {
+      const result = await window.api.customProvider.testConnection(testBaseURL, testApiKey)
+      if (!result.success) {
+        const errorKey = result.error === 'invalid-base-url'
+          ? 'invalidBaseUrl'
+          : result.error === 'missing-api-key'
+            ? 'customApiKeyRequired'
+            : result.error === 'unauthorized'
+              ? 'testConnectionUnauthorized'
+              : result.error === 'no-models'
+                ? 'testConnectionNoModels'
+                : 'testConnectionFailed'
+        setCustomTestError(t(`providerSettings.${errorKey}`))
+        return
+      }
+
+      setDetectedModels(result.models)
+      setCustomForm((current) => ({
+        ...current,
+        defaultModel: result.models.some((model) => model.id === current.defaultModel)
+          ? current.defaultModel
+          : result.models[0].id,
+      }))
+      // Once /models succeeds, open the picker immediately so users can select from every detected model.
+      setIsCustomModelMenuOpen(true)
+    } catch {
+      setCustomTestError(t('providerSettings.testConnectionFailed'))
+    } finally {
+      setIsTestingCustomConnection(false)
+    }
+  }
+
   const handleSaveCustom = async () => {
     const provider: CustomProviderConfig = {
       id: `custom-${crypto.randomUUID()}`,
       name: customForm.name || t('providerSettings.customProvider'),
       baseURL: customForm.baseURL || '',
       defaultModel: customForm.defaultModel || 'gpt-4o-mini',
+      models: detectedModels.length > 0 ? detectedModels : undefined,
       protocol: customForm.protocol || 'openai-compatible',
       createdAt: Date.now(),
     }
     await window.api.customProvider.save(provider)
-    setShowCustomForm(false)
+    if (customApiKey.trim()) {
+      await window.api.auth.set(provider.id, customApiKey.trim())
+    }
+    closeCustomForm()
     await load()
     setSelectedId(provider.id)
   }
@@ -237,7 +305,15 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                ))}
             </ScrollArea>
             <div className="border-t p-2">
-              <Button variant="outline" size="sm" className="w-full gap-1 text-xs" onClick={() => setShowCustomForm(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1 text-xs"
+                onClick={() => {
+                  closeCustomForm()
+                  setShowCustomForm(true)
+                }}
+              >
                 <Plus className="h-3 w-3" /> {t('providerSettings.addCustom')}
               </Button>
             </div>
@@ -258,11 +334,97 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
               <div className="space-y-3">
                 <h3 className="text-sm font-medium">{t('providerSettings.newCompatibleProvider')}</h3>
                 <Input placeholder={t('providerSettings.name')} value={customForm.name} onChange={(e) => setCustomForm({ ...customForm, name: e.target.value })} />
-                <Input placeholder={t('agentConfig.baseUrl')} value={customForm.baseURL} onChange={(e) => setCustomForm({ ...customForm, baseURL: e.target.value })} />
-                <Input placeholder={t('providerSettings.defaultModel')} value={customForm.defaultModel} onChange={(e) => setCustomForm({ ...customForm, defaultModel: e.target.value })} />
+                <Input
+                  data-testid="custom-provider-base-url"
+                  placeholder={t('agentConfig.baseUrl')}
+                  value={customForm.baseURL}
+                  onChange={(e) => {
+                    setCustomForm({ ...customForm, baseURL: e.target.value })
+                    resetCustomConnectionTest()
+                  }}
+                />
+                <Input
+                  data-testid="custom-provider-api-key"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={t('providerSettings.customApiKey')}
+                  value={customApiKey}
+                  onChange={(e) => {
+                    setCustomApiKey(e.target.value)
+                    resetCustomConnectionTest()
+                  }}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    data-testid="custom-provider-test-connection"
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleTestCustomConnection()}
+                    disabled={!customForm.baseURL?.trim() || !customApiKey.trim() || isTestingCustomConnection}
+                  >
+                    {isTestingCustomConnection
+                      ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="h-3.5 w-3.5" />}
+                    {isTestingCustomConnection ? t('providerSettings.testingConnection') : t('providerSettings.testConnection')}
+                  </Button>
+                  {detectedModels.length > 0 && (
+                    <span data-testid="custom-provider-models-detected" className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                      <Check className="h-3.5 w-3.5" />
+                      {t('providerSettings.modelsDetected', { count: detectedModels.length })}
+                    </span>
+                  )}
+                </div>
+                {customTestError && <p data-testid="custom-provider-test-error" className="text-xs text-destructive">{customTestError}</p>}
+                {detectedModels.length > 0 ? (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">{t('providerSettings.defaultModel')}</label>
+                    {/* 测试成功后自动展开下拉栏，展示该服务 /models 接口返回的全部可选模型。 */}
+                    <DropdownMenu.Root open={isCustomModelMenuOpen} onOpenChange={setIsCustomModelMenuOpen}>
+                      <DropdownMenu.Trigger asChild>
+                        <Button
+                          data-testid="custom-provider-model-picker"
+                          type="button"
+                          variant="outline"
+                          className="w-full justify-between font-normal"
+                        >
+                          <span className="truncate">{customForm.defaultModel}</span>
+                          <ChevronDown className="h-4 w-4 shrink-0" />
+                        </Button>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content
+                          data-testid="custom-provider-model-menu"
+                          align="start"
+                          sideOffset={4}
+                          className="z-[60] max-h-60 min-w-[var(--radix-dropdown-menu-trigger-width)] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+                        >
+                          {detectedModels.map((model) => (
+                            <DropdownMenu.Item
+                              key={model.id}
+                              data-testid="custom-provider-model-option"
+                              className="flex cursor-pointer items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent focus:bg-accent"
+                              onSelect={() => setCustomForm((current) => ({ ...current, defaultModel: model.id }))}
+                            >
+                              <span className="min-w-0 truncate" title={model.name}>{model.name}</span>
+                              {customForm.defaultModel === model.id && <Check className="h-3.5 w-3.5 shrink-0" />}
+                            </DropdownMenu.Item>
+                          ))}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
+                  </div>
+                ) : (
+                  <Input
+                    data-testid="custom-provider-default-model"
+                    placeholder={t('providerSettings.defaultModel')}
+                    value={customForm.defaultModel}
+                    onChange={(e) => setCustomForm({ ...customForm, defaultModel: e.target.value })}
+                  />
+                )}
                 <div className="flex gap-2">
-                  <Button onClick={handleSaveCustom}>{t('providerSettings.create')}</Button>
-                  <Button variant="outline" onClick={() => setShowCustomForm(false)}>{t('providerSettings.cancel')}</Button>
+                  <Button onClick={() => void handleSaveCustom()} disabled={!customForm.baseURL?.trim() || !customForm.defaultModel?.trim()}>{t('providerSettings.create')}</Button>
+                  <Button variant="outline" onClick={closeCustomForm}>{t('providerSettings.cancel')}</Button>
                 </div>
               </div>
             ) : selected ? (

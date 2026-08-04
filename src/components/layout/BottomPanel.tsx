@@ -12,15 +12,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
-import { usePanelStore, type BottomPanelTab } from '@/stores/panel.store'
-import { useDebugStore } from '@/stores/debug.store'
-import { handleDebugEvent } from '@/stores/debug.store'
+import { usePanelStore, type BottomPanelTab, PANEL_MAX_HEIGHT_RATIO, PANEL_MIN_HEIGHT } from '@/stores/panel.store'
+import { handleDebugEvent, useDebugStore } from '@/stores/debug.store'
 import type { DebugEvent } from '@/types/code'
 import { ProblemsView } from './panel/ProblemsView'
 import { DebugConsoleView } from './panel/DebugConsoleView'
 import { TerminalView } from './panel/TerminalView'
 import { ReferencesView } from './panel/ReferencesView'
-import { PANEL_MAX_HEIGHT_RATIO, PANEL_MIN_HEIGHT } from '@/stores/panel.store'
 
 function OutputView() {
   const { t } = useTranslation()
@@ -52,12 +50,7 @@ export function BottomPanel() {
     const disposeDebug = window.api
       ? window.api.on('lw:debug-event', (payload) => handleDebugEvent(payload as DebugEvent))
       : () => {}
-    const disposeTerminal = window.api
-      ? window.api.on('lw:terminal-event', () => {
-        // The TerminalView subscribes on its own mount; keep the shell warm here
-        // so events are never dropped while the tab is not visible.
-      })
-      : () => {}
+    const disposeTerminal = window.api ? window.api.on('lw:terminal-event', () => {}) : () => {}
     return () => {
       disposeDebug()
       disposeTerminal()
