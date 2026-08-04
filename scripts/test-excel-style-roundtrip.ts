@@ -50,6 +50,24 @@ async function main() {
       },
       {
         r: 1,
+        c: 0,
+        v: {
+          v: 'RED BLUE',
+          m: 'RED BLUE',
+          ff: 'Segoe UI',
+          fs: 13,
+          ct: {
+            fa: 'General',
+            t: 'inlineStr',
+            s: [
+              { v: 'RED', ff: 'Segoe UI', fs: 13, fc: '#F00F00', bl: 1 },
+              { v: ' BLUE', ff: 'Segoe UI', fs: 13, fc: '#0F00F0', it: 1 },
+            ],
+          },
+        },
+      },
+      {
+        r: 1,
         c: 1,
         v: {
           v: 3,
@@ -90,6 +108,15 @@ async function main() {
   assert.equal(b1.alignment?.horizontal, 'center')
   assert.equal(b1.alignment?.vertical, 'middle')
 
+  const a2 = worksheet.getCell('A2')
+  assert.ok(a2.value && typeof a2.value === 'object' && 'richText' in a2.value)
+  const exportedRuns = (a2.value as ExcelJS.CellRichTextValue).richText
+  assert.deepEqual(exportedRuns.map((run) => run.text), ['RED', ' BLUE'])
+  assert.equal(exportedRuns[0].font?.color?.argb, 'FFF00F00')
+  assert.equal(exportedRuns[0].font?.bold, true)
+  assert.equal(exportedRuns[1].font?.color?.argb, 'FF0F00F0')
+  assert.equal(exportedRuns[1].font?.italic, true)
+
   const b2 = worksheet.getCell('B2')
   assert.deepEqual(b2.value, { formula: 'SUM(1,2)', result: 3 })
   assert.equal(b2.numFmt, '0.00')
@@ -112,6 +139,18 @@ async function main() {
   assert.equal(importedB1?.bg, '#16A05D')
   assert.equal(importedB1?.ht, 0)
   assert.equal(importedB1?.vt, 0)
+
+  const importedA2 = findCell(importedSheets[0], 1, 0)
+  assert.equal(importedA2?.v, 'RED BLUE')
+  assert.equal(importedA2?.ct?.t, 'inlineStr')
+  assert.deepEqual(
+    importedA2?.ct?.s?.map((run: { v?: string }) => run.v),
+    ['RED', ' BLUE'],
+  )
+  assert.equal(importedA2?.ct?.s?.[0]?.fc, '#F00F00')
+  assert.equal(importedA2?.ct?.s?.[0]?.bl, 1)
+  assert.equal(importedA2?.ct?.s?.[1]?.fc, '#0F00F0')
+  assert.equal(importedA2?.ct?.s?.[1]?.it, 1)
 
   const importedB2 = findCell(importedSheets[0], 1, 1)
   assert.equal(importedB2?.f, 'SUM(1,2)')
