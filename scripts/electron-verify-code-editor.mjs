@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+﻿import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -296,7 +296,7 @@ try {
   const output = await waitFor(
     send,
     `(() => {
-      const panel = document.querySelector('[data-testid=code-bottom-panel]');
+      const panel = document.querySelector('[data-testid=bottom-panel]');
       return panel?.textContent.includes('Hello Monaco') ? panel.textContent : '';
     })()`,
     'TypeScript run output',
@@ -470,3 +470,4 @@ try {
 const failures = results.filter((result) => !result.pass)
 console.log(`\nCode editor verification: ${results.length - failures.length}/${results.length} passed`)
 if (failures.length) process.exitCode = 1
+
