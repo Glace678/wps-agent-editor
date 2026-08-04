@@ -931,7 +931,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     const handleEditorFocusOut = (event: FocusEvent) => {
       const target = event.target
       if (!(target instanceof Element)
-        || !target.matches('#luckysheet-input-box .luckysheet-input-box-inner')) return
+        || !target.matches('#luckysheet-input-box .luckysheet-cell-input')) return
       const resetCommand = pendingResetAfterEdit
       if (!resetCommand) return
       pendingResetAfterEdit = null
