@@ -200,7 +200,10 @@ export function BottomPanel() {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                onClick={() => usePanelStore.getState().setReferences('', [])}
+                onClick={() => {
+                  usePanelStore.getState().setReferences('', [])
+                  setTab('output')
+                }}
                 aria-label={t('bottomPanel.clearReferences')}
               >
                 <Trash2 className="h-3.5 w-3.5" />
