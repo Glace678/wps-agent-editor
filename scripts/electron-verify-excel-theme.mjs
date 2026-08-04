@@ -1521,14 +1521,13 @@ try {
   })
   await waitFor(send, `(() => {
     const box = document.querySelector('.luckysheet-input-box')
-    const editor = box?.querySelector('.luckysheet-input-box-inner')
     return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
-      && editor?.innerText === 'AABBCC'
   })()`)
   const initialCrossRuns = await readRichTextEditorColors()
   check(
     'imported rich-text cell starts with three independent color runs',
-    initialCrossRuns?.redText === 'AA'
+    initialCrossRuns?.text === 'AABBCC'
+      && initialCrossRuns?.redText === 'AA'
       && initialCrossRuns?.blueText === 'CC'
       && initialCrossRuns?.segments.some((segment) => (
         segment.text === 'BB' && segment.color === 'rgb(0, 240, 15)'
