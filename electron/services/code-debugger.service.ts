@@ -166,7 +166,7 @@ async function createNodeSession(
     await fs.writeFile(scriptPath, transpiled, 'utf8')
   }
 
-  const child = spawn(process.execPath, ['--inspect-brk=0', '-e', bootCodeFor(scriptPath), scriptPath], {
+  const child = spawn(process.execPath, ['--inspect=0', '-e', bootCodeFor(scriptPath), scriptPath], {
     cwd: path.dirname(filePath),
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -183,9 +183,7 @@ async function createNodeSession(
     emit({ event: 'output', kind: 'stderr', text: `${line}\n` })
   })
 
-  let started = false
   let stopped = false
-  let resumeAfterBreakpoints: (() => void) | null = null
   let wsUrl = ''
 
   const waitForWsUrl = new Promise<string>((resolve) => {
@@ -229,8 +227,6 @@ async function createNodeSession(
   }
 
   let commandId = 0
-  let armed = false
-  let brkPauseArrived = false
   let setupFailed = false
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
   const cdp = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => new Promise((resolve, reject) => {
@@ -284,16 +280,9 @@ async function createNodeSession(
     }>
   }) => {
     const frames = params.callFrames ?? []
-    console.log('[node-debug] paused event, frames=' + frames.length, JSON.stringify((frames[0] || {}).url), 'armed=' + armed)
     if (frames.length === 0) {
-      // Internal pause (end of script) 鈥?resume silently.
+      // Internal pause (end of script) — resume silently.
       void cdp('Debugger.resume').catch(() => {})
-      return
-    }
-    if (!armed) {
-      // Break-on-start pause 鈥?hold until breakpoints are armed.
-      brkPauseArrived = true
-      if (armed) void cdp('Debugger.resume').catch(() => {})
       return
     }
     const variables = await collectVariables(frames[0])
@@ -329,9 +318,6 @@ async function createNodeSession(
       return
     }
     const method = String(message.method ?? '')
-    if (method !== 'Debugger.paused' && method !== 'Debugger.resumed') {
-      console.log('[node-debug] ws msg method=' + method)
-    }
     if (method === 'Debugger.paused') {
       void onPaused(message.params as Parameters<typeof onPaused>[0])
     } else if (method === 'Debugger.resumed') {
@@ -366,11 +352,30 @@ async function createNodeSession(
         }).catch(() => {})
       }
     }
-    armed = true
-    if (brkPauseArrived) void cdp('Debugger.resume').catch(() => {})
+    // Launch the script through the boot globals. Pending breakpoints resolve
+    // as the script is compiled, pausing execution at the matching lines.
+    const evaluated = await cdp('Runtime.evaluate', {
+      expression: 'global.__wpsDebugRequire(global.__wpsDebugScriptPath)',
+      silent: true,
+    }) as { exceptionDetails?: { exception?: { description?: string }; text?: string } }
+    if (evaluated.exceptionDetails) {
+      const text = evaluated.exceptionDetails.exception?.description ?? evaluated.exceptionDetails.text ?? 'Uncaught exception'
+      emit({ event: 'output', kind: 'stderr', text: `${text}\n` })
+    }
+    if (activeSession && activeSession.filePath === filePath) activeSession = null
+    emit({ event: 'exit', code: 0 })
+    try {
+      ws.close()
+    } catch {
+      // ignore
+    }
+    const killer = setTimeout(() => child.kill(), 400)
+    killer.unref()
   } catch (error) {
-    setupFailed = true
-    emit({ event: 'error', message: error instanceof Error ? error.message : String(error) })
+    if (!stopped) {
+      setupFailed = true
+      emit({ event: 'error', message: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   child.on('error', (error) => {
@@ -389,7 +394,6 @@ async function createNodeSession(
       // ignore
     }
   })
-
   const session: NodeSession = {
     kind: 'node',
     filePath,
