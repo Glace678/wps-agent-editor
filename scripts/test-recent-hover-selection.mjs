@@ -18,8 +18,12 @@ function test(name, check) {
   }
 }
 
-test('selection square is hidden and non-interactive until its row is hovered', () => {
-  assert.match(source, /pointer-events-none[^']*opacity-0[^']*group-hover:pointer-events-auto[^']*group-hover:opacity-100/)
+test('selection square is always visible and always clickable (no hover gimmick)', () => {
+  assert.doesNotMatch(source, /pointer-events-none/)
+  assert.doesNotMatch(source, /group-hover:pointer-events-auto/)
+  assert.doesNotMatch(source, /opacity-0/)
+  assert.doesNotMatch(source, /group-hover:opacity-100/)
+  assert.match(source, /data-recent-file-select/)
 })
 
 test('selection square has explicit light and dark theme colors', () => {
