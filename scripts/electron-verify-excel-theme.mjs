@@ -1308,31 +1308,41 @@ try {
 
   const openFontColorPalette = async () => {
     await clickAt(send, fontColorArrowPoint, 1)
-    await waitFor(send, `[
-      ...document.querySelectorAll('.fortune-toobar-combo-container .fortune-toolbar-color-picker-item')
-    ].some((item) => item.getClientRects().length > 0
-      && getComputedStyle(item).display !== 'none'
-      && getComputedStyle(item).visibility !== 'hidden')`)
+    await waitFor(send, `(() => {
+      const container = [...document.querySelectorAll('.fortune-toobar-combo-container')]
+        .find((candidate) => [...candidate.querySelectorAll('use')].some((icon) => (
+          (icon.getAttribute('href') || icon.getAttribute('xlink:href') || '').endsWith('#font-color')
+        )))
+      return Boolean(container?.querySelector('.fortune-toolbar-combo-popup'))
+    })()`)
   }
   const closeFontColorPalette = async () => {
-    const isOpen = await evaluate(send, `[
-      ...document.querySelectorAll('.fortune-toobar-combo-container .fortune-toolbar-color-picker-item')
-    ].some((item) => item.getClientRects().length > 0
-      && getComputedStyle(item).display !== 'none'
-      && getComputedStyle(item).visibility !== 'hidden')`)
+    const isOpen = await evaluate(send, `(() => {
+      const container = [...document.querySelectorAll('.fortune-toobar-combo-container')]
+        .find((candidate) => [...candidate.querySelectorAll('use')].some((icon) => (
+          (icon.getAttribute('href') || icon.getAttribute('xlink:href') || '').endsWith('#font-color')
+        )))
+      return Boolean(container?.querySelector('.fortune-toolbar-combo-popup'))
+    })()`)
     if (!isOpen) return
     // Fortune's outside-click listener closes the popup on mousedown. Clicking
     // its arrow can immediately reopen it on the following click event.
     await clickAt(send, richTextCellPoint, 1)
-    await waitFor(send, `![
-      ...document.querySelectorAll('.fortune-toobar-combo-container .fortune-toolbar-color-picker-item')
-    ].some((item) => item.getClientRects().length > 0
-      && getComputedStyle(item).display !== 'none'
-      && getComputedStyle(item).visibility !== 'hidden')`)
+    await waitFor(send, `(() => {
+      const container = [...document.querySelectorAll('.fortune-toobar-combo-container')]
+        .find((candidate) => [...candidate.querySelectorAll('use')].some((icon) => (
+          (icon.getAttribute('href') || icon.getAttribute('xlink:href') || '').endsWith('#font-color')
+        )))
+      return !container?.querySelector('.fortune-toolbar-combo-popup')
+    })()`)
   }
   const clickFontColor = async (cssColor) => {
     const point = await evaluate(send, `(() => {
-      const swatch = [...document.querySelectorAll('.fortune-toolbar-color-picker-item')]
+      const container = [...document.querySelectorAll('.fortune-toobar-combo-container')]
+        .find((candidate) => [...candidate.querySelectorAll('use')].some((icon) => (
+          (icon.getAttribute('href') || icon.getAttribute('xlink:href') || '').endsWith('#font-color')
+        )))
+      const swatch = [...(container?.querySelectorAll('.fortune-toolbar-color-picker-item') || [])]
         .find((item) => getComputedStyle(item).backgroundColor === ${JSON.stringify(cssColor)})
       if (!swatch) return null
       const rect = swatch.getBoundingClientRect()
