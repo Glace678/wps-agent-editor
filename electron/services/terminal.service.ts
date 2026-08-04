@@ -72,36 +72,37 @@ function normalizeCwd(value: string): string {
   return path.normalize(value)
 }
 
+function looksLikeCdPath(target: string): boolean {
+  if (!target) return false
+  return /^[a-zA-Z]:[\\/]/.test(target)
+    || target.startsWith('/')
+    || target.startsWith('\\')
+    || target.startsWith('~')
+    || target === '..'
+    || target.startsWith('..\\')
+    || target.startsWith('../')
+}
+
 export async function terminalExec(input: string): Promise<{ started: boolean; cwd: string }> {
   const raw = String(input ?? '').replace(/\r?\n/g, '')
   const trimmed = raw.trim()
 
-  if (trimmed.toLowerCase().startsWith('cd ')) {
+  if (trimmed.toLowerCase().startsWith('cd ') && looksLikeCdPath(trimmed.slice(3).trim().replace(/^["']|["']$/g, ''))) {
     const target = trimmed.slice(3).trim().replace(/^["']|["']$/g, '')
-    if (process.platform === 'win32') {
-      const resolved = path.isAbsolute(target) ? target : path.resolve(cwd, target)
-      try {
-        const stat = await import('node:fs/promises').then((fs) => fs.stat(resolved))
-        if (!stat.isDirectory()) throw new Error('not a directory')
-        cwd = normalizeCwd(resolved)
-        startShell()
+    const resolved = path.isAbsolute(target) ? target : path.resolve(cwd, target)
+    try {
+      const stat = await import('node:fs/promises').then((fs) => fs.stat(resolved))
+      if (!stat.isDirectory()) throw new Error('not a directory')
+      cwd = normalizeCwd(resolved)
+      startShell()
+      if (process.platform === 'win32') {
         shell!.stdin.write(`cd /d "${cwd}"\r\n`)
-        emit({ type: 'output', text: `${cwd}\n` })
-      } catch {
-        emit({ type: 'output', text: `[终端] 目录不存在: ${target}\n` })
-      }
-    } else {
-      const resolved = path.isAbsolute(target) ? target : path.resolve(cwd, target)
-      try {
-        const stat = await import('node:fs/promises').then((fs) => fs.stat(resolved))
-        if (!stat.isDirectory()) throw new Error('not a directory')
-        cwd = normalizeCwd(resolved)
-        startShell()
+      } else {
         shell!.stdin.write(`cd "${cwd}"\n`)
-        emit({ type: 'output', text: `${cwd}\n` })
-      } catch {
-        emit({ type: 'output', text: `[终端] 目录不存在: ${target}\n` })
       }
+      emit({ type: 'output', text: `${cwd}\n` })
+    } catch {
+      emit({ type: 'output', text: `[终端] 目录不存在: ${target}\n` })
     }
     return { started: true, cwd }
   }
