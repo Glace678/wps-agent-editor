@@ -326,6 +326,10 @@ async function createNodeSession(
       return
     }
     const method = String(message.method ?? '')
+    if (method === 'Debugger.scriptParsed') {
+      const url = (message.params as { url?: string })?.url ?? ''
+      if (url.includes('prog.')) console.log('[node-debug] scriptParsed url=' + JSON.stringify(url))
+    }
     if (method === 'Debugger.paused') {
       void onPaused(message.params as Parameters<typeof onPaused>[0])
     } else if (method === 'Debugger.resumed') {
