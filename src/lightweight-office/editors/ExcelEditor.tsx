@@ -571,7 +571,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       const snapshot = api?.getAllSheets?.() ?? sheetsRef.current
       sheetsRef.current = snapshot
       lastContentSnapshotRef.current = snapshot
-      const buffer = sheetsToXlsxBuffer(snapshot)
+      const buffer = await sheetsToXlsxBuffer(snapshot)
       await saveFileBuffer(filePath, buffer)
       // Saved state becomes the new clean baseline (clears the tab dirty dot).
       cancelPendingDirtyCheck()
