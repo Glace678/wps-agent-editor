@@ -1,7 +1,7 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+﻿import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import { normalizePath } from './file.service'
 import type {
@@ -11,6 +11,8 @@ import type {
   DebugStartResult,
   DebugVariable,
 } from '../../src/types/code'
+
+const require = createRequire(import.meta.url)
 
 type DebugEventSink = (event: DebugEvent) => void
 
@@ -106,7 +108,7 @@ export function evaluateDebugExpression(expression: string, id: string): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* Node.js / TypeScript — CDP inspector session inside a child process */
+/* Node.js / TypeScript 鈥?CDP inspector session inside a child process */
 /* ------------------------------------------------------------------ */
 
 const NODE_CHILD_CODE = [
@@ -119,8 +121,9 @@ const NODE_CHILD_CODE = [
   '  session.post(method, params, (err, result) => err ? reject(err) : resolve(result));',
   '});',
   'const send = (msg) => process.stdout.write(JSON.stringify(msg) + \'\\n\');',
-  'let stopped = false;',
   'let sourceUrl = \'\';',
+  'let filePath = \'\';',
+  'let breakpoints = [];',
   'function argText(arg) {',
   '  if (arg && arg.value !== undefined) {',
   '    if (arg.value !== null && typeof arg.value === \'object\') {',
@@ -143,20 +146,16 @@ const NODE_CHILD_CODE = [
   '  if (prop.objectId) return prop.description !== undefined ? String(prop.description) : \'(Object)\';',
   '  return prop.value === undefined ? \'undefined\' : String(prop.value);',
   '}',
-  'async function collectVariables() {',
-  '  const frames = [];',
-  '  const callFrames = (session.dbgPaused && session.dbgPaused.callFrames) || [];',
-  '  for (const frame of callFrames) {',
-  '    frames.push({',
-  '      index: frame.callFrameId,',
-  '      name: frame.functionName || \'(anonymous)\',',
-  '      file: frame.url || \'\',',
-  '      line: frame.location.lineNumber + 1,',
-  '      column: frame.location.columnNumber + 1,',
-  '    });',
-  '  }',
+  'async function collectVariables(params) {',
+  '  const frames = (params.callFrames || []).map((frame) => ({',
+  '    index: frame.callFrameId,',
+  '    name: frame.functionName || \'(anonymous)\',',
+  '    file: frame.url || \'\',',
+  '    line: frame.location.lineNumber + 1,',
+  '    column: frame.location.columnNumber + 1,',
+  '  }));',
   '  const variables = [];',
-  '  const top = callFrames[0];',
+  '  const top = (params.callFrames || [])[0];',
   '  if (top) {',
   '    const localScope = top.scopeChain.find((s) => s.type === \'local\');',
   '    if (localScope && localScope.object && localScope.object.objectId) {',
@@ -175,38 +174,25 @@ const NODE_CHILD_CODE = [
   '  return { frames, variables };',
   '}',
   'async function onPaused(params) {',
-  '  stopped = true;',
-  '  session.dbgPaused = params;',
+  '  const frames = params.callFrames || [];',
+  '  if (frames.length === 0) {',
+  '    // Internal pauses (evaluation start / end of script) carry no frames.',
+  '    session.post(\'Debugger.resume\');',
+  '    return;',
+  '  }',
   '  const reason = params.reason || \'breakpoint\';',
-  '  const data = await collectVariables();',
-  '  const frameMap = {};',
-  '  for (const frame of data.frames) frameMap[frame.index] = frame;',
+  '  const data = await collectVariables(params);',
   '  send({ event: \'paused\', reason, frames: data.frames, variables: data.variables });',
-  '  void frameMap;',
   '}',
   'async function run(msg) {',
   '  sourceUrl = pathToFileURL(msg.filePath).href;',
+  '  filePath = msg.filePath;',
+  '  breakpoints = msg.breakpoints || [];',
   '  try {',
   '    session.connect();',
   '    session.on(\'Debugger.paused\', onPaused);',
   '    session.on(\'Debugger.resumed\', () => {',
-  '      stopped = false;',
-  '      session.dbgPaused = null;',
   '      send({ event: \'resumed\' });',
-  '    });',
-  '    session.on(\'Debugger.breakpointResolved\', (resolved) => {',
-  '      send({',
-  '        event: \'breakpoint-verified\',',
-  '        file: msg.filePath,',
-  '        line: resolved.location.lineNumber + 1,',
-  '      });',
-  '    });',
-  '    session.on(\'Runtime.consoleAPICalled\', (consoleParams) => {',
-  '      const kind = consoleParams.type === \'error\' || consoleParams.type === \'warning\' || consoleParams.type === \'assert\'',
-  '        ? \'stderr\'',
-  '        : \'stdout\';',
-  '      const text = (consoleParams.args || []).map(argText).join(\' \') + \'\\n\';',
-  '      send({ event: \'output\', kind, text });',
   '    });',
   '    session.on(\'Runtime.exceptionThrown\', (exceptionParams) => {',
   '      const details = exceptionParams.exceptionDetails || {};',
@@ -215,21 +201,34 @@ const NODE_CHILD_CODE = [
   '        : details.text || \'Uncaught exception\';',
   '      send({ event: \'output\', kind: \'stderr\', text: text + \'\\n\' });',
   '    });',
+  '    session.on(\'Debugger.scriptParsed\', (parsed) => {',
+  '      if (parsed.url !== sourceUrl) return;',
+  '      // Execution is suspended while scriptParsed is dispatched, so setting',
+  '      // breakpoints here applies them before the first statement runs.',
+  '      for (const bp of breakpoints) {',
+  '        session.post(\'Debugger.setBreakpoint\', {',
+  '          location: { scriptId: parsed.scriptId, lineNumber: bp.line - 1, columnNumber: 0 },',
+  '        }, (err, result) => {',
+  '          if (!err && result && result.breakpointId) {',
+  '            const line = result.location ? result.location.lineNumber : bp.line - 1;',
+  '            send({ event: \'breakpoint-verified\', file: filePath, line: line + 1 });',
+  '          }',
+  '        });',
+  '      }',
+  '    });',
   '    await post(\'Debugger.enable\');',
   '    await post(\'Runtime.enable\');',
-  '    await post(\'Console.enable\');',
-  '    for (const bp of msg.breakpoints) {',
+  '    let code = msg.code;',
+  '    if (msg.loader) {',
   '      try {',
-  '        await post(\'Debugger.setBreakpointByUrl\', {',
-  '          lineNumber: bp.line - 1,',
-  '          url: sourceUrl,',
-  '        });',
+  '        const esbuild = require(msg.esbuildPath);',
+  '        code = esbuild.transformSync(code, { loader: msg.loader }).code;',
   '      } catch (e) {',
-  '        send({ event: \'error\', message: String(e && e.message || e) });',
+  '        send({ event: \'output\', kind: \'stderr\', text: \'Transpile failed: \' + String(e && e.message || e) + \'\\n\' });',
   '      }',
   '    }',
   '    const result = await post(\'Runtime.evaluate\', {',
-  '      expression: msg.code + \'\\n//# sourceURL=\' + sourceUrl,',
+  '      expression: code + \'\\n//# sourceURL=\' + sourceUrl,',
   '      includeCommandLineAPI: true,',
   '      silent: true,',
   '      awaitPromise: true,',
@@ -274,13 +273,13 @@ const NODE_CHILD_CODE = [
   '    void run(msg);',
   '  } else if (msg.type === \'stop\') {',
   '    process.exit(0);',
-  '  } else if (msg.type === \'continue\' && stopped) {',
+  '  } else if (msg.type === \'continue\') {',
   '    session.post(\'Debugger.resume\');',
-  '  } else if (msg.type === \'step-over\' && stopped) {',
+  '  } else if (msg.type === \'step-over\') {',
   '    session.post(\'Debugger.stepOver\');',
-  '  } else if (msg.type === \'step-into\' && stopped) {',
+  '  } else if (msg.type === \'step-into\') {',
   '    session.post(\'Debugger.stepInto\');',
-  '  } else if (msg.type === \'step-out\' && stopped) {',
+  '  } else if (msg.type === \'step-out\') {',
   '    session.post(\'Debugger.stepOut\');',
   '  } else if (msg.type === \'evaluate\') {',
   '    void evaluate(msg);',
@@ -360,7 +359,7 @@ async function createNodeSession(
 }
 
 /* ------------------------------------------------------------------ */
-/* Python — drive the standard library pdb debugger over a pipe       */
+/* Python 鈥?drive the standard library pdb debugger over a pipe       */
 /* ------------------------------------------------------------------ */
 
 type PdbLastCommand =
