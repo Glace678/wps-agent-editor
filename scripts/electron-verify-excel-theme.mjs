@@ -17,6 +17,33 @@ const profilePath = path.join(os.tmpdir(), `wps-excel-theme-profile-${process.pi
 const port = Number(process.env.WPS_THEME_VERIFY_PORT || 9341)
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+async function clickAt(send, point, clickCount = 1) {
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+    pointerType: 'mouse',
+  })
+  await send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    buttons: 1,
+    clickCount,
+    pointerType: 'mouse',
+  })
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    buttons: 0,
+    clickCount,
+    pointerType: 'mouse',
+  })
+}
+
 fs.mkdirSync(artifactDir, { recursive: true })
 fs.mkdirSync(profilePath, { recursive: true })
 
