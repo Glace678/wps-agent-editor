@@ -641,7 +641,7 @@ function syncExcelCellEditorFontColor(
 
   const cell = getExcelCellFromActiveSheet(api, firstRange.row[0], firstRange.column[0])
   const foreground = color ?? resolveExcelCellEditorColors(
-    cell,
+    cell ? { bg: cell.bg, fc: undefined } : null,
     document.documentElement.classList.contains('dark'),
   ).foreground
   editor.style.color = foreground
@@ -938,6 +938,23 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       scheduleFallback(resetCommand, true)
     }
 
+    let editorWasActive = getActiveExcelCellEditor(shell) !== null
+    const editorStateObserver = new MutationObserver(() => {
+      const editorIsActive = getActiveExcelCellEditor(shell) !== null
+      if (editorWasActive && !editorIsActive && pendingResetAfterEdit) {
+        const resetCommand = pendingResetAfterEdit
+        pendingResetAfterEdit = null
+        scheduleFallback(resetCommand, true)
+      }
+      editorWasActive = editorIsActive
+    })
+    editorStateObserver.observe(shell, {
+      attributes: true,
+      attributeFilter: ['style'],
+      childList: true,
+      subtree: true,
+    })
+
     shell.addEventListener('mousedown', handleFontColorPointer, true)
     shell.addEventListener('click', handleFontColorPointer, true)
     shell.addEventListener('focusout', handleEditorFocusOut, true)
@@ -946,6 +963,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       shell.removeEventListener('mousedown', handleFontColorPointer, true)
       shell.removeEventListener('click', handleFontColorPointer, true)
       shell.removeEventListener('focusout', handleEditorFocusOut, true)
+      editorStateObserver.disconnect()
       for (const timer of pendingTimers) window.clearTimeout(timer)
       pendingTimers.clear()
     }
