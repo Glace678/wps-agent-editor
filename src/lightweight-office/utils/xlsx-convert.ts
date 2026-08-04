@@ -191,7 +191,7 @@ function resolveFortuneFontFamily(value: Cell['ff']): string | undefined {
     const trimmed = value.trim()
     return trimmed || undefined
   }
-  if (!Number.isInteger(value) || value < 0) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return undefined
   const localeData = locale({ lang: 'en' } as unknown as Context) as unknown as {
     fontarray?: unknown[]
   }
@@ -310,8 +310,8 @@ function applyFortuneSheetMerges(worksheet: ExcelJS.Worksheet, sheet: Sheet): vo
 }
 
 function asArrayBuffer(value: ArrayBuffer | Uint8Array): ArrayBuffer {
-  if (value instanceof ArrayBuffer) return value
-  return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
+  if (value instanceof ArrayBuffer) return value.slice(0)
+  return Uint8Array.from(value).buffer
 }
 
 export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> {
@@ -354,7 +354,7 @@ export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> 
               m: String(cell.w ?? cell.v ?? ''),
               f: typeof cell.f === 'string' ? cell.f : undefined,
               ct: { fa: numberFormat, t: cellType },
-              ...(styledSheet
+              ...(styledCell
                 ? toFortuneStyle(styledCell, themeColors)
                 : {
                     ff: DEFAULT_SPREADSHEET_FONT,
