@@ -985,7 +985,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     }
 
     let fallbackSnapshot: boolean | null = null
-    let richTextRangeSnapshot: Range | null = null
+    let richTextRangeSnapshot: ExcelCellEditorTextSelection | null = null
     let triggerSawMouseDown = false
     let pendingCommand: PendingFontColorCommand | null = null
     let pendingResetAfterEdit: PendingFontColorCommand | null = null
@@ -1028,6 +1028,17 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       pendingTimers.add(timer)
     }
 
+    const scheduleRichTextCorrection = (
+      snapshot: ExcelCellEditorTextSelection,
+      color: string | undefined,
+    ) => {
+      const timer = window.setTimeout(() => {
+        pendingTimers.delete(timer)
+        applyExcelFontColorToEditorTextSelection(shell, snapshot, color)
+      }, 0)
+      pendingTimers.add(timer)
+    }
+
     const handleFontColorPointer = (event: MouseEvent) => {
       const target = event.target
       if (!(target instanceof Element)) return
@@ -1048,10 +1059,14 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
         if (event.type === 'click') {
           const commandToApply = pendingCommand
+          const richTextSelectionToApply = richTextRangeSnapshot
           pendingCommand = null
           fallbackSnapshot = null
           richTextRangeSnapshot = null
           triggerSawMouseDown = false
+          if (richTextSelectionToApply) {
+            scheduleRichTextCorrection(richTextSelectionToApply, command.color)
+          }
           if (commandToApply) scheduleFallback(commandToApply)
         }
         return
