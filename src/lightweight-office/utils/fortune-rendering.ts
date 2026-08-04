@@ -192,5 +192,4 @@ export function configureFortuneRendering(fontFaces?: readonly SystemFontFace[])
   polyfillFortuneLocaleGaps()
   if (fontFaces) installSharedSpreadsheetFontLibrary(fontFaces)
   installNativeDarkCanvasRendering()
-  installCrispDarkCellText()
 }
