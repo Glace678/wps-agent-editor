@@ -51,7 +51,7 @@ const workbook = new ExcelJS.Workbook()
 const sampleSheet = workbook.addWorksheet('Theme check')
 sampleSheet.getColumn(1).width = 18
 sampleSheet.getColumn(2).width = 20
-for (let row = 1; row <= 8; row += 1) sampleSheet.getRow(row).height = 24
+for (let row = 1; row <= 9; row += 1) sampleSheet.getRow(row).height = 24
 
 const sampleCells = [
   ['A1', 'PLAIN', 'FF000000', 'FFFFFFFF'],
@@ -90,6 +90,13 @@ for (const [address, value] of numericSamples) {
 }
 sampleSheet.getCell('A7').value = 'DEFAULT COLOR'
 sampleSheet.getCell('A8').value = 'RED BLUE'
+sampleSheet.getCell('A9').value = {
+  richText: [
+    { text: 'AA', font: { color: { argb: 'FFF00F00' } } },
+    { text: 'BB', font: { color: { argb: 'FF00F00F' } } },
+    { text: 'CC', font: { color: { argb: 'FF0F00F0' } } },
+  ],
+}
 await workbook.xlsx.writeFile(samplePath)
 
 function connect(wsUrl) {
