@@ -24,7 +24,7 @@ const workbook = new ExcelJS.Workbook()
 const sampleSheet = workbook.addWorksheet('Theme check')
 sampleSheet.getColumn(1).width = 18
 sampleSheet.getColumn(2).width = 20
-for (let row = 1; row <= 6; row += 1) sampleSheet.getRow(row).height = 24
+for (let row = 1; row <= 7; row += 1) sampleSheet.getRow(row).height = 24
 
 const sampleCells = [
   ['A1', 'PLAIN', 'FF000000', 'FFFFFFFF'],
@@ -61,6 +61,7 @@ for (const [address, value] of numericSamples) {
     color: { argb: 'FF444444' },
   }
 }
+sampleSheet.getCell('A7').value = 'DEFAULT COLOR'
 await workbook.xlsx.writeFile(samplePath)
 
 function connect(wsUrl) {
@@ -946,7 +947,7 @@ try {
     const cellRect = cellArea.getBoundingClientRect()
     const point = {
       clientX: cellRect.left + 16,
-      clientY: cellRect.top + 8,
+      clientY: cellRect.top + 19 * 6 + 8,
     }
     cellArea.dispatchEvent(new MouseEvent('mousedown', {
       ...point,
@@ -1014,7 +1015,7 @@ try {
     }
   })()`, true)
   check('font-color palette swatch can be clicked', fontColorPick.clicked, JSON.stringify(fontColorPick))
-  check('font-color palette test targets A1', fontColorPick.selection === 'A1', JSON.stringify(fontColorPick))
+  check('font-color palette test targets A7', fontColorPick.selection === 'A7', JSON.stringify(fontColorPick))
   check(
     'font-color palette swatch updates the active cell color model',
     fontColorPick.editorForeground.toLowerCase() === fontColorSwatch,
@@ -1031,7 +1032,7 @@ try {
     const scaleX = canvas.width / canvasRect.width
     const scaleY = canvas.height / canvasRect.height
     const left = Math.floor((cellRect.left - canvasRect.left + 2) * scaleX)
-    const top = Math.floor((cellRect.top - canvasRect.top + 2) * scaleY)
+    const top = Math.floor((cellRect.top - canvasRect.top + 19 * 6 + 2) * scaleY)
     const width = Math.max(1, Math.floor(68 * scaleX))
     const height = Math.max(1, Math.floor(15 * scaleY))
     const pixels = context.getImageData(left, top, width, height).data
