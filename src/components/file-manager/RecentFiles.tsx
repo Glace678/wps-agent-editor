@@ -205,7 +205,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
               aria-label={file.name}
               data-recent-file-select
               className={cn(
-                'pointer-events-none flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[2px] border opacity-0 group-hover:pointer-events-auto group-hover:opacity-100',
+                'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[2px] border',
                 selectedPaths.has(file.path)
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'border-black/55 bg-white text-transparent hover:border-black dark:border-white/65 dark:bg-[#242424] dark:hover:border-white',
