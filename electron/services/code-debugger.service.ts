@@ -286,6 +286,13 @@ async function createNodeSession(
       void cdp('Debugger.resume').catch(() => {})
       return
     }
+    if (params.reason === 'other') {
+      // V8 emits a transient "other" pause when a pending breakpoint binds
+      // while the script is already executing. Real hits report 'breakpoint'
+      // (or 'ambiguous'); step pauses report 'step'.
+      void cdp('Debugger.resume').catch(() => {})
+      return
+    }
     const variables = await collectVariables(frames[0])
     // Node reports empty URLs for CommonJS frames in some builds — map the
     // leading frames (our script) to the original file path. Frames whose line
