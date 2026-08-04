@@ -12,6 +12,18 @@ import { setCurrentFileForAgent } from '../ipc/agent.handlers'
 import { handleAgentResult } from './agent-bridge.service'
 import { getLanguage, type LanguageCode } from '../i18n/types'
 import { runCodeFile } from '../services/code-runner.service'
+import {
+  evaluateDebugExpression,
+  sendDebugCommand,
+  setDebugEventSink,
+  startDebugSession,
+  stopDebugSession,
+} from '../services/code-debugger.service'
+import {
+  setTerminalEventSink,
+  terminalExec,
+  terminalKill,
+} from '../services/terminal.service'
 import { preparePresentation } from '../services/presentation-converter.service'
 import { editPresentation } from '../services/presentation-editor.service'
 import type { PresentationEditRequest } from '../../src/types/presentation'
@@ -229,6 +241,54 @@ export function registerLightweightOfficeHandlers(
       throw new TypeError('Invalid code file path')
     }
     return runCodeFile(filePath)
+  })
+
+  setDebugEventSink((event) => {
+    getMainWindow()?.webContents.send(IPC.LW_DEBUG_EVENT, event)
+  })
+  setTerminalEventSink((event) => {
+    getMainWindow()?.webContents.send(IPC.LW_TERMINAL_EVENT, event)
+  })
+
+  ipcMain.handle(IPC.LW_DEBUG_START, async (_e, filePath: string, breakpoints: unknown[]) => {
+    if (typeof filePath !== 'string' || !filePath.trim()) {
+      throw new TypeError('Invalid code file path')
+    }
+    const normalizedBreakpoints = (Array.isArray(breakpoints) ? breakpoints : []).filter(
+      (item): item is { file: string; line: number } =>
+        Boolean(item) && typeof item === 'object'
+        && typeof (item as { file?: unknown }).file === 'string'
+        && typeof (item as { line?: unknown }).line === 'number',
+    )
+    return startDebugSession(filePath, normalizedBreakpoints)
+  })
+
+  ipcMain.handle(IPC.LW_DEBUG_STOP, () => {
+    stopDebugSession()
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC.LW_DEBUG_COMMAND, (_e, command: string) => {
+    if (
+      command === 'continue' || command === 'step-over'
+      || command === 'step-into' || command === 'step-out'
+    ) {
+      sendDebugCommand(command)
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC.LW_DEBUG_EVALUATE, (_e, expression: string, id: string) => {
+    if (typeof expression === 'string' && typeof id === 'string') {
+      evaluateDebugExpression(expression, id)
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle(IPC.LW_TERMINAL_EXEC, (_e, input: string) => terminalExec(input))
+  ipcMain.handle(IPC.LW_TERMINAL_KILL, () => {
+    terminalKill()
+    return { success: true }
   })
 
   void getMainWindow

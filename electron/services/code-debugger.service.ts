@@ -2,7 +2,7 @@ import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
+import { createInterface } from 'node:readline'
 import { normalizePath } from './file.service'
 import type {
   DebugBreakpoint,
@@ -362,18 +362,29 @@ async function createNodeSession(
 /* Python — drive the standard library pdb debugger over a pipe       */
 /* ------------------------------------------------------------------ */
 
+type PdbLastCommand =
+  | 'start'
+  | 'set-break'
+  | 'continue'
+  | 'step'
+  | 'next'
+  | 'return'
+  | 'vars'
+  | 'eval'
+  | 'none'
+
+interface PdbPausedState {
+  reason: string
+  frames: Array<{ index: number; name: string; file: string; line: number; column: number }>
+}
+
 interface PythonSession extends DebugSession {
   kind: 'python'
   child: ChildProcessWithoutNullStreams
-  interface_: ReadlineInterface
   pendingLines: string[]
-  lastCommand: 'start' | 'continue' | 'step' | 'next' | 'return' | 'vars' | 'eval' | 'none'
-  pendingPaused: {
-    reason: string
-    file: string
-    line: number
-    frames: Array<{ index: number; name: string; file: string; line: number; column: number }>
-  } | null
+  lastCommand: PdbLastCommand
+  breakIndex: number
+  pendingPaused: PdbPausedState | null
   pendingEval: { id: string } | null
   breakpointSet: Set<string>
 }
@@ -404,6 +415,23 @@ function pdbStackFrames(lines: string[]): Array<{
   return frames
 }
 
+function sendPdbVarsQuery(session: PythonSession): void {
+  session.lastCommand = 'vars'
+  try {
+    session.child.stdin.write('p {k: repr(v) for k, v in list(locals().items())}\n')
+  } catch {
+    session.lastCommand = 'none'
+  }
+}
+
+function quitPdb(session: PythonSession): void {
+  try {
+    session.child.stdin.write('quit\n')
+  } catch {
+    // Already closed
+  }
+}
+
 async function createPythonSession(
   filePath: string,
   breakpoints: DebugBreakpoint[],
@@ -427,19 +455,15 @@ async function createPythonSession(
     kind: 'python',
     filePath,
     child,
-    interface_: null as unknown as ReadlineInterface,
     pendingLines: [],
     lastCommand: 'none',
+    breakIndex: 0,
     pendingPaused: null,
     pendingEval: null,
     breakpointSet: new Set(),
     stop() {
-      try {
-        child!.stdin.write('quit\n')
-      } catch {
-        // Already closed
-      }
-      const killer = setTimeout(() => child!.kill(), 800)
+      quitPdb(session)
+      const killer = setTimeout(() => child.kill(), 800)
       killer.unref()
     },
     sendCommand(command) {
@@ -449,10 +473,9 @@ async function createPythonSession(
         'step-into': 'step',
         'step-out': 'return',
       }
-      const text = mapping[command]
-      session.lastCommand = command === 'continue' ? 'continue' : command
+      session.lastCommand = mapping[command] as PdbLastCommand
       try {
-        child!.stdin.write(text + '\n')
+        child.stdin.write(`${mapping[command]}\n`)
       } catch {
         // Ignore
       }
@@ -461,7 +484,7 @@ async function createPythonSession(
       session.lastCommand = 'eval'
       session.pendingEval = { id }
       try {
-        child!.stdin.write(`p ${expression}\n`)
+        child.stdin.write(`p ${expression}\n`)
       } catch {
         emit({ event: 'eval-result', id, error: 'Debugger is not responding.' })
         session.lastCommand = 'none'
@@ -471,8 +494,6 @@ async function createPythonSession(
   }
 
   const interface_ = createInterface({ input: child.stdout })
-  session.interface_ = interface_
-
   const onLine = (line: string) => {
     if (line.trim() === '(Pdb)') {
       onPrompt()
@@ -489,25 +510,40 @@ async function createPythonSession(
     const isFinished = raw.some((line) => PDB_FINISHED_LINE.test(line))
 
     if (session.lastCommand === 'start') {
-      for (const bp of breakpoints) {
-        try {
-          child!.stdin.write(`break ${bp.file}:${bp.line}\n`)
-          session.breakpointSet.add(`${bp.file}:${bp.line}`)
-        } catch {
-          // Ignore
-        }
+      session.breakIndex = 0
+      if (breakpoints.length === 0) {
+        session.lastCommand = 'continue'
+        child.stdin.write('continue\n')
+        return
       }
-      session.lastCommand = 'none'
-      session.pendingLines = []
-      child!.stdin.write('continue\n')
+      session.lastCommand = 'set-break'
+      const first = breakpoints[0]
+      session.breakpointSet.add(`${first.file}:${first.line}`)
+      child.stdin.write(`break ${first.file}:${first.line}\n`)
+      return
+    }
+
+    if (session.lastCommand === 'set-break') {
+      session.breakIndex += 1
+      if (session.breakIndex < breakpoints.length) {
+        const next = breakpoints[session.breakIndex]
+        session.breakpointSet.add(`${next.file}:${next.line}`)
+        child.stdin.write(`break ${next.file}:${next.line}\n`)
+        return
+      }
+      session.lastCommand = 'continue'
+      child.stdin.write('continue\n')
       return
     }
 
     if (session.lastCommand === 'vars') {
-      const body = raw.join('\n').trim()
       const paused = session.pendingPaused
       session.pendingPaused = null
       session.lastCommand = 'none'
+      const body = raw
+        .filter((line) => !PDB_STACK_LINE.test(line.trim()))
+        .join('\n')
+        .trim()
       const variables: DebugVariable[] = []
       if (paused && body) {
         variables.push({ name: 'locals', value: body.slice(0, 8000) })
@@ -539,87 +575,52 @@ async function createPythonSession(
     if (isFinished) {
       emit({ event: 'output', kind: 'stdout', text: 'The program finished.\n' })
       emit({ event: 'exit', code: 0 })
-      try {
-        child!.stdin.write('quit\n')
-      } catch {
-        // Ignore
-      }
+      quitPdb(session)
       session.lastCommand = 'none'
       return
     }
 
     const frames = pdbStackFrames(raw)
     const current = frames[0]
-    const stepCommands = new Set(['step', 'next', 'return'])
 
     if (current && session.lastCommand === 'continue') {
       const key = `${current.file}:${current.line}`
       const hitBreakpoint = session.breakpointSet.has(key)
       if (!hitBreakpoint) {
-        // The program ended inside pdb (e.g. an exception) or finished.
-        emit({
-          event: 'output',
-          kind: 'stderr',
-          text: raw.join('\n').replace(/^\s+/gm, '') + '\n',
-        })
+        // The program terminated without hitting a breakpoint (e.g. an exception).
+        const text = raw.join('\n').replace(/^\s+/gm, '')
+        if (text) emit({ event: 'output', kind: 'stderr', text: `${text}\n` })
         emit({ event: 'exit', code: 1 })
-        try {
-          child!.stdin.write('quit\n')
-        } catch {
-          // Ignore
-        }
+        quitPdb(session)
         session.lastCommand = 'none'
         return
       }
-      const stack = frames.map((frame) => ({
-        index: frame.index,
-        name: frame.name,
-        file: frame.file,
-        line: frame.line,
-        column: frame.column,
-      }))
       session.pendingPaused = {
         reason: 'breakpoint',
-        file: current.file,
-        line: current.line,
-        frames: stack,
+        frames: frames.map((frame) => ({
+          index: frame.index,
+          name: frame.name,
+          file: frame.file,
+          line: frame.line,
+          column: frame.column,
+        })),
       }
-      session.lastCommand = 'vars'
-      try {
-        child!.stdin.write('p {k: repr(v) for k, v in list(locals().items())}\n')
-      } catch {
-        // Ignore
-      }
+      sendPdbVarsQuery(session)
       return
     }
 
-    if (current && stepCommands.has(session.lastCommand)) {
-      const stack = frames.map((frame) => ({
-        index: frame.index,
-        name: frame.name,
-        file: frame.file,
-        line: frame.line,
-        column: frame.column,
-      }))
+    if (current && ['step', 'next', 'return'].includes(session.lastCommand)) {
       session.pendingPaused = {
         reason: isReturn ? 'step-out' : 'step',
-        file: current.file,
-        line: current.line,
-        frames: stack,
+        frames: frames.map((frame) => ({
+          index: frame.index,
+          name: frame.name,
+          file: frame.file,
+          line: frame.line,
+          column: frame.column,
+        })),
       }
-      session.lastCommand = 'vars'
-      try {
-        child!.stdin.write('p {k: repr(v) for k, v in list(locals().items())}\n')
-      } catch {
-        // Ignore
-      }
-      return
-    }
-
-    if (current && session.lastCommand === 'none') {
-      // Breakpoint set acknowledgement or misc prompt; keep going.
-      session.lastCommand = 'none'
-      child!.stdin.write('continue\n')
+      sendPdbVarsQuery(session)
       return
     }
 
@@ -646,9 +647,3 @@ async function createPythonSession(
 
   return session
 }
-
-export function debugTempDir(): string {
-  return path.resolve(os.tmpdir())
-}
-
-export { require as debugCreateRequire }

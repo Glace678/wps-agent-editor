@@ -91,6 +91,14 @@ const api = {
     sendAgentResult: (requestId: string, result: unknown) =>
       ipcRenderer.invoke(IPC.LW_AGENT_RESULT, { requestId, result }),
     runCode: (filePath: string) => ipcRenderer.invoke(IPC.LW_RUN_CODE, filePath),
+    debugStart: (filePath: string, breakpoints: unknown[]) =>
+      ipcRenderer.invoke(IPC.LW_DEBUG_START, filePath, breakpoints),
+    debugStop: () => ipcRenderer.invoke(IPC.LW_DEBUG_STOP),
+    debugCommand: (command: string) => ipcRenderer.invoke(IPC.LW_DEBUG_COMMAND, command),
+    debugEvaluate: (expression: string, id: string) =>
+      ipcRenderer.invoke(IPC.LW_DEBUG_EVALUATE, expression, id),
+    terminalExec: (input: string) => ipcRenderer.invoke(IPC.LW_TERMINAL_EXEC, input),
+    terminalKill: () => ipcRenderer.invoke(IPC.LW_TERMINAL_KILL),
   },
   window: {
     minimize: () => ipcRenderer.invoke(IPC.WINDOW_MINIMIZE),
@@ -105,6 +113,7 @@ const api = {
       'menu:open-file', 'menu:open-folder', 'menu:save', 'menu:print',
       'menu:new-agent', 'menu:run-multi-agent',
       'office:download-progress', 'lw:agent-command',
+      'lw:debug-event', 'lw:terminal-event',
     ]
     if (validChannels.includes(channel)) {
       const listener = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args)
