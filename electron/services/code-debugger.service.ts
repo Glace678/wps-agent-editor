@@ -354,23 +354,31 @@ async function createNodeSession(
     }
     // Launch the script through the boot globals. Pending breakpoints resolve
     // as the script is compiled, pausing execution at the matching lines.
-    const evaluated = await cdp('Runtime.evaluate', {
-      expression: 'global.__wpsDebugRequire(global.__wpsDebugScriptPath)',
-      silent: true,
-    }) as { exceptionDetails?: { exception?: { description?: string }; text?: string } }
-    if (evaluated.exceptionDetails) {
-      const text = evaluated.exceptionDetails.exception?.description ?? evaluated.exceptionDetails.text ?? 'Uncaught exception'
-      emit({ event: 'output', kind: 'stderr', text: `${text}\n` })
-    }
-    if (activeSession && activeSession.filePath === filePath) activeSession = null
-    emit({ event: 'exit', code: 0 })
-    try {
-      ws.close()
-    } catch {
-      // ignore
-    }
-    const killer = setTimeout(() => child.kill(), 400)
-    killer.unref()
+    // The evaluation is intentionally not awaited: it only settles when the
+    // script finishes (or is stopped), while the session must stay alive.
+    void (async () => {
+      try {
+        const evaluated = await cdp('Runtime.evaluate', {
+          expression: 'global.__wpsDebugRequire(global.__wpsDebugScriptPath)',
+          silent: true,
+        }) as { exceptionDetails?: { exception?: { description?: string }; text?: string } }
+        if (evaluated.exceptionDetails) {
+          const text = evaluated.exceptionDetails.exception?.description ?? evaluated.exceptionDetails.text ?? 'Uncaught exception'
+          emit({ event: 'output', kind: 'stderr', text: `${text}\n` })
+        }
+        if (activeSession && activeSession.filePath === filePath) activeSession = null
+        emit({ event: 'exit', code: 0 })
+        try {
+          ws.close()
+        } catch {
+          // ignore
+        }
+        const killer = setTimeout(() => child.kill(), 400)
+        killer.unref()
+      } catch (error) {
+        if (!stopped) emit({ event: 'error', message: error instanceof Error ? error.message : String(error) })
+      }
+    })()
   } catch (error) {
     if (!stopped) {
       setupFailed = true
