@@ -217,8 +217,8 @@ export function DocumentTabBar({
               className={cn(
                 'group flex h-[33px] min-w-[104px] max-w-[244px] shrink-0 cursor-grab items-center gap-2 rounded-t-[6px] border border-b-0 pl-3 pr-1 active:cursor-grabbing',
                 active
-                  ? 'border-black/[0.08] bg-white shadow-sm dark:border-white/[0.08] dark:bg-[#203746]'
-                  : 'border-transparent hover:bg-black/[0.04] dark:hover:bg-white/[0.05]',
+                  ? 'border-black/[0.18] bg-white shadow-sm dark:border-white/[0.22] dark:bg-[#203746]'
+                  : 'border-white/90 bg-white/[0.62] hover:border-white hover:bg-white/[0.86] dark:border-white/[0.12] dark:bg-white/[0.03] dark:hover:border-white/[0.18] dark:hover:bg-white/[0.05]',
                 isDragging && 'opacity-50',
                 isDropTarget && 'ring-2 ring-inset ring-[#4f93e7]',
               )}

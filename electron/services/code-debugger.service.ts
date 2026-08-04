@@ -437,7 +437,7 @@ function pdbCurrentFrame(lines: string[]): { file: string; line: number; name: s
     const match = PDB_CURRENT_LINE.exec(line.trim())
     if (!match) continue
     return {
-      file: match[1],
+      file: match[1].trim(),
       line: Number(match[2]),
       name: line.includes('()') ? '<module>' : line.slice(line.lastIndexOf('(') + 1, line.lastIndexOf(')')).split('(')[0] || '<module>',
     }

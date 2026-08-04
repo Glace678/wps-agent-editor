@@ -8,7 +8,6 @@ import { useEditorStore } from '@/stores/editor.store'
 import { FileIcon } from './FileIcon'
 import type { FileStatInfo, FileVersion, RecentFile } from '@/types/file'
 
-/** 共用弹窗外壳：portal 到 body，flex 居中（不用 transform，规避 Electron 半描边问题） */
 function ModalShell({
   title,
   onClose,
@@ -94,7 +93,7 @@ export function FileInfoDialog({
       <InfoRow label={t('recentFiles.infoModified')} value={formatShortDate(stat.modifiedAt)} />
       <InfoRow label={t('recentFiles.infoCreated')} value={formatShortDate(stat.createdAt)} />
       <InfoRow label={t('recentFiles.infoSize')} value={formatFileSize(stat.size)} />
-      <InfoRow label={t('recentFiles.infoType')} value={stat.extension || '—'} />
+      <InfoRow label={t('recentFiles.infoType')} value={stat.extension || '-'} />
       <InfoRow label={t('recentFiles.infoLocation')} value={file.path} breakAll />
     </ModalShell>
   )
@@ -107,7 +106,6 @@ export function RenameDialog({
 }: {
   file: RecentFile
   onClose: () => void
-  /** 返回 null 表示成功（对话框关闭），否则返回展示给用户的错误信息 */
   onSubmit: (newName: string) => Promise<string | null>
 }) {
   const { t } = useTranslation()
@@ -116,7 +114,6 @@ export function RenameDialog({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // 预选中主文件名（不含扩展名），与资源管理器行为一致
   useEffect(() => {
     const input = inputRef.current
     if (!input) return
@@ -162,11 +159,14 @@ export function RenameDialog({
   )
 }
 
-export function ShareDialog({ file, onClose }: { file: RecentFile; onClose: () => void }) {
+export function ShareDialog({ files, onClose }: { files: RecentFile[]; onClose: () => void }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState<'file' | 'path' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const primaryFile = files[0]
+  const isMultiFile = files.length > 1
+  const filePaths = files.map((file) => file.path)
 
   useEffect(() => () => {
     if (closeTimer.current) clearTimeout(closeTimer.current)
@@ -178,7 +178,7 @@ export function ShareDialog({ file, onClose }: { file: RecentFile; onClose: () =
   }
 
   const copyFile = async () => {
-    const result = await window.api.file.copyToClipboard(file.path)
+    const result = await window.api.file.copyToClipboard(filePaths)
     if (!result.success) {
       setError(t('recentFiles.errorNotFound'))
       return
@@ -188,9 +188,9 @@ export function ShareDialog({ file, onClose }: { file: RecentFile; onClose: () =
 
   const copyPath = async () => {
     try {
-      await navigator.clipboard.writeText(file.path)
+      await navigator.clipboard.writeText(filePaths.join('\n'))
     } catch {
-      // Electron 渲染进程剪贴板一般可用；失败则静默
+      // Electron renderer clipboard access can fail in previews; ignore and keep UI responsive.
     }
     finish('path')
   }
@@ -201,16 +201,33 @@ export function ShareDialog({ file, onClose }: { file: RecentFile; onClose: () =
   return (
     <ModalShell title={t('recentFiles.shareTitle')} onClose={onClose} testId="share-dialog">
       <div className="mb-3 flex items-center gap-2">
-        <FileIcon filePath={file.path} />
-        <span className="break-all text-[13px] text-muted-foreground">{file.name}</span>
+        <FileIcon filePath={primaryFile.path} />
+        <span className="break-all text-[13px] text-muted-foreground">
+          {primaryFile.name}
+          {isMultiFile ? ` +${files.length - 1}` : ''}
+        </span>
       </div>
+      {isMultiFile && (
+        <div className="mb-3 max-h-36 overflow-y-auto rounded-md border border-border">
+          {files.map((file) => (
+            <div key={file.path} className="flex items-center gap-2 border-b border-border px-3 py-2 text-[13px] last:border-b-0">
+              <FileIcon filePath={file.path} />
+              <span className="min-w-0 truncate" title={file.path}>{file.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
       <div className="flex flex-col gap-2">
         <button type="button" className={optionClass} onClick={() => void copyFile()}>
           {copied === 'file' ? <Check className="h-4 w-4 shrink-0 text-green-500" /> : <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <span className="min-w-0">
             <span className="block text-[13px]">
-              {copied === 'file' ? t('recentFiles.shareCopied') : t('recentFiles.shareCopyFile')}
+              {copied === 'file'
+                ? t('recentFiles.shareCopied')
+                : isMultiFile
+                  ? `${t('recentFiles.shareCopyFile')} (${files.length})`
+                  : t('recentFiles.shareCopyFile')}
             </span>
             <span className="block text-xs text-muted-foreground">{t('recentFiles.shareCopyFileHint')}</span>
           </span>
@@ -219,9 +236,15 @@ export function ShareDialog({ file, onClose }: { file: RecentFile; onClose: () =
           {copied === 'path' ? <Check className="h-4 w-4 shrink-0 text-green-500" /> : <Copy className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <span className="min-w-0">
             <span className="block text-[13px]">
-              {copied === 'path' ? t('recentFiles.shareCopied') : t('recentFiles.shareCopyPath')}
+              {copied === 'path'
+                ? t('recentFiles.shareCopied')
+                : isMultiFile
+                  ? `${t('recentFiles.shareCopyPath')} (${files.length})`
+                  : t('recentFiles.shareCopyPath')}
             </span>
-            <span className="block break-all text-xs text-muted-foreground">{file.path}</span>
+            <span className="block break-all whitespace-pre-wrap text-xs text-muted-foreground">
+              {filePaths.join('\n')}
+            </span>
           </span>
         </button>
       </div>
@@ -247,7 +270,6 @@ export function HistoryDialog({ file, onClose }: { file: RecentFile; onClose: ()
 
   const restore = async (version: FileVersion) => {
     if (busy) return
-    // 文件正被编辑时恢复旧版：编辑器内存里还是新内容，下次保存会把恢复静默冲掉——阻止
     if (useEditorStore.getState().currentFile === file.path) {
       setError(t('recentFiles.errorFileOpen'))
       setConfirming(null)
