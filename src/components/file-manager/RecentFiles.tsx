@@ -205,8 +205,11 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
             onClick={() => setSelectedPaths(new Set([file.path]))}
             onDoubleClick={() => onOpen(file.path)}
             onContextMenu={(event) => {
+              // A context menu is only meaningful for an already selected file.
+              // Right-clicking an unselected row must not implicitly select it or
+              // open the row's actions.
+              if (!selectedPaths.has(file.path)) return
               event.preventDefault()
-              if (!selectedPaths.has(file.path)) setSelectedPaths(new Set([file.path]))
               setMenu({ x: event.clientX, y: event.clientY, file })
             }}
           >
