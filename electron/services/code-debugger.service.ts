@@ -614,7 +614,6 @@ async function createPythonSession(
   const onPrompt = () => {
     const raw = session.pendingLines
     session.pendingLines = []
-    console.log('[pdb] prompt, lastCommand=' + session.lastCommand, JSON.stringify(raw))
 
     if (session.lastCommand === 'start') {
       session.breakIndex = 0
