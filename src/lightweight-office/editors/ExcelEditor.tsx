@@ -669,6 +669,11 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
     const editorObserver = new MutationObserver(scheduleActiveCellColorSync)
     editorObserver.observe(shell, { childList: true, subtree: true })
+    const editorThemeObserver = new MutationObserver(scheduleActiveCellColorSync)
+    editorThemeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    })
     shell.addEventListener('mousedown', scheduleActiveCellColorSync, true)
     shell.addEventListener('dblclick', scheduleActiveCellColorSync, true)
     shell.addEventListener('keydown', scheduleActiveCellColorSync, true)
@@ -678,6 +683,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     return () => {
       activeCellColorSyncRef.current = () => {}
       editorObserver.disconnect()
+      editorThemeObserver.disconnect()
       shell.removeEventListener('mousedown', scheduleActiveCellColorSync, true)
       shell.removeEventListener('dblclick', scheduleActiveCellColorSync, true)
       shell.removeEventListener('keydown', scheduleActiveCellColorSync, true)
