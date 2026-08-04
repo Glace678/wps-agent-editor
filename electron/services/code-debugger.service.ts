@@ -434,10 +434,9 @@ async function createNodeSession(
 
   return setupFailed ? null : session
 }
-}
 
 /* ------------------------------------------------------------------ */
-/* Python 鈥?drive the standard library pdb debugger over a pipe       */
+/* Python — drive the standard library pdb debugger over a pipe       */
 /* ------------------------------------------------------------------ */
 
 type PdbLastCommand =
