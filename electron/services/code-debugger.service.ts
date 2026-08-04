@@ -290,6 +290,7 @@ async function createNodeSession(
     const topLine = frames[0].location.lineNumber + 1
     const isStepPause = lastCommand === 'step-over' || lastCommand === 'step-into' || lastCommand === 'step-out'
     const atBreakpoint = breakpoints.some((bp) => bp.line === topLine)
+    console.log('[node-debug] pause topLine=' + topLine + ' atBp=' + atBreakpoint + ' step=' + isStepPause + ' cmd=' + lastCommand)
     if (!isStepPause && !atBreakpoint) {
       // Binding artifact or a pause inside internal code — keep running.
       void cdp('Debugger.resume').catch(() => {})
