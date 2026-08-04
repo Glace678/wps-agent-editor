@@ -138,7 +138,7 @@ function bootCodeFor(scriptPath: string): string {
   return [
     'global.__wpsDebugRequire = require;',
     `global.__wpsDebugScriptPath = process.argv[1] || ${JSON.stringify(scriptPath)};`,
-    'global.__wpsDebugRequire(global.__wpsDebugScriptPath);',
+    'setInterval(function () {}, 1000);',
   ].join('\n')
 }
 
