@@ -67,6 +67,7 @@ const CODE_FONT_SIZE_DEFAULT = 14
 const CODE_FONT_LINE_HEIGHT_RATIO = 22 / 14
 
 const DEBUGGER_EXTENSIONS = new Set(['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'pyw'])
+const NO_BREAKPOINTS: number[] = []
 
 function clampCodeFontSize(value: number): number {
   return Math.min(CODE_FONT_SIZE_MAX, Math.max(CODE_FONT_SIZE_MIN, value))
