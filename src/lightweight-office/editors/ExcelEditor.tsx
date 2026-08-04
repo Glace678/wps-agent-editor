@@ -914,10 +914,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       const column = selection?.column?.[0]
       if (!editor || !api || row === undefined || column === undefined) return
 
-      const cell = {
-        bg: api.getCellValue(row, column, { type: 'bg' }) as Cell['bg'],
-        fc: api.getCellValue(row, column, { type: 'fc' }) as Cell['fc'],
-      }
+      const cell = getExcelCellFromActiveSheet(api, row, column)
       const colors = resolveExcelCellEditorColors(
         cell,
         document.documentElement.classList.contains('dark'),
