@@ -1321,7 +1321,9 @@ try {
       && getComputedStyle(item).display !== 'none'
       && getComputedStyle(item).visibility !== 'hidden')`)
     if (!isOpen) return
-    await clickAt(send, fontColorArrowPoint, 1)
+    // Fortune's outside-click listener closes the popup on mousedown. Clicking
+    // its arrow can immediately reopen it on the following click event.
+    await clickAt(send, richTextCellPoint, 1)
     await waitFor(send, `![
       ...document.querySelectorAll('.fortune-toobar-combo-container .fortune-toolbar-color-picker-item')
     ].some((item) => item.getClientRects().length > 0
