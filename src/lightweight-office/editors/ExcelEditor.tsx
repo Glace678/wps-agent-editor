@@ -524,7 +524,9 @@ function getExcelFontColorCommand(target: Element): ExcelFontColorCommand | null
 }
 
 function isExcelCellEditorActiveWithoutSelection(shell: HTMLElement) {
-  const editor = shell.querySelector<HTMLElement>('.luckysheet-input-box-inner')
+  const editor = shell.querySelector<HTMLElement>(
+    '#luckysheet-input-box .luckysheet-input-box-inner',
+  )
   const box = editor?.closest<HTMLElement>('#luckysheet-input-box')
   if (!editor || !box) return false
   const style = getComputedStyle(box)

@@ -987,13 +987,29 @@ try {
   await sleep(120)
   await clickAt(send, fontColorCellPoint, 1)
   await sleep(80)
-  await clickAt(send, fontColorCellPoint, 2)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
   await sleep(180)
 
   const fontColorPick = await evaluate(send, `(async () => {
-    const editorBeforePick = document.querySelector('.luckysheet-input-box-inner')
-    const editingBeforePick = editorBeforePick?.closest('#luckysheet-input-box')
-      ? getComputedStyle(editorBeforePick.closest('#luckysheet-input-box')).display !== 'none'
+    const editorBeforePick = document.querySelector(
+      '#luckysheet-input-box .luckysheet-input-box-inner',
+    )
+    const editorBoxBeforePick = editorBeforePick?.closest('#luckysheet-input-box')
+    const editingBeforePick = editorBoxBeforePick
+      ? Number.parseInt(getComputedStyle(editorBoxBeforePick).zIndex, 10) >= 0
       : false
 
     const buttons = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
@@ -1030,13 +1046,14 @@ try {
     if (!swatch) return { clicked: false, reason: 'font color swatch missing' }
     swatch.click()
     await new Promise((resolve) => setTimeout(resolve, 350))
-    const editor = document.querySelector('.luckysheet-input-box-inner')
+    const editor = document.querySelector('#luckysheet-input-box .luckysheet-input-box-inner')
+    const editorBox = editor?.closest('#luckysheet-input-box')
     return {
       clicked: true,
       selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
       editingBeforePick,
-      editingAfterPick: editor?.closest('#luckysheet-input-box')
-        ? getComputedStyle(editor.closest('#luckysheet-input-box')).display !== 'none'
+      editingAfterPick: editorBox
+        ? Number.parseInt(getComputedStyle(editorBox).zIndex, 10) >= 0
         : false,
       editorForeground: editor?.dataset.excelCellForeground || '',
       editorColor: editor ? getComputedStyle(editor).color : '',
