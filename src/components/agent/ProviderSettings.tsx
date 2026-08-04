@@ -431,10 +431,12 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                     onChange={(e) => setCustomForm({ ...customForm, defaultModel: e.target.value })}
                   />
                 )}
-                <div className="flex gap-2">
-                  <Button data-testid="custom-provider-create" onClick={() => void handleSaveCustom()} disabled={!customForm.baseURL?.trim() || !customForm.defaultModel?.trim()}>{t('providerSettings.create')}</Button>
-                  <Button variant="outline" onClick={closeCustomForm}>{t('providerSettings.cancel')}</Button>
-                </div>
+                {!isCustomModelMenuOpen && (
+                  <div className="flex gap-2">
+                    <Button data-testid="custom-provider-create" onClick={() => void handleSaveCustom()} disabled={!customForm.baseURL?.trim() || !customForm.defaultModel?.trim()}>{t('providerSettings.create')}</Button>
+                    <Button variant="outline" onClick={closeCustomForm}>{t('providerSettings.cancel')}</Button>
+                  </div>
+                )}
               </div>
             ) : selected ? (
               <div className="space-y-5">
