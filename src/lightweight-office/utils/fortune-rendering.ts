@@ -7,12 +7,7 @@ import {
   type SystemFontFace,
 } from './system-fonts'
 
-const PATCH_FLAG = Symbol.for('wps.fortune.native-dark-canvas')
-const TEXT_PATCH_FLAG = Symbol.for('wps.fortune.crisp-dark-cell-text')
-const CRISP_TEXT_EXTRA_PASSES = 2
-const DARK_CANVASES = new WeakSet<HTMLCanvasElement>()
-const WORKSHEET_CANVASES = new Set<HTMLCanvasElement>()
-const PENDING_CANVASES = new WeakSet<HTMLCanvasElement>()
+const PATCH_FLAG = Symbol.for('wps.fortune.worksheet-canvas-sizing')
 const DRAW_METHODS = [
   'drawMain',
   'drawRowHeader',
@@ -22,14 +17,6 @@ const DRAW_METHODS = [
 const FORTUNE_LANGUAGES = ['en', 'zh', 'es', 'ru', 'zh-TW', 'hi'] as const
 
 type CanvasDrawMethod = (this: Canvas, ...args: unknown[]) => unknown
-type FortuneInlineTextStyle = { fc?: string }
-type FortuneTextWord = { inline?: boolean; style?: FortuneInlineTextStyle | string }
-type FortuneTextInfo = { values?: FortuneTextWord[] }
-type SavedInlineColor = {
-  style: FortuneInlineTextStyle
-  hadOwnColor: boolean
-  color: string | undefined
-}
 type SpreadsheetFontMenuItem = {
   familyName: string
   menuName: string
