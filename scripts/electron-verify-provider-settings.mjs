@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { createServer } from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -96,6 +97,43 @@ async function stopElectron(process) {
   const exited = new Promise((resolve) => process.once('exit', resolve))
   process.kill()
   await Promise.race([exited, sleep(5_000)])
+}
+
+async function startModelsServer() {
+  const server = createServer((request, response) => {
+    if (
+      request.method === 'GET'
+      && request.url === '/v1/models'
+      && request.headers.authorization === 'Bearer custom-provider-test-key'
+    ) {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({
+        object: 'list',
+        data: [
+          { id: 'custom-alpha' },
+          { id: 'custom-beta', name: 'Custom Beta' },
+        ],
+      }))
+      return
+    }
+    response.writeHead(request.url === '/v1/models' ? 401 : 404, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ error: { message: 'Not found' } }))
+  })
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address()
+  assert.ok(address && typeof address === 'object', 'model test server must expose a TCP address')
+  return {
+    server,
+    baseURL: `http://127.0.0.1:${address.port}/v1`,
+  }
+}
+
+async function stopModelsServer(server) {
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
 }
 
 let child
@@ -256,6 +294,54 @@ try {
     window.api.provider.setBaseURL('google', ''),
   ])`)
 
+  const modelsServer = await startModelsServer()
+  try {
+    await evaluate(cdp, "document.querySelector('[data-testid=provider-option-zhipuai]')?.closest('[role=dialog]')?.querySelector('button:last-child')?.click(); true")
+    await waitFor(cdp, "Boolean(document.querySelector('[data-testid=custom-provider-base-url]'))", 'custom provider form')
+
+    await evaluate(cdp, `(() => {
+      const setValue = (selector, value) => {
+        const input = document.querySelector(selector)
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      setValue('[data-testid=custom-provider-base-url]', ${JSON.stringify(modelsServer.baseURL)})
+      setValue('[data-testid=custom-provider-api-key]', 'custom-provider-test-key')
+      document.querySelector('[data-testid=custom-provider-test-connection]').click()
+      return true
+    })()`)
+    await waitFor(
+      cdp,
+      "document.querySelectorAll('[data-testid=custom-provider-model-option]').length === 2",
+      'automatically opened custom model list',
+    )
+
+    const detectedModels = await evaluate(cdp, `Array.from(document.querySelectorAll('[data-testid=custom-provider-model-option]'))
+      .map((option) => option.textContent.trim())`)
+    assert.deepEqual(detectedModels, ['custom-alpha', 'Custom Beta'])
+    await evaluate(cdp, `Array.from(document.querySelectorAll('[data-testid=custom-provider-model-option]'))
+      .find((option) => option.textContent.includes('Custom Beta'))?.click(); true`)
+    await waitFor(
+      cdp,
+      "document.querySelector('[data-testid=custom-provider-model-picker]')?.textContent.includes('custom-beta')",
+      'custom model selection',
+    )
+    await evaluate(cdp, "document.querySelector('[data-testid=custom-provider-create]').click(); true")
+    await waitFor(cdp, "!document.querySelector('[data-testid=custom-provider-base-url]')", 'custom provider creation')
+
+    const customProvider = await evaluate(cdp, `Promise.all([window.api.provider.list(), window.api.auth.getAll()]).then(([providers, auth]) => {
+      const provider = providers.find((item) => item.isCustom && item.api === ${JSON.stringify(modelsServer.baseURL)})
+      return {
+        models: provider?.models.map((model) => model.id),
+        configured: provider ? auth[provider.id]?.configured : false,
+      }
+    })`)
+    assert.deepEqual(customProvider.models, ['custom-alpha', 'custom-beta'])
+    assert.equal(customProvider.configured, true, 'custom provider API key must be saved after creation')
+  } finally {
+    await stopModelsServer(modelsServer.server)
+  }
+
   await evaluate(cdp, `(() => {
     document.querySelector('[data-testid=provider-base-url]')
       ?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
@@ -274,7 +360,7 @@ try {
   })()`)
   await waitFor(cdp, "!document.querySelector('[role=dialog]')", 'provider settings backdrop dismissal')
 
-  console.log(`PASS provider documentation, editable Base URL, chat-only models, persistence, and backdrop dismissal\n${screenshotPath}`)
+  console.log(`PASS provider documentation, editable Base URL, custom model discovery, persistence, and backdrop dismissal\n${screenshotPath}`)
 } finally {
   cdp?.close()
   await stopElectron(child)
