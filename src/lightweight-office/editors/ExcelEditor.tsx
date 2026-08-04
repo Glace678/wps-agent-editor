@@ -842,6 +842,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     let fallbackSnapshot: boolean | null = null
     let triggerSawMouseDown = false
     let pendingCommand: PendingFontColorCommand | null = null
+    let pendingResetAfterEdit: PendingFontColorCommand | null = null
     const pendingTimers = new Set<number>()
 
     const captureCommand = (color: string | undefined): PendingFontColorCommand | null => {
@@ -851,7 +852,10 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       return { color, selection: cloneExcelSelection(selection) }
     }
 
-    const scheduleFallback = (command: PendingFontColorCommand) => {
+    const scheduleFallback = (
+      command: PendingFontColorCommand,
+      correctingEditorCommit = false,
+    ) => {
       const timer = window.setTimeout(() => {
         pendingTimers.delete(timer)
         const api = workbookRef.current
@@ -861,6 +865,17 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
         // caret branch is a no-op, so only write the whole cell when nothing changed.
         if (!excelSelectionUsesFontColor(api, command.selection, command.color)) {
           applyExcelFontColorToSelection(api, command.selection, command.color)
+        }
+        const editorStillActive = syncExcelCellEditorFontColor(
+          shell,
+          api,
+          command.selection,
+          command.color,
+        )
+        if (command.color === undefined && editorStillActive && !correctingEditorCommit) {
+          pendingResetAfterEdit = command
+        } else if (command.color !== undefined || correctingEditorCommit) {
+          pendingResetAfterEdit = null
         }
         activeCellColorSyncRef.current()
       }, 0)
@@ -913,12 +928,24 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       }
     }
 
+    const handleEditorFocusOut = (event: FocusEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)
+        || !target.matches('#luckysheet-input-box .luckysheet-input-box-inner')) return
+      const resetCommand = pendingResetAfterEdit
+      if (!resetCommand) return
+      pendingResetAfterEdit = null
+      scheduleFallback(resetCommand, true)
+    }
+
     shell.addEventListener('mousedown', handleFontColorPointer, true)
     shell.addEventListener('click', handleFontColorPointer, true)
+    shell.addEventListener('focusout', handleEditorFocusOut, true)
 
     return () => {
       shell.removeEventListener('mousedown', handleFontColorPointer, true)
       shell.removeEventListener('click', handleFontColorPointer, true)
+      shell.removeEventListener('focusout', handleEditorFocusOut, true)
       for (const timer of pendingTimers) window.clearTimeout(timer)
       pendingTimers.clear()
     }
