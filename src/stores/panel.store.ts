@@ -62,7 +62,7 @@ interface PanelState {
   showRunResult: (output: RunOutputData) => void
   clearOutput: () => void
   setReferences: (symbol: string, items: ReferenceItem[]) => void
-  navigateToLine: (line: number, column?: number) => void
+  navigateToLine: (line: number, column?: number, file?: string) => void
 }
 
 export const usePanelStore = create<PanelState>((set, get) => ({
