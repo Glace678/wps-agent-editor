@@ -1,5 +1,6 @@
 import { TopBar } from './TopBar'
 import { ResizableThreeColumnLayout } from './resize/ResizableThreeColumnLayout'
+import { BottomPanel } from './BottomPanel'
 import {
   AgentAssistantModule,
   DocumentEditorModule,
@@ -15,6 +16,7 @@ export function AppLayout() {
         center={<DocumentEditorModule />}
         right={({ collapseRight }) => <AgentAssistantModule onCollapse={collapseRight} />}
       />
+      <BottomPanel />
     </div>
   )
 }
