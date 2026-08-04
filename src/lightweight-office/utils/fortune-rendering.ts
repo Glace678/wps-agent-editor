@@ -1,5 +1,10 @@
-import { Canvas, locale } from '@fortune-sheet/core'
-import type { Context } from '@fortune-sheet/core'
+import {
+  Canvas,
+  defaultStyle,
+  getFlowdata,
+  locale,
+} from '@fortune-sheet/core'
+import type { Cell, Context } from '@fortune-sheet/core'
 import {
   getSystemFontDisplayName,
   getSystemFontFamilyNames,
@@ -7,16 +12,37 @@ import {
   type SystemFontFace,
 } from './system-fonts'
 
-const PATCH_FLAG = Symbol.for('wps.fortune.worksheet-canvas-sizing')
+const PATCH_FLAG = Symbol.for('wps.fortune.worksheet-dark-defaults-v2')
+const ACTIVE_CELL_PAINT = Symbol('wps.fortune.active-cell-paint')
 const DRAW_METHODS = [
   'drawMain',
   'drawRowHeader',
   'drawColumnHeader',
   'drawFreezeLine',
 ] as const
+const CELL_DRAW_METHODS = [
+  { name: 'cellRender', contextIndex: 7, conditionalFormatIndex: 9 },
+  { name: 'nullCellRender', contextIndex: 6, conditionalFormatIndex: 8 },
+  { name: 'cellOverflowRender', contextIndex: 4, conditionalFormatIndex: 10 },
+] as const
 const FORTUNE_LANGUAGES = ['en', 'zh', 'es', 'ru', 'zh-TW', 'hi'] as const
+const DARK_WORKSHEET_BACKGROUND = '#000000'
+const DARK_WORKSHEET_TEXT = '#f5f5f5'
+const DARK_WORKSHEET_GRID = '#2a2a2a'
 
 type CanvasDrawMethod = (this: Canvas, ...args: unknown[]) => unknown
+type ConditionalFormatStyle = {
+  cellColor?: unknown
+  textColor?: unknown
+}
+type ConditionalFormatMap = Record<string, ConditionalFormatStyle | undefined>
+type CellPaintState = {
+  useDarkDefaultBackground: boolean
+  useDarkDefaultText: boolean
+}
+type PatchedCanvas = Canvas & {
+  [ACTIVE_CELL_PAINT]?: CellPaintState[]
+}
 type SpreadsheetFontMenuItem = {
   familyName: string
   menuName: string
@@ -25,6 +51,217 @@ type SpreadsheetFontMenuItem = {
 function isWorksheetCanvas(canvas: HTMLCanvasElement) {
   return canvas.classList.contains('fortune-sheet-canvas')
     && canvas.closest('.excel-editor-shell') !== null
+}
+
+function isDarkMode() {
+  return document.documentElement.classList.contains('dark')
+}
+
+function isColor(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function normalizedCanvasColor(value: CanvasRenderingContext2D['fillStyle']) {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/\s+/g, '')
+    : ''
+}
+
+function isWhiteCanvasColor(value: CanvasRenderingContext2D['fillStyle']) {
+  const color = normalizedCanvasColor(value)
+  return color === '#fff'
+    || color === '#ffffff'
+    || color === 'rgb(255,255,255)'
+    || color === 'rgba(255,255,255,1)'
+}
+
+function isDefaultCanvasTextColor(value: CanvasRenderingContext2D['fillStyle']) {
+  const color = normalizedCanvasColor(value)
+  return color === '#000'
+    || color === '#000000'
+    || color === '#333'
+    || color === '#333333'
+    || color === 'black'
+    || color === 'rgb(0,0,0)'
+    || color === 'rgba(0,0,0,1)'
+    || color === 'rgb(51,51,51)'
+    || color === 'rgba(51,51,51,1)'
+}
+
+function isFortuneImplicitFontColor(value: unknown) {
+  if (!isColor(value)) return true
+  const color = value.trim().toLowerCase().replace(/\s+/g, '')
+  // Fortune clones this value into newly typed cells even though the user did
+  // not choose a font color. A user-picked #333333 remains explicit.
+  return color === 'rgb(51,51,51)' || color === 'rgba(51,51,51,1)'
+}
+
+function getCellPaintState(
+  canvas: Canvas,
+  row: number,
+  column: number,
+  conditionalFormats: unknown,
+): CellPaintState {
+  const cell = getFlowdata(canvas.sheetCtx)?.[row]?.[column] as Cell | null | undefined
+  const conditional = (
+    conditionalFormats && typeof conditionalFormats === 'object'
+      ? (conditionalFormats as ConditionalFormatMap)[`${row}_${column}`]
+      : undefined
+  )
+  const hasAuthoredBackground = isColor(cell?.bg)
+  const hasConditionalBackground = isColor(conditional?.cellColor)
+  const useDarkDefaultBackground = !hasAuthoredBackground && !hasConditionalBackground
+  const hasAuthoredText = !isFortuneImplicitFontColor(cell?.fc)
+  const hasConditionalText = isColor(conditional?.textColor)
+
+  return {
+    useDarkDefaultBackground,
+    useDarkDefaultText:
+      useDarkDefaultBackground && !hasAuthoredText && !hasConditionalText,
+  }
+}
+
+function withDarkCellPaint(
+  canvas: PatchedCanvas,
+  context: CanvasRenderingContext2D,
+  state: CellPaintState,
+  draw: () => unknown,
+) {
+  const stack = canvas[ACTIVE_CELL_PAINT] ?? []
+  canvas[ACTIVE_CELL_PAINT] = stack
+  stack.push(state)
+
+  const hadOwnFillRect = Object.prototype.hasOwnProperty.call(context, 'fillRect')
+  const hadOwnFillText = Object.prototype.hasOwnProperty.call(context, 'fillText')
+  const originalFillRect = context.fillRect
+  const originalFillText = context.fillText
+  let paintsCellBackground = true
+
+  context.fillRect = function darkDefaultCellFillRect(x, y, width, height) {
+    if (!paintsCellBackground) {
+      originalFillRect.call(context, x, y, width, height)
+      return
+    }
+
+    paintsCellBackground = false
+    if (!state.useDarkDefaultBackground) {
+      originalFillRect.call(context, x, y, width, height)
+      return
+    }
+
+    const previousFillStyle = context.fillStyle
+    context.fillStyle = DARK_WORKSHEET_BACKGROUND
+    try {
+      originalFillRect.call(context, x, y, width, height)
+    } finally {
+      context.fillStyle = previousFillStyle
+    }
+  }
+
+  // Some Fortune paths (dynamic arrays and checkbox validation) bypass
+  // cellTextRender. Keep their implicit text readable too.
+  context.fillText = function darkDefaultCellFillText(text, x, y, maxWidth) {
+    const previousFillStyle = context.fillStyle
+    const replaceDefault = state.useDarkDefaultText
+      && isDefaultCanvasTextColor(previousFillStyle)
+    if (replaceDefault) context.fillStyle = DARK_WORKSHEET_TEXT
+    try {
+      if (maxWidth === undefined) originalFillText.call(context, text, x, y)
+      else originalFillText.call(context, text, x, y, maxWidth)
+    } finally {
+      if (replaceDefault) context.fillStyle = previousFillStyle
+    }
+  }
+
+  try {
+    return draw()
+  } finally {
+    stack.pop()
+    if (stack.length === 0) delete canvas[ACTIVE_CELL_PAINT]
+    if (hadOwnFillRect) context.fillRect = originalFillRect
+    else delete (context as unknown as { fillRect?: CanvasRenderingContext2D['fillRect'] }).fillRect
+    if (hadOwnFillText) context.fillText = originalFillText
+    else delete (context as unknown as { fillText?: CanvasRenderingContext2D['fillText'] }).fillText
+  }
+}
+
+function withDarkWorksheetBase(
+  context: CanvasRenderingContext2D,
+  draw: () => unknown,
+) {
+  const hadOwnFillRect = Object.prototype.hasOwnProperty.call(context, 'fillRect')
+  const originalFillRect = context.fillRect
+  const previousGridColor = defaultStyle.strokeStyle
+  let paintsWorksheetBase = true
+
+  defaultStyle.strokeStyle = DARK_WORKSHEET_GRID
+  context.fillRect = function darkWorksheetBaseFillRect(x, y, width, height) {
+    if (!paintsWorksheetBase) {
+      originalFillRect.call(context, x, y, width, height)
+      return
+    }
+
+    paintsWorksheetBase = false
+    const previousFillStyle = context.fillStyle
+    context.fillStyle = DARK_WORKSHEET_BACKGROUND
+    try {
+      originalFillRect.call(context, x, y, width, height)
+    } finally {
+      context.fillStyle = previousFillStyle
+    }
+  }
+
+  try {
+    return draw()
+  } finally {
+    defaultStyle.strokeStyle = previousGridColor
+    if (hadOwnFillRect) context.fillRect = originalFillRect
+    else delete (context as unknown as { fillRect?: CanvasRenderingContext2D['fillRect'] }).fillRect
+  }
+}
+
+function withDarkWorksheetHeader(
+  context: CanvasRenderingContext2D,
+  draw: () => unknown,
+) {
+  const hadOwnFillRect = Object.prototype.hasOwnProperty.call(context, 'fillRect')
+  const hadOwnFillText = Object.prototype.hasOwnProperty.call(context, 'fillText')
+  const originalFillRect = context.fillRect
+  const originalFillText = context.fillText
+  const previousGridColor = defaultStyle.strokeStyle
+
+  defaultStyle.strokeStyle = DARK_WORKSHEET_GRID
+  context.fillRect = function darkWorksheetHeaderFillRect(x, y, width, height) {
+    const previousFillStyle = context.fillStyle
+    const replaceWhite = isWhiteCanvasColor(previousFillStyle)
+    if (replaceWhite) context.fillStyle = DARK_WORKSHEET_BACKGROUND
+    try {
+      originalFillRect.call(context, x, y, width, height)
+    } finally {
+      if (replaceWhite) context.fillStyle = previousFillStyle
+    }
+  }
+  context.fillText = function darkWorksheetHeaderFillText(text, x, y, maxWidth) {
+    const previousFillStyle = context.fillStyle
+    const replaceDefault = isDefaultCanvasTextColor(previousFillStyle)
+    if (replaceDefault) context.fillStyle = DARK_WORKSHEET_TEXT
+    try {
+      if (maxWidth === undefined) originalFillText.call(context, text, x, y)
+      else originalFillText.call(context, text, x, y, maxWidth)
+    } finally {
+      if (replaceDefault) context.fillStyle = previousFillStyle
+    }
+  }
+
+  try {
+    return draw()
+  } finally {
+    defaultStyle.strokeStyle = previousGridColor
+    if (hadOwnFillRect) context.fillRect = originalFillRect
+    else delete (context as unknown as { fillRect?: CanvasRenderingContext2D['fillRect'] }).fillRect
+    if (hadOwnFillText) context.fillText = originalFillText
+    else delete (context as unknown as { fillText?: CanvasRenderingContext2D['fillText'] }).fillText
+  }
 }
 
 /**
@@ -64,7 +301,79 @@ function installNativeDarkCanvasRendering() {
         // (updateContextWithCanvas), so re-snap on every draw.
         snapCanvasCssSizeToBacking(canvas)
       }
+
+      if (!isWorksheetCanvas(canvas) || !isDarkMode()) {
+        return original.apply(this, args)
+      }
+
+      const context = canvas.getContext('2d')
+      if (!context) return original.apply(this, args)
+      if (methodName === 'drawMain') {
+        return withDarkWorksheetBase(context, () => original.apply(this, args))
+      }
+      if (methodName === 'drawRowHeader' || methodName === 'drawColumnHeader') {
+        return withDarkWorksheetHeader(context, () => original.apply(this, args))
+      }
       return original.apply(this, args)
+    }
+  }
+
+  for (const { name, contextIndex, conditionalFormatIndex } of CELL_DRAW_METHODS) {
+    const original = prototype[name] as CanvasDrawMethod | undefined
+    if (typeof original !== 'function') continue
+
+    prototype[name] = function patchedFortuneCellDraw(
+      this: Canvas,
+      ...args: unknown[]
+    ) {
+      if (!isWorksheetCanvas(this.canvasElement) || !isDarkMode()) {
+        return original.apply(this, args)
+      }
+
+      const context = args[contextIndex] as CanvasRenderingContext2D | undefined
+      const row = Number(args[0])
+      const column = Number(args[1])
+      if (!context || !Number.isInteger(row) || !Number.isInteger(column)) {
+        return original.apply(this, args)
+      }
+
+      const state = getCellPaintState(
+        this,
+        row,
+        column,
+        args[conditionalFormatIndex],
+      )
+      return withDarkCellPaint(
+        this as PatchedCanvas,
+        context,
+        state,
+        () => original.apply(this, args),
+      )
+    }
+  }
+
+  const originalCellTextRender = prototype.cellTextRender as CanvasDrawMethod | undefined
+  if (typeof originalCellTextRender === 'function') {
+    prototype.cellTextRender = function patchedFortuneCellTextRender(
+      this: Canvas,
+      ...args: unknown[]
+    ) {
+      const context = args[1] as CanvasRenderingContext2D | undefined
+      const stack = (this as PatchedCanvas)[ACTIVE_CELL_PAINT]
+      const state = stack?.[stack.length - 1]
+      if (!context || !state?.useDarkDefaultText) {
+        return originalCellTextRender.apply(this, args)
+      }
+
+      const previousFillStyle = context.fillStyle
+      if (isDefaultCanvasTextColor(previousFillStyle)) {
+        context.fillStyle = DARK_WORKSHEET_TEXT
+      }
+      try {
+        return originalCellTextRender.apply(this, args)
+      } finally {
+        context.fillStyle = previousFillStyle
+      }
     }
   }
 
