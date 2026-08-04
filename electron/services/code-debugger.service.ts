@@ -413,6 +413,11 @@ const PDB_ACK_LINE = /Breakpoint\s+\d+\s+at|Error in argument/
 const PDB_RETURN_LINE = /^--Return--/
 const PDB_FINISHED_LINE = /The program finished/
 
+function pdbBreakpointKey(file: string, line: number): string {
+  const normalized = process.platform === 'win32' ? file.toLowerCase() : file
+  return `${normalized}:${line}`
+}
+
 function pdbCurrentFrame(lines: string[]): { file: string; line: number; name: string } | null {
   for (const line of lines) {
     const match = PDB_CURRENT_LINE.exec(line.trim())
