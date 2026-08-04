@@ -267,9 +267,9 @@ try {
   await screenshot(cdp.send, 'v1b-checkbox-multi-menu.png')
   record(
     'V1b checkboxes multi-select with the single-file menu',
-    checkboxHiddenBeforeHover?.opacity === '0'
+      checkboxHiddenBeforeHover?.opacity === '0'
       && checkboxVisibleOnHover === '1'
-      && checkboxHiddenBeforeHover?.pointerEvents === 'auto'
+      && checkboxHiddenBeforeHover?.pointerEvents === 'none'
       && unselectedMenuSuppressed && themeAware && selectedCount === 3
       && JSON.stringify(multiMenuItems) === JSON.stringify(menuItems),
     `hidden=${checkboxHiddenBeforeHover?.opacity} hover=${checkboxVisibleOnHover} pointerEvents=${checkboxHiddenBeforeHover?.pointerEvents} unselectedMenu=${unselectedMenuSuppressed} theme=${themeAware} selected=${selectedCount}`,
