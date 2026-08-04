@@ -1126,6 +1126,88 @@ try {
     JSON.stringify(swatchPixels),
   )
 
+  await clickAt(send, fontColorCellPoint, 1)
+  await sleep(80)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
+  })()`)
+
+  const fontColorReset = await evaluate(send, `(async () => {
+    const buttons = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
+    const fontColor = buttons.find((button) => [...button.querySelectorAll('use')].some((icon) => (
+      (icon.getAttribute('href') || icon.getAttribute('xlink:href') || '').endsWith('#font-color')
+    )))
+    const arrow = fontColor?.closest('.fortune-toolbar-combo')
+      ?.querySelector('.fortune-toolbar-combo-arrow')
+    if (!arrow) return { clicked: false, reason: 'font color arrow missing' }
+    arrow.click()
+
+    const deadline = Date.now() + 5000
+    let reset
+    while (Date.now() < deadline) {
+      reset = document.querySelector('#fortune-custom-color .color-reset')
+      if (reset) break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (!reset) return { clicked: false, reason: 'font color reset missing' }
+    reset.click()
+    await new Promise((resolve) => setTimeout(resolve, 350))
+
+    const editor = document.querySelector('.luckysheet-input-box .luckysheet-input-box-inner')
+    return {
+      clicked: true,
+      editorForeground: editor?.dataset.excelCellForeground || '',
+      editorColor: editor ? getComputedStyle(editor).color : '',
+    }
+  })()`, true)
+  check('font-color reset can be clicked in edit mode', fontColorReset.clicked, JSON.stringify(fontColorReset))
+  check(
+    'font-color reset restores the dark automatic editor color',
+    fontColorReset.editorForeground.toLowerCase() === '#f5f5f5',
+    JSON.stringify(fontColorReset),
+  )
+
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
+  })()`)
+  await sleep(250)
+  const resetDarkPixels = await readA7TextPixels()
+  check(
+    'font-color reset removes the authored green after commit',
+    resetDarkPixels?.pickerGreen < 3 && resetDarkPixels?.light > 10,
+    JSON.stringify(resetDarkPixels),
+  )
+
   const toggledToLight = await evaluate(send, `(() => {
     const button = document.querySelector('[data-testid="theme-toggle"]')
     if (!button) return false
@@ -1166,6 +1248,13 @@ try {
     'light mode restores native white worksheet pixels',
     lightCanvasPixels?.whiteRatio > 0.8 && lightCanvasPixels?.blackRatio < 0.1,
     JSON.stringify(lightCanvasPixels),
+  )
+
+  const resetLightPixels = await readA7TextPixels()
+  check(
+    'font-color reset stays automatic after switching to light mode',
+    resetLightPixels?.pickerGreen < 3 && resetLightPixels?.dark > 10,
+    JSON.stringify(resetLightPixels),
   )
 
   await evaluate(send, `(() => {
