@@ -297,6 +297,14 @@ async function createNodeSession(
   breakpoints: DebugBreakpoint[],
 ): Promise<DebugSession | null> {
   const code = await fs.readFile(filePath, 'utf8')
+  const extension = extensionOf(filePath)
+  const loader = extension === 'ts' ? 'ts' : extension === 'tsx' ? 'tsx' : extension === 'jsx' ? 'jsx' : null
+  let esbuildPath = ''
+  try {
+    esbuildPath = require.resolve('esbuild')
+  } catch {
+    esbuildPath = ''
+  }
   const child = spawn(process.execPath, ['-e', NODE_CHILD_CODE], {
     cwd: path.dirname(filePath),
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -308,10 +316,19 @@ async function createNodeSession(
   interface_.on('line', (line) => {
     try {
       const message = JSON.parse(line) as DebugEvent & Record<string, unknown>
-      emit(message)
+      if (message && typeof message === 'object' && typeof message.event === 'string') {
+        emit(message)
+      } else {
+        // Raw program stdout that is not part of the message protocol.
+        emit({ event: 'output', kind: 'stdout', text: `${line}\n` })
+      }
     } catch {
-      // Ignore non-JSON lines
+      emit({ event: 'output', kind: 'stdout', text: `${line}\n` })
     }
+  })
+  const stderrInterface = createInterface({ input: child.stderr })
+  stderrInterface.on('line', (line) => {
+    emit({ event: 'output', kind: 'stderr', text: `${line}\n` })
   })
 
   child.on('error', (error) => {
@@ -323,6 +340,7 @@ async function createNodeSession(
       activeSession = null
     }
     interface_.close()
+    stderrInterface.close()
   })
 
   const session: NodeSession = {
@@ -353,6 +371,8 @@ async function createNodeSession(
     filePath,
     code,
     breakpoints,
+    loader,
+    esbuildPath,
   }) + '\n')
 
   return session
@@ -493,13 +513,18 @@ async function createPythonSession(
     },
   }
 
-  const interface_ = createInterface({ input: child.stdout })
-  const onLine = (line: string) => {
-    if (line.trim() === '(Pdb)') {
+  let rawBuffer = ''
+  const onData = (chunk: string) => {
+    rawBuffer += chunk
+    let promptIndex = rawBuffer.indexOf('(Pdb) ')
+    while (promptIndex !== -1) {
+      const prefix = rawBuffer.slice(0, promptIndex)
+      rawBuffer = rawBuffer.slice(promptIndex + '(Pdb) '.length)
+      const lines = prefix.split(/\r?\n/).filter((line) => line.length > 0)
+      if (lines.length > 0) session.pendingLines.push(...lines)
       onPrompt()
-      return
+      promptIndex = rawBuffer.indexOf('(Pdb) ')
     }
-    session.pendingLines.push(line)
   }
 
   const onPrompt = () => {
@@ -541,7 +566,7 @@ async function createPythonSession(
       session.pendingPaused = null
       session.lastCommand = 'none'
       const body = raw
-        .filter((line) => !PDB_STACK_LINE.test(line.trim()))
+        .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !line.trim().startsWith('->'))
         .join('\n')
         .trim()
       const variables: DebugVariable[] = []
@@ -563,7 +588,10 @@ async function createPythonSession(
       const pending = session.pendingEval
       session.pendingEval = null
       session.lastCommand = 'none'
-      const body = raw.join('\n').trim()
+      const body = raw
+        .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !line.trim().startsWith('->'))
+        .join('\n')
+        .trim()
       emit({
         event: 'eval-result',
         id: pending?.id ?? '',
@@ -573,6 +601,10 @@ async function createPythonSession(
     }
 
     if (isFinished) {
+      const output = raw
+        .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !PDB_FINISHED_LINE.test(line))
+        .join('\n')
+      if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
       emit({ event: 'output', kind: 'stdout', text: 'The program finished.\n' })
       emit({ event: 'exit', code: 0 })
       quitPdb(session)
@@ -582,19 +614,24 @@ async function createPythonSession(
 
     const frames = pdbStackFrames(raw)
     const current = frames[0]
+    const programOutput = (lines: string[]) => lines
+      .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !line.trim().startsWith('->'))
+      .join('\n')
 
     if (current && session.lastCommand === 'continue') {
       const key = `${current.file}:${current.line}`
       const hitBreakpoint = session.breakpointSet.has(key)
       if (!hitBreakpoint) {
         // The program terminated without hitting a breakpoint (e.g. an exception).
-        const text = raw.join('\n').replace(/^\s+/gm, '')
+        const text = programOutput(raw)
         if (text) emit({ event: 'output', kind: 'stderr', text: `${text}\n` })
         emit({ event: 'exit', code: 1 })
         quitPdb(session)
         session.lastCommand = 'none'
         return
       }
+      const output = programOutput(raw)
+      if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
       session.pendingPaused = {
         reason: 'breakpoint',
         frames: frames.map((frame) => ({
@@ -610,6 +647,8 @@ async function createPythonSession(
     }
 
     if (current && ['step', 'next', 'return'].includes(session.lastCommand)) {
+      const output = programOutput(raw)
+      if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
       session.pendingPaused = {
         reason: isReturn ? 'step-out' : 'step',
         frames: frames.map((frame) => ({
@@ -627,7 +666,7 @@ async function createPythonSession(
     session.lastCommand = 'none'
   }
 
-  interface_.on('line', onLine)
+  child.stdout.on('data', (chunk) => onData(String(chunk)))
   child.stdout.on('end', () => {
     if (activeSession && activeSession.filePath === filePath) {
       emit({ event: 'exit', code: null })
