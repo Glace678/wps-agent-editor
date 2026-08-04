@@ -236,7 +236,8 @@ export function CodeEditor({
   const [inlineInstruction, setInlineInstruction] = useState('')
 
   const debugStatus = useDebugStore((s) => s.status)
-  const debugBreakpoints = useDebugStore((s) => s.breakpoints[filePath] ?? [])
+  const fileBreakpoints = useDebugStore((s) => (filePath ? s.breakpoints[filePath] : undefined))
+  const debugBreakpoints = fileBreakpoints ?? NO_BREAKPOINTS
   const debugCurrentFile = useDebugStore((s) => s.currentFile)
   const debugCurrentLine = useDebugStore((s) => s.currentLine)
   const pendingNavigation = usePanelStore((s) => s.pendingNavigation)
