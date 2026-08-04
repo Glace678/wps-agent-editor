@@ -247,9 +247,11 @@ try {
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
   await sleep(200)
   await hover(cdp.send, recentRowExpr(path.basename(missingFile)), 'hover missing row')
-  const checkboxVisibleOnHover = await evaluate(
+  const checkboxVisibleOnHover = await waitFor(
     cdp.send,
-    `getComputedStyle(${recentSelectExpr(path.basename(missingFile))}).opacity`,
+    `getComputedStyle(${recentSelectExpr(path.basename(missingFile))}).opacity === '1' && '1'`,
+    'checkbox visible on row hover',
+    2000,
   )
   await leftClick(cdp.send, recentSelectExpr(path.basename(missingFile)), 'select missing row checkbox')
   await leftClick(cdp.send, recentSelectExpr(path.basename(sacrificial)), 'select sacrificial row checkbox')
