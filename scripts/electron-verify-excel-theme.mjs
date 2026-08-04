@@ -1021,26 +1021,35 @@ try {
     JSON.stringify(fontColorPick),
   )
 
-  const swatchScreenshot = await send('Page.captureScreenshot', {
-    format: 'png',
-    fromSurface: true,
-    clip: {
-      x: Math.max(0, styles.rect.x),
-      y: Math.max(0, styles.rect.y),
-      width: styles.rect.width,
-      height: styles.rect.height,
-      scale: 1,
-    },
-  })
-  const swatchPixels = await inspectPixels(
-    Buffer.from(swatchScreenshot.result.data, 'base64'),
-    styles.cellArea,
-    styles.rect,
-  )
+  const swatchPixels = await evaluate(send, `(() => {
+    const canvas = document.querySelector('.fortune-sheet-canvas')
+    const cellArea = document.querySelector('.fortune-cell-area')
+    const context = canvas?.getContext('2d')
+    if (!canvas || !cellArea || !context) return null
+    const canvasRect = canvas.getBoundingClientRect()
+    const cellRect = cellArea.getBoundingClientRect()
+    const scaleX = canvas.width / canvasRect.width
+    const scaleY = canvas.height / canvasRect.height
+    const left = Math.floor((cellRect.left - canvasRect.left + 2) * scaleX)
+    const top = Math.floor((cellRect.top - canvasRect.top + 2) * scaleY)
+    const width = Math.max(1, Math.floor(68 * scaleX))
+    const height = Math.max(1, Math.floor(15 * scaleY))
+    const pixels = context.getImageData(left, top, width, height).data
+    let pickerGreen = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index]
+      const green = pixels[index + 1]
+      const blue = pixels[index + 2]
+      if (Math.abs(red - 0) <= 18
+        && Math.abs(green - 240) <= 18
+        && Math.abs(blue - 15) <= 18) pickerGreen += 1
+    }
+    return { pickerGreen, samples: pixels.length / 4 }
+  })()`)
   check(
     'font-color palette swatch repaints the selected cell text',
-    swatchPixels.cellRegions.plain.pickerGreen > 10,
-    JSON.stringify(swatchPixels.cellRegions.plain),
+    swatchPixels?.pickerGreen > 10,
+    JSON.stringify(swatchPixels),
   )
 
   const toggledToLight = await evaluate(send, `(() => {
