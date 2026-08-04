@@ -971,6 +971,14 @@ try {
       buttons: 0,
     }))
     await new Promise((resolve) => setTimeout(resolve, 100))
+    cellArea.dispatchEvent(new MouseEvent('dblclick', {
+      ...point,
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 0,
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 100))
 
     const buttons = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
     const fontFamily = buttons.find((item) => /font|瀛椾綋|瀛楅珨/i.test(
@@ -1010,12 +1018,16 @@ try {
     return {
       clicked: true,
       selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
+      editing: editor?.closest('#luckysheet-input-box')
+        ? getComputedStyle(editor.closest('#luckysheet-input-box')).display !== 'none'
+        : false,
       editorForeground: editor?.dataset.excelCellForeground || '',
       editorColor: editor ? getComputedStyle(editor).color : '',
     }
   })()`, true)
   check('font-color palette swatch can be clicked', fontColorPick.clicked, JSON.stringify(fontColorPick))
   check('font-color palette test targets A7', fontColorPick.selection === 'A7', JSON.stringify(fontColorPick))
+  check('font-color palette test keeps A7 in edit mode', fontColorPick.editing, JSON.stringify(fontColorPick))
   check(
     'font-color palette swatch updates the active cell color model',
     fontColorPick.editorForeground.toLowerCase() === fontColorSwatch,
