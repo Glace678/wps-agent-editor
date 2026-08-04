@@ -14,14 +14,18 @@ import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import {
+  Bug,
   ChevronRight,
-  Copy,
+  CornerDownRight,
+  CornerUpLeft,
   FileCode2,
   MessageSquareCode,
   Play,
+  RotateCcw,
   Send,
+  Square,
+  StepForward,
   Terminal,
-  Trash2,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,8 +34,11 @@ import { getCodeLanguage } from '@/lib/code-languages'
 import { openAgentAssistant } from '@/lib/code-editor-events'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { useAgentStore } from '@/stores/agent.store'
-import type { CodeRunResult } from '@/types/code'
+import { useDebugStore } from '@/stores/debug.store'
+import { usePanelStore } from '@/stores/panel.store'
+import type { DebugCommand } from '@/types/code'
 import { readFileBytes } from '../utils/file-io'
+import './code-debug.css'
 
 type MonacoEnvironmentGlobal = typeof globalThis & {
   MonacoEnvironment?: {
@@ -58,6 +65,8 @@ const CODE_FONT_SIZE_MIN = 8
 const CODE_FONT_SIZE_MAX = 32
 const CODE_FONT_SIZE_DEFAULT = 14
 const CODE_FONT_LINE_HEIGHT_RATIO = 22 / 14
+
+const DEBUGGER_EXTENSIONS = new Set(['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'pyw'])
 
 function clampCodeFontSize(value: number): number {
   return Math.min(CODE_FONT_SIZE_MAX, Math.max(CODE_FONT_SIZE_MIN, value))
@@ -150,6 +159,10 @@ function getDarkTheme(): boolean {
   return document.documentElement.classList.contains('dark')
 }
 
+function isSameFile(left: string, right: string): boolean {
+  return left.replace(/\\/g, '/').toLowerCase() === right.replace(/\\/g, '/').toLowerCase()
+}
+
 interface ReferenceItem {
   line: number
   column: number
@@ -212,25 +225,34 @@ export function CodeEditor({
   const onShellNextTabRef = useRef(onShellNextTab)
   const onShellPreviousTabRef = useRef(onShellPreviousTab)
   const onShellCloseTabRef = useRef(onShellCloseTab)
+  const decorationsRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [fontSize, setFontSize] = useState(CODE_FONT_SIZE_DEFAULT)
   const [isRunning, setIsRunning] = useState(false)
-  const [runResult, setRunResult] = useState<CodeRunResult | null>(null)
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [panelTab, setPanelTab] = useState<'output' | 'references'>('output')
-  const [references, setReferences] = useState<ReferenceItem[]>([])
-  const [referenceSymbol, setReferenceSymbol] = useState('')
   const [status, setStatus] = useState('')
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const [inlineChatOpen, setInlineChatOpen] = useState(false)
   const [inlineInstruction, setInlineInstruction] = useState('')
 
+  const debugStatus = useDebugStore((s) => s.status)
+  const debugBreakpoints = useDebugStore((s) => s.breakpoints[filePath] ?? [])
+  const debugCurrentFile = useDebugStore((s) => s.currentFile)
+  const debugCurrentLine = useDebugStore((s) => s.currentLine)
+  const pendingNavigation = usePanelStore((s) => s.pendingNavigation)
+
   onDirtyRef.current = onDirty
   onReadyRef.current = onReady
   onShellNextTabRef.current = onShellNextTab
   onShellPreviousTabRef.current = onShellPreviousTab
   onShellCloseTabRef.current = onShellCloseTab
+
+  const debuggable = Boolean(language?.runnable && language?.language === 'javascript'
+    || language?.runnable && language?.language === 'typescript'
+    || language?.runnable && language?.language === 'python'
+    || DEBUGGER_EXTENSIONS.has(filePath.split('.').pop()?.toLowerCase() ?? ''))
+  const debugging = debugStatus !== 'idle'
+  const paused = debugStatus === 'paused'
 
   const changeFontSize = useCallback((delta: number) => {
     setFontSize((previous) => clampCodeFontSize(previous + delta))
@@ -281,6 +303,13 @@ export function CodeEditor({
     editor.focus()
   }, [])
 
+  useEffect(() => {
+    if (!pendingNavigation) return
+    const { line, column, file } = pendingNavigation
+    if (file && !isSameFile(file, filePath)) return
+    navigateTo(line, column)
+  }, [pendingNavigation, filePath, navigateTo])
+
   const fileDefinition = useCallback((): boolean => {
     const model = modelRef.current
     const symbol = getWordAtCursor()
@@ -318,10 +347,7 @@ export function CodeEditor({
       column: match.range.startColumn,
       preview: model.getLineContent(match.range.startLineNumber).trim(),
     }))
-    setReferenceSymbol(symbol.value)
-    setReferences(items)
-    setPanelTab('references')
-    setPanelOpen(true)
+    usePanelStore.getState().setReferences(symbol.value, items)
     setStatus(t('codeEditor.referencesFound', { count: items.length, symbol: symbol.value }))
     return items.length > 0
   }, [getWordAtCursor, t])
@@ -355,15 +381,33 @@ export function CodeEditor({
   }, [filePath, language?.language, t])
 
   const runCode = useCallback(async () => {
-    if (isRunning) return
+    if (isRunning || useDebugStore.getState().status !== 'idle') return
     setIsRunning(true)
-    setPanelTab('output')
-    setPanelOpen(true)
-    setRunResult(null)
     try {
       await saveCurrent()
       const result = await window.api.lw.runCode(filePath)
-      setRunResult(result)
+      const lines = [
+        result.command ? `> ${result.command}` : '',
+        result.stdout,
+        result.stderr,
+        result.errorCode === 'runtime-missing'
+          ? t('codeEditor.runtimeMissing')
+          : result.errorCode === 'unsupported'
+            ? t('codeEditor.unsupportedRunner')
+            : result.errorCode === 'timeout'
+              ? t('codeEditor.timedOut')
+              : t('codeEditor.runFinished', {
+                  code: result.exitCode ?? -1,
+                  duration: result.durationMs,
+                }),
+      ].filter(Boolean).join('\n')
+      usePanelStore.getState().showRunResult({
+        text: lines,
+        command: result.command,
+        exitCode: result.exitCode,
+        success: result.success,
+        errorCode: result.errorCode,
+      })
       if (result.errorCode === 'runtime-missing') setStatus(t('codeEditor.runtimeMissing'))
       else if (result.errorCode === 'unsupported') setStatus(t('codeEditor.unsupportedRunner'))
       else if (result.errorCode === 'timeout') setStatus(t('codeEditor.timedOut'))
@@ -372,19 +416,61 @@ export function CodeEditor({
         duration: result.durationMs,
       }))
     } catch (error) {
-      setRunResult({
-        success: false,
-        exitCode: null,
-        stdout: '',
-        stderr: error instanceof Error ? error.message : String(error),
+      const text = error instanceof Error ? error.message : String(error)
+      usePanelStore.getState().showRunResult({
+        text,
         command: '',
-        durationMs: 0,
+        exitCode: null,
+        success: false,
         errorCode: 'failed',
       })
+      setStatus(text)
     } finally {
       setIsRunning(false)
     }
   }, [filePath, isRunning, saveCurrent, t])
+
+  const startDebug = useCallback(async () => {
+    if (useDebugStore.getState().status !== 'idle') return
+    if (!debuggable) {
+      setStatus(t('codeEditor.debugUnsupported'))
+      return
+    }
+    await saveCurrent()
+    const breakpoints = (useDebugStore.getState().breakpoints[filePath] ?? []).map((line) => ({ file: filePath, line }))
+    useDebugStore.getState().setStatus('starting')
+    usePanelStore.getState().openTab('debug-console')
+    setStatus(t('codeEditor.debugStarting'))
+    const result = await window.api.lw.debugStart(filePath, breakpoints)
+    if (result.ok) {
+      useDebugStore.getState().startSession(filePath, result.kind ?? 'node')
+      setStatus(t('codeEditor.debugRunning'))
+    } else if (result.error === 'unsupported') {
+      useDebugStore.getState().endSession()
+      setStatus(t('codeEditor.debugUnsupported'))
+    } else {
+      useDebugStore.getState().endSession()
+      setStatus(t('codeEditor.debugStartFailed'))
+    }
+  }, [debuggable, filePath, saveCurrent, t])
+
+  const stopDebug = useCallback(() => {
+    void window.api.lw.debugStop()
+    useDebugStore.getState().endSession()
+    setStatus(t('codeEditor.debugSessionEnded'))
+  }, [t])
+
+  const debugCommand = useCallback((command: DebugCommand) => {
+    void window.api.lw.debugCommand(command)
+  }, [])
+
+  const toggleDebug = useCallback(() => {
+    if (useDebugStore.getState().status === 'idle') {
+      void startDebug()
+    } else {
+      debugCommand('continue')
+    }
+  }, [debugCommand, startDebug])
 
   const openChangeAll = useCallback(async () => {
     const editor = editorRef.current
@@ -447,6 +533,12 @@ export function CodeEditor({
   executeCommandRef.current = executeCommand
   const saveCurrentRef = useRef(saveCurrent)
   saveCurrentRef.current = saveCurrent
+  const toggleDebugRef = useRef(toggleDebug)
+  toggleDebugRef.current = toggleDebug
+  const stopDebugRef = useRef(stopDebug)
+  stopDebugRef.current = stopDebug
+  const debugCommandRef = useRef(debugCommand)
+  debugCommandRef.current = debugCommand
 
   useEffect(() => {
     configureMonaco()
@@ -499,6 +591,7 @@ export function CodeEditor({
           wordWrap: 'off',
         })
         editorRef.current = editor
+        decorationsRef.current = editor.createDecorationsCollection([])
         const savedViewState = viewStates.get(filePath)
         if (savedViewState) editor.restoreViewState(savedViewState)
 
@@ -511,6 +604,14 @@ export function CodeEditor({
             const browserEvent = event.event.browserEvent
             browserEvent.preventDefault()
             setContextMenu({ x: browserEvent.clientX, y: browserEvent.clientY })
+          }),
+          editor.onMouseDown((event) => {
+            const target = event.target
+            const gutterClick = target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN
+              || target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+            if (!gutterClick || !debuggable) return
+            const line = target.position?.lineNumber
+            if (line) useDebugStore.getState().toggleBreakpoint(filePath, line)
           }),
         )
 
@@ -528,6 +629,15 @@ export function CodeEditor({
         editor.addCommand(monaco.KeyCode.F2, () => { void executeCommandRef.current('rename') })
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.F2, () => { void executeCommandRef.current('change-all') })
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyR, () => { void executeCommandRef.current('refactor') })
+        editor.addCommand(monaco.KeyCode.F5, () => { toggleDebugRef.current() })
+        editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F5, () => { stopDebugRef.current() })
+        editor.addCommand(monaco.KeyCode.F10, () => { debugCommandRef.current('step-over') })
+        editor.addCommand(monaco.KeyCode.F11, () => { debugCommandRef.current('step-into') })
+        editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F11, () => { debugCommandRef.current('step-out') })
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.F5, () => {
+          stopDebugRef.current()
+          setTimeout(() => void toggleDebugRef.current(), 60)
+        })
 
         setLoadState('ready')
         onReadyRef.current()
@@ -564,8 +674,38 @@ export function CodeEditor({
       editor?.dispose()
       if (editorRef.current === editor) editorRef.current = null
       if (modelRef.current?.uri.toString() === uri.toString()) modelRef.current = null
+      decorationsRef.current = null
     }
   }, [filePath, language])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    const decorations: monaco.editor.IModelDeltaDecoration[] = []
+    for (const line of debugBreakpoints) {
+      decorations.push({
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          isWholeLine: false,
+          glyphMarginClassName: 'wps-debug-breakpoint-glyph',
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      })
+    }
+    const isCurrentFile = debugCurrentFile !== null && isSameFile(debugCurrentFile, filePath)
+    if (isCurrentFile && debugCurrentLine !== null) {
+      decorations.push({
+        range: new monaco.Range(debugCurrentLine, 1, debugCurrentLine, 1),
+        options: {
+          isWholeLine: true,
+          className: 'wps-debug-current-line',
+          glyphMarginClassName: 'wps-debug-current-glyph',
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      })
+    }
+    decorationsRef.current?.set(decorations)
+  }, [debugBreakpoints, debugCurrentFile, debugCurrentLine, filePath])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -616,24 +756,6 @@ export function CodeEditor({
     setInlineInstruction('')
     setInlineChatOpen(false)
   }
-
-  const outputText = runResult
-    ? [
-        runResult.command ? `> ${runResult.command}` : '',
-        runResult.stdout,
-        runResult.stderr,
-        runResult.errorCode === 'runtime-missing'
-          ? t('codeEditor.runtimeMissing')
-          : runResult.errorCode === 'unsupported'
-            ? t('codeEditor.unsupportedRunner')
-            : runResult.errorCode === 'timeout'
-              ? t('codeEditor.timedOut')
-              : t('codeEditor.runFinished', {
-                  code: runResult.exitCode ?? -1,
-                  duration: runResult.durationMs,
-                }),
-      ].filter(Boolean).join('\n')
-    : ''
 
   const menuStyle: CSSProperties | undefined = contextMenu
     ? (() => {
@@ -688,6 +810,8 @@ export function CodeEditor({
     transformOrigin: 'left top',
   }
 
+  const debugTooltipClass = 'h-7 w-7'
+
   return (
     <TooltipProvider delayDuration={450}>
       <div ref={rootRef} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background" data-manages-document-zoom data-code-editor-root data-testid="code-editor-root">
@@ -698,12 +822,132 @@ export function CodeEditor({
             size="sm"
             className="h-7 gap-1.5 px-2 text-xs"
             onClick={() => void runCode()}
-            disabled={isRunning || !language?.runnable}
+            disabled={isRunning || !language?.runnable || debugging}
             data-testid="code-run-button"
           >
             <Play className="h-3.5 w-3.5" />
             {isRunning ? t('codeEditor.running') : t('codeEditor.runCode')}
           </Button>
+          <span className="h-4 w-px bg-border" aria-hidden="true" />
+          {debugging ? (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={debugTooltipClass}
+                    onClick={() => debugCommand('continue')}
+                    disabled={!paused}
+                    aria-label={t('codeEditor.continueDebug')}
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('codeEditor.continueDebug')} (F5)</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={debugTooltipClass}
+                    onClick={() => debugCommand('step-over')}
+                    disabled={!paused}
+                    aria-label={t('codeEditor.stepOver')}
+                  >
+                    <StepForward className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('codeEditor.stepOver')} (F10)</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={debugTooltipClass}
+                    onClick={() => debugCommand('step-into')}
+                    disabled={!paused}
+                    aria-label={t('codeEditor.stepInto')}
+                  >
+                    <CornerDownRight className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('codeEditor.stepInto')} (F11)</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={debugTooltipClass}
+                    onClick={() => debugCommand('step-out')}
+                    disabled={!paused}
+                    aria-label={t('codeEditor.stepOut')}
+                  >
+                    <CornerUpLeft className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('codeEditor.stepOut')} (Shift+F11)</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={debugTooltipClass}
+                    onClick={() => {
+                      stopDebug()
+                      setTimeout(() => void startDebug(), 60)
+                    }}
+                    aria-label={t('codeEditor.restartDebug')}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('codeEditor.restartDebug')} (Ctrl+Shift+F5)</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={debugTooltipClass}
+                    onClick={stopDebug}
+                    aria-label={t('codeEditor.stopDebug')}
+                  >
+                    <Square className="h-3 w-3 fill-current" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('codeEditor.stopDebug')} (Shift+F5)</TooltipContent>
+              </Tooltip>
+            </>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-xs"
+                  onClick={() => void startDebug()}
+                  disabled={!debuggable || isRunning}
+                  data-testid="code-debug-button"
+                >
+                  <Bug className="h-3.5 w-3.5" />
+                  {t('codeEditor.startDebug')}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('codeEditor.startDebug')} (F5)</TooltipContent>
+            </Tooltip>
+          )}
           <span className="h-4 w-px bg-border" aria-hidden="true" />
           <FileCode2 className="ml-1 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
           <span className="truncate text-xs font-medium">{language?.label ?? t('codeEditor.title')}</span>
@@ -715,7 +959,7 @@ export function CodeEditor({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 shrink-0"
-                onClick={() => { setPanelOpen((value) => !value); setPanelTab('output') }}
+                onClick={() => usePanelStore.getState().openTab('output')}
                 aria-label={t('codeEditor.output')}
               >
                 <Terminal className="h-3.5 w-3.5" />
@@ -775,59 +1019,18 @@ export function CodeEditor({
           )}
         </div>
 
-        {panelOpen && (
-          <div className="flex h-48 shrink-0 flex-col border-t bg-[#fafafa] text-[#1f2328] dark:bg-[#121418] dark:text-[#dfe3e8]" data-testid="code-bottom-panel">
-            <div className="flex h-8 shrink-0 items-center border-b px-2">
-              <button type="button" className={`h-full border-b-2 px-2 text-xs ${panelTab === 'output' ? 'border-primary font-medium' : 'border-transparent text-muted-foreground'}`} onClick={() => setPanelTab('output')}>
-                {t('codeEditor.output')}
-              </button>
-              <button type="button" className={`h-full border-b-2 px-2 text-xs ${panelTab === 'references' ? 'border-primary font-medium' : 'border-transparent text-muted-foreground'}`} onClick={() => setPanelTab('references')}>
-                {t('codeEditor.references')} {references.length > 0 ? `(${references.length})` : ''}
-              </button>
-              <div className="ml-auto flex items-center gap-0.5">
-                {panelTab === 'output' && (
-                  <>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRunResult(null)} aria-label={t('codeEditor.clearOutput')}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => void navigator.clipboard.writeText(outputText)} disabled={!outputText} aria-label={t('codeEditor.copyOutput')}>
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  </>
-                )}
-                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPanelOpen(false)} aria-label={t('codeEditor.closePanel')}>
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-            {panelTab === 'output' ? (
-              <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-xs leading-5">
-                {outputText || t('codeEditor.noOutput')}
-              </pre>
-            ) : (
-              <div className="min-h-0 flex-1 overflow-auto py-1">
-                {references.map((item) => (
-                  <button
-                    type="button"
-                    key={`${item.line}:${item.column}`}
-                    className="flex w-full items-center gap-3 px-3 py-1 text-left text-xs hover:bg-black/[0.06] dark:hover:bg-white/[0.08]"
-                    onClick={() => navigateTo(item.line, item.column)}
-                  >
-                    <span className="w-16 shrink-0 text-primary">{item.line}:{item.column}</span>
-                    <span className="truncate font-mono">{item.preview}</span>
-                  </button>
-                ))}
-                {references.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">{referenceSymbol || t('codeEditor.symbolNotFound')}</p>}
-              </div>
-            )}
-          </div>
-        )}
-
         <div className="flex h-6 shrink-0 items-center gap-4 border-t bg-card px-3 text-[11px] text-muted-foreground">
           <span>{t('codeEditor.lineColumn', cursor)}</span>
           <span>{t('codeEditor.spaces', { count: 2 })}</span>
           <span>UTF-8</span>
           <span>{language?.label}</span>
+          {debugging && (
+            <span className={paused ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}>
+              {paused
+                ? `${t('codeEditor.debugPaused')}${debugCurrentLine ? ` ${debugCurrentLine}` : ''}`
+                : t('codeEditor.debugRunning')}
+            </span>
+          )}
           {status && <span className="ml-auto max-w-[55%] truncate text-foreground">{status}</span>}
         </div>
 
@@ -848,7 +1051,7 @@ export function CodeEditor({
                     key={item.command}
                     className="flex h-7 w-full items-center px-3 text-left outline-none hover:bg-accent focus:bg-accent disabled:opacity-45"
                     onClick={() => void executeCommand(item.command)}
-                    disabled={item.command === 'run' && (!language?.runnable || isRunning)}
+                    disabled={item.command === 'run' && (!language?.runnable || isRunning || debugging)}
                   >
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
                     {item.shortcut && <span className="ml-4 shrink-0 text-[11px] text-muted-foreground">{item.shortcut}</span>}
