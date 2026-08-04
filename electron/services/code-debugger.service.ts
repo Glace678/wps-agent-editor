@@ -522,7 +522,7 @@ function programOutputOf(lines: string[]): string {
 function sendPdbVarsQuery(session: PythonSession): void {
   session.lastCommand = 'vars'
   try {
-    session.child.stdin.write('p {k: repr(v) for k, v in list(locals().items())}\n')
+    session.child.stdin.write('p {k: repr(v) for k, v in list(locals().items()) if not k.startswith("__")}\n')
   } catch {
     session.lastCommand = 'none'
   }
