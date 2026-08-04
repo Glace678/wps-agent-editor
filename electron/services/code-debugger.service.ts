@@ -329,6 +329,9 @@ async function createNodeSession(
       return
     }
     const method = String(message.method ?? '')
+    if (method !== 'Debugger.paused' && method !== 'Debugger.resumed') {
+      console.log('[node-debug] ws msg method=' + method)
+    }
     if (method === 'Debugger.paused') {
       void onPaused(message.params as Parameters<typeof onPaused>[0])
     } else if (method === 'Debugger.resumed') {
