@@ -525,7 +525,7 @@ function getExcelFontColorCommand(target: Element): ExcelFontColorCommand | null
 
 function getActiveExcelCellEditor(shell: HTMLElement) {
   const editor = shell.querySelector<HTMLElement>(
-    '.luckysheet-input-box .luckysheet-input-box-inner',
+    '.luckysheet-input-box .luckysheet-cell-input',
   )
   const box = editor?.closest<HTMLElement>('.luckysheet-input-box')
   if (!editor || !box) return null
