@@ -968,6 +968,28 @@ try {
   console.log(`[PASS] screenshot saved: ${screenshotPath}`)
 
   const fontColorSwatch = '#00f00f'
+  const fontColorCellPoint = await evaluate(send, `(() => {
+    const openPopup = document.querySelector('.fortune-toolbar-combo-popup')
+    const openCombo = openPopup?.closest('.fortune-toobar-combo-container')
+    const toggle = openCombo?.querySelector('.fortune-toolbar-combo-arrow')
+      || openCombo?.querySelector('.fortune-toolbar-combo-button')
+    toggle?.click()
+
+    const cellArea = document.querySelector('.fortune-cell-area')
+    if (!cellArea) return null
+    const cellRect = cellArea.getBoundingClientRect()
+    return {
+      x: cellRect.left + 16,
+      y: cellRect.top + 19 * 6 + 8,
+    }
+  })()`)
+  check('font-color palette test locates A7', Boolean(fontColorCellPoint), JSON.stringify(fontColorCellPoint))
+  await sleep(120)
+  await clickAt(send, fontColorCellPoint, 1)
+  await sleep(80)
+  await clickAt(send, fontColorCellPoint, 2)
+  await sleep(180)
+
   const fontColorPick = await evaluate(send, `(async () => {
     const cellArea = document.querySelector('.fortune-cell-area')
     if (!cellArea) return { clicked: false, reason: 'cell area missing' }
