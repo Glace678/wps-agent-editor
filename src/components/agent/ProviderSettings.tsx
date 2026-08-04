@@ -314,6 +314,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
             </ScrollArea>
             <div className="border-t p-2">
               <Button
+                data-testid="add-custom-provider"
                 variant="outline"
                 size="sm"
                 className="w-full gap-1 text-xs"

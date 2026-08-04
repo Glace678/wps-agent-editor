@@ -296,7 +296,7 @@ try {
 
   const modelsServer = await startModelsServer()
   try {
-    await evaluate(cdp, "document.querySelector('[data-testid=provider-option-zhipuai]')?.closest('[role=dialog]')?.querySelector('button:last-child')?.click(); true")
+    await evaluate(cdp, "document.querySelector('[data-testid=add-custom-provider]')?.click(); true")
     await waitFor(cdp, "Boolean(document.querySelector('[data-testid=custom-provider-base-url]'))", 'custom provider form')
 
     await evaluate(cdp, `(() => {
