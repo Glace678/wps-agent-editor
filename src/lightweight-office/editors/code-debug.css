@@ -1,0 +1,30 @@
+.margin-view-overlays .wps-debug-breakpoint-glyph,
+.margin-view-overlays .wps-debug-current-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.margin-view-overlays .wps-debug-breakpoint-glyph::before {
+  content: '';
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background-color: #e51400;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.margin-view-overlays .wps-debug-current-glyph::before {
+  content: '▶';
+  display: block;
+  font-size: 11px;
+  line-height: 1;
+  color: #e2a03f;
+}
+
+.wps-debug-current-line {
+  background-color: rgba(226, 160, 63, 0.12);
+}
