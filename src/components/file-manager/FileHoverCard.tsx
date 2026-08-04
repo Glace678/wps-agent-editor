@@ -176,8 +176,6 @@ export function FileHoverCard({
         id={cardId}
         role="tooltip"
         data-theme={isDark ? 'dark' : 'light'}
-        onMouseEnter={keepOpen}
-        onMouseLeave={hide}
         style={{
           position: 'fixed',
           top: coords ? coords.top : -9999,
@@ -200,7 +198,9 @@ export function FileHoverCard({
           transform: 'none',
           willChange: 'auto',
           WebkitFontSmoothing: 'antialiased',
-          pointerEvents: 'auto',
+          // 纯展示弹层，指针事件穿透到底下的列表行：
+          // 窗口较窄时弹层会落在下一行上方，不能挡住复选框多选/单击
+          pointerEvents: 'none',
           boxSizing: 'border-box',
           overflow: 'visible',
         }}
