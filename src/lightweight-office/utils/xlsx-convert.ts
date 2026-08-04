@@ -4,6 +4,8 @@ import type {
   Alignment as ExcelAlignment,
   Cell as ExcelCell,
   Color as ExcelColor,
+  Font as ExcelFont,
+  RichText as ExcelRichText,
 } from 'exceljs'
 import { locale } from '@fortune-sheet/core'
 import type { Cell, CellMatrix, Context, Sheet } from '@fortune-sheet/core'
@@ -153,6 +155,40 @@ function toFortuneStyle(cell: ExcelCell, themeColors: string[]): Partial<Cell> {
   return style
 }
 
+type FortuneInlineStringRun = Partial<Cell> & {
+  v?: string | number | boolean
+}
+
+function toFortuneInlineStringRuns(
+  cell: ExcelCell,
+  themeColors: string[],
+): FortuneInlineStringRun[] | undefined {
+  const value = cell.value
+  if (!value || typeof value !== 'object' || !('richText' in value)
+    || !Array.isArray(value.richText) || value.richText.length === 0) return undefined
+
+  const cellStyle = toFortuneStyle(cell, themeColors)
+  return value.richText.map((run) => {
+    const font = run.font
+    const fontColor = resolveExcelColor(
+      font?.color as ExtendedExcelColor | undefined,
+      themeColors,
+    ) ?? cellStyle.fc
+    return {
+      v: run.text,
+      ff: font?.name || cellStyle.ff || DEFAULT_SPREADSHEET_FONT,
+      fs: font?.size || cellStyle.fs || DEFAULT_SPREADSHEET_FONT_SIZE,
+      bl: font?.bold === undefined ? (cellStyle.bl ?? 0) : font.bold ? 1 : 0,
+      it: font?.italic === undefined ? (cellStyle.it ?? 0) : font.italic ? 1 : 0,
+      un: font?.underline === undefined
+        ? (cellStyle.un ?? 0)
+        : font.underline && font.underline !== 'none' ? 1 : 0,
+      cl: font?.strike === undefined ? (cellStyle.cl ?? 0) : font.strike ? 1 : 0,
+      ...(fontColor ? { fc: fontColor } : {}),
+    }
+  })
+}
+
 async function loadStyledWorkbook(buffer: ArrayBuffer): Promise<ExcelJS.Workbook | null> {
   const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 4))
   if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) return null
@@ -214,24 +250,33 @@ function resolveExcelVerticalAlignment(value: Cell['vt']): ExcelAlignment['verti
   return undefined
 }
 
-function applyFortuneCellStyle(excelCell: ExcelCell, cell: Cell | null | undefined): void {
-  if (!cell) return
-
-  const fontName = resolveFortuneFontFamily(cell.ff) || DEFAULT_SPREADSHEET_FONT
-  const fontColor = fortuneColorToArgb(cell.fc)
-  const fontSize = typeof cell.fs === 'number' && Number.isFinite(cell.fs)
-    ? cell.fs
+function fortuneStyleToExcelFont(
+  style: Partial<Cell>,
+  fallback?: Partial<Cell>,
+): Partial<ExcelFont> {
+  const fontName = resolveFortuneFontFamily(style.ff ?? fallback?.ff)
+    || DEFAULT_SPREADSHEET_FONT
+  const fontColor = fortuneColorToArgb(style.fc ?? fallback?.fc)
+  const requestedSize = style.fs ?? fallback?.fs
+  const fontSize = typeof requestedSize === 'number' && Number.isFinite(requestedSize)
+    ? requestedSize
     : DEFAULT_SPREADSHEET_FONT_SIZE
 
-  excelCell.font = {
+  return {
     name: fontName,
     size: fontSize,
     color: fontColor ? { argb: fontColor } : undefined,
-    bold: cell.bl === 1,
-    italic: cell.it === 1,
-    underline: cell.un === 1 || undefined,
-    strike: cell.cl === 1,
+    bold: (style.bl ?? fallback?.bl) === 1,
+    italic: (style.it ?? fallback?.it) === 1,
+    underline: (style.un ?? fallback?.un) === 1 || undefined,
+    strike: (style.cl ?? fallback?.cl) === 1,
   }
+}
+
+function applyFortuneCellStyle(excelCell: ExcelCell, cell: Cell | null | undefined): void {
+  if (!cell) return
+
+  excelCell.font = fortuneStyleToExcelFont(cell)
 
   const fillColor = fortuneColorToArgb(cell.bg)
   if (fillColor) {
@@ -270,6 +315,20 @@ function applyFortuneCellValue(excelCell: ExcelCell, cell: Cell | null | undefin
     excelCell.value = cell.v !== undefined
       ? { formula: cell.f, result: cell.v as string | number | boolean }
       : { formula: cell.f }
+    return
+  }
+
+  const inlineRuns = cell.ct?.t === 'inlineStr' && Array.isArray(cell.ct.s)
+    ? (cell.ct.s as FortuneInlineStringRun[]).filter(
+        (run): run is FortuneInlineStringRun => Boolean(run && typeof run === 'object'),
+      )
+    : []
+  if (inlineRuns.length > 0) {
+    const richText: ExcelRichText[] = inlineRuns.map((run) => ({
+      text: String(run.v ?? ''),
+      font: fortuneStyleToExcelFont(run, cell),
+    }))
+    excelCell.value = { richText }
     return
   }
 
@@ -338,6 +397,10 @@ export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> 
           if (cell == null || (cell.v === undefined && cell.f === undefined && cell.w === undefined)) continue
 
           const styledCell = styledSheet?.getCell(r + 1, c + 1)
+          const richTextRuns = styledCell
+            ? toFortuneInlineStringRuns(styledCell, themeColors)
+            : undefined
+          const richTextValue = richTextRuns?.map((run) => String(run.v ?? '')).join('')
           const numberFormat = styledCell?.numFmt?.trim() || 'General'
           const cellType = cell.t === 'n'
             ? 'n'
@@ -351,10 +414,12 @@ export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> 
             r,
             c,
             v: {
-              v: cell.v as string | number | boolean,
-              m: String(cell.w ?? cell.v ?? ''),
+              v: (richTextValue ?? cell.v) as string | number | boolean,
+              m: String(cell.w ?? richTextValue ?? cell.v ?? ''),
               f: typeof cell.f === 'string' ? cell.f : undefined,
-              ct: { fa: numberFormat, t: cellType },
+              ct: richTextRuns
+                ? { fa: numberFormat, t: 'inlineStr', s: richTextRuns }
+                : { fa: numberFormat, t: cellType },
               ...(styledCell
                 ? toFortuneStyle(styledCell, themeColors)
                 : {
