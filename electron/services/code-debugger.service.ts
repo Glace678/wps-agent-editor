@@ -339,6 +339,9 @@ async function createNodeSession(
     const method = String(message.method ?? '')
     if (method === 'Debugger.scriptParsed') {
       const parsed = message.params as { scriptId?: string; url?: string }
+      if (parsed.url && parsed.url.includes('prog.')) {
+        console.log('[node-debug] scriptParsed', JSON.stringify(parsed.url), 'match=' + (isDebugScriptUrl(parsed.url, scriptPath) ? 'yes' : 'no'))
+      }
       if (parsed.scriptId && parsed.url && isDebugScriptUrl(parsed.url, scriptPath)) {
         // Execution is suspended while this event is dispatched, so breakpoints
         // bound here apply before the script's first statement runs.
