@@ -104,8 +104,8 @@
   --fortune-dark-border: #2a2a2a;
   --fortune-dark-text: #f5f5f5;
   --fortune-dark-muted: #a3a3a3;
-  --fortune-dark-sheet-bg: #fff;
-  --fortune-dark-sheet-text: #1f1f1f;
+  --fortune-dark-sheet-bg: #000;
+  --fortune-dark-sheet-text: #f5f5f5;
   --fortune-dark-picker-bg: #252525;
   --fortune-dark-picker-field-bg: #303030;
   --fortune-dark-picker-hover: #363636;
@@ -129,7 +129,8 @@
   background: var(--fortune-dark-sheet-bg);
 }
 
-/* Keep the live editor on the authored cell colors instead of forcing black. */
+/* The DOM editor uses these as fallbacks. ExcelEditor writes the active
+   cell's explicit bg/fc inline so authored colors still win. */
 .dark .excel-editor-shell .luckysheet-input-box-inner,
 .dark .excel-editor-shell .luckysheet-cell-input {
   caret-color: currentColor;
