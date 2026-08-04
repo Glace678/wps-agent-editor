@@ -9,7 +9,7 @@ import type { ProviderDefinition, CustomProviderConfig, AuthStatus } from '../sr
 import type { LanguageCode } from '../src/lib/i18n/types'
 import type { AppMenuAction } from '../src/types/app-menu'
 import type { ThemePreference } from '../src/lib/theme'
-import type { CodeRunResult } from '../src/types/code'
+import type { CodeRunResult, DebugBreakpoint, DebugCommand, DebugStartResult } from '../src/types/code'
 import type { PresentationEditRequest, PresentationEditResult } from '../src/types/presentation'
 
 export interface ElectronAPI {
@@ -155,6 +155,12 @@ export interface ElectronAPI {
     setCurrentFile: (filePath: string | null) => Promise<{ success: boolean }>
     sendAgentResult: (requestId: string, result: unknown) => Promise<{ success: boolean }>
     runCode: (filePath: string) => Promise<CodeRunResult>
+    debugStart: (filePath: string, breakpoints: DebugBreakpoint[]) => Promise<DebugStartResult>
+    debugStop: () => Promise<{ success: boolean }>
+    debugCommand: (command: DebugCommand) => Promise<{ success: boolean }>
+    debugEvaluate: (expression: string, id: string) => Promise<{ success: boolean }>
+    terminalExec: (input: string) => Promise<{ started: boolean; cwd: string }>
+    terminalKill: () => Promise<{ success: boolean }>
   }
   window: {
     minimize: () => Promise<void>

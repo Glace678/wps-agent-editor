@@ -175,6 +175,49 @@ try {
   const counts2 = await evaluate(cdp.send, `[...document.querySelectorAll('[data-recent-file-index][aria-selected="true"]')].length`)
   record('multi-select fast clicks (A+B+C)', counts2 === 3, `selected=${counts2}`)
 
+  // Scenario 4: narrow window — hover card may flip left and cover the checkbox
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+  await sleep(400)
+  await leftClick(cdp.send, rowExpr('C文档.txt'), 'reset selection via row click')
+  await sleep(300)
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 520, height: 560, deviceScaleFactor: 1, mobile: false })
+  await sleep(800)
+  await evaluate(cdp.send, `(() => { const el = ${rowExpr('A文档.txt')}; const r = el.getBoundingClientRect(); window.__hover = { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)
+  const h4 = await evaluate(cdp.send, `window.__hover`)
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: h4.x, y: h4.y })
+  await waitFor(cdp.send, cardShown, 'hover card opened (narrow)', 5000)
+  const narrowOverlap = await evaluate(cdp.send, `(() => {
+    const card = document.querySelector('[role="tooltip"]')
+    const cb = ${selectExpr('A文档.txt')}
+    if (!card || !cb) return null
+    const a = card.getBoundingClientRect()
+    const b = cb.getBoundingClientRect()
+    const overlap = !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
+    return { overlap, cardRect: { l: Math.round(a.left), r: Math.round(a.right), t: Math.round(a.top), b: Math.round(a.bottom) }, cbRect: { l: Math.round(b.left), r: Math.round(b.right), t: Math.round(b.top), b: Math.round(b.bottom) } }
+  })()`)
+  await screenshot(cdp.send, 'repro4-narrow-card.png', fixtureDir)
+  console.log('narrow window card vs checkbox:', JSON.stringify(narrowOverlap))
+  await leftClick(cdp.send, selectExpr('A文档.txt'), 'click checkbox A (narrow)')
+  await sleep(400)
+  const selA2 = await evaluate(cdp.send, `(${rowExpr('A文档.txt')}).getAttribute('aria-selected')`)
+  record('narrow window: checkbox click still works', selA2 === 'true', `overlap=${narrowOverlap?.overlap} selected=${selA2}`)
+  // and multi-select in narrow window
+  await leftClick(cdp.send, selectExpr('B文档.txt'), 'click checkbox B (narrow)')
+  await sleep(400)
+  const counts3 = await evaluate(cdp.send, `[...document.querySelectorAll('[data-recent-file-index][aria-selected="true"]')].length`)
+  const perRow = await evaluate(cdp.send, `(() => {
+    const rows = [...document.querySelectorAll('[data-recent-file-index]')]
+    const hit = ${selectExpr('B文档.txt')}
+    const r = hit.getBoundingClientRect()
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return {
+      rows: rows.map((el) => ({ name: el.querySelector('p')?.textContent, sel: el.getAttribute('aria-selected') })),
+      elementAtCheckbox: at ? at.tagName + '.' + (at.getAttribute('data-recent-file-select') ?? at.getAttribute('role') ?? at.className) : 'none',
+    }
+  })()`)
+  console.log('narrow B-click detail:', JSON.stringify(perRow))
+  record('narrow window multi-select works', counts3 === 3, `selected=${counts3}`)
+
   cdp.close()
 } catch (e) {
   record('harness', false, String(e))
