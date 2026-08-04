@@ -213,7 +213,7 @@ async function createNodeSession(
   let ws: WebSocket
   let wsConnected = false
   try {
-    ws = new WebSocket(wsUrl)
+    ws = new WebSocketCtor(wsUrl)
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => resolve())
       ws.on('error', () => reject(new Error('Inspector connection failed.')))
