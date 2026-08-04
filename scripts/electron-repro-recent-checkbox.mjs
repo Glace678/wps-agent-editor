@@ -190,36 +190,10 @@ try {
   await sleep(400)
   const selA2 = await evaluate(cdp.send, `(${rowExpr('A文档.txt')}).getAttribute('aria-selected')`)
   record('narrow window: checkbox click still works', selA2 === 'true', `overlap=${narrowOverlap?.overlap} selected=${selA2}`)
-  // and multi-select in narrow window
-  await evaluate(cdp.send, `(() => {
-    window.__clicks = []
-    document.addEventListener('click', (e) => {
-      const t = e.target
-      window.__clicks.push({ tag: t.tagName, data: t.getAttribute('data-recent-file-select'), role: t.getAttribute('role'), cls: String(t.className).slice(0, 60), txt: t.textContent?.slice(0, 20) })
-    }, true)
-  })()`)
-  const beforeHit = await evaluate(cdp.send, `(() => {
-    const hit = ${selectExpr('B文档.txt')}
-    const r = hit.getBoundingClientRect()
-    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-    const tooltips = [...document.querySelectorAll('[role="tooltip"]')].map((el) => {
-      const rect = el.getBoundingClientRect()
-      return { txt: el.textContent?.trim().slice(0, 15), rect: { l: Math.round(rect.left), r: Math.round(rect.right), t: Math.round(rect.top), b: Math.round(rect.bottom) }, pe: getComputedStyle(el).pointerEvents }
-    })
-    return { at: at ? at.outerHTML.slice(0, 200) : 'none', tooltips }
-  })()`)
-  console.log('BEFORE B click — element at checkbox:', beforeHit.at)
-  console.log('BEFORE B click — all tooltips:', JSON.stringify(beforeHit.tooltips))
+  // B's checkbox is the one the hover card covers in a narrow window — it must still toggle
   await leftClick(cdp.send, selectExpr('B文档.txt'), 'click checkbox B (narrow)')
   await sleep(400)
-  const clicks = await evaluate(cdp.send, `window.__clicks`)
-  console.log('click targets during B click:', JSON.stringify(clicks))
   const counts3 = await evaluate(cdp.send, `[...document.querySelectorAll('[data-recent-file-index][aria-selected="true"]')].length`)
-  const perRow = await evaluate(cdp.send, `(() => {
-    const rows = [...document.querySelectorAll('[data-recent-file-index]')]
-    return rows.map((el) => ({ name: el.querySelector('p')?.textContent, sel: el.getAttribute('aria-selected') }))
-  })()`)
-  console.log('narrow B-click detail:', JSON.stringify(perRow))
   record('narrow window multi-select works', counts3 === 3, `selected=${counts3}`)
 
   cdp.close()
