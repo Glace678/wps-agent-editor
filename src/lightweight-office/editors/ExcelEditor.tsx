@@ -449,6 +449,160 @@ function isImplicitFortuneFontColor(value: unknown) {
   return normalized === 'rgb(51,51,51)' || normalized === 'rgba(51,51,51,1)'
 }
 
+type ExcelSelection = NonNullable<ReturnType<WorkbookInstance['getSelection']>>
+type ExcelFontColorCommand = { color: string | undefined }
+
+function isExcelFontColorCombo(container: Element | null): container is HTMLElement {
+  if (!(container instanceof HTMLElement)) return false
+  const button = container.querySelector<HTMLElement>('.fortune-toolbar-combo-button')
+  const icon = button?.querySelector('use')
+  const iconHref = icon?.getAttribute('href') || icon?.getAttribute('xlink:href') || ''
+  if (iconHref.endsWith('#font-color')) return true
+
+  const label = [button?.getAttribute('aria-label'), button?.dataset.tips]
+    .filter(Boolean)
+    .join(' ')
+    .toLocaleLowerCase()
+  return EXCEL_FONT_COLOR_LABEL_RE.test(label)
+}
+
+function getExcelFontColorCombo(target: Element): HTMLElement | null {
+  const container = target.closest('.fortune-toobar-combo-container')
+  return isExcelFontColorCombo(container) ? container : null
+}
+
+function isExcelFontColorPickerTrigger(target: Element) {
+  return getExcelFontColorCombo(target) !== null
+    && target.closest('.fortune-toolbar-combo-button, .fortune-toolbar-combo-arrow') !== null
+}
+
+function normalizeExcelToolbarColor(value: string | null | undefined): string | undefined {
+  const color = value?.trim().toLowerCase()
+  if (!color) return undefined
+  if (/^#[0-9a-f]{6}$/.test(color)) return color
+  if (/^#[0-9a-f]{3}$/.test(color)) {
+    return `#${[...color.slice(1)].map((channel) => channel.repeat(2)).join('')}`
+  }
+
+  const channels = color.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number)
+  if (!channels || channels.length !== 3 || channels.some((channel) => !Number.isFinite(channel))) {
+    return undefined
+  }
+  return `#${channels
+    .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0'))
+    .join('')}`
+}
+
+function getExcelFontColorCommand(target: Element): ExcelFontColorCommand | null {
+  const combo = getExcelFontColorCombo(target)
+  const popup = target.closest('.fortune-toolbar-combo-popup')
+  if (!combo || !popup || !combo.contains(popup)) return null
+
+  const swatch = target.closest<HTMLElement>('.fortune-toolbar-color-picker-item')
+  if (swatch) {
+    const color = normalizeExcelToolbarColor(swatch.style.backgroundColor)
+    return color ? { color } : null
+  }
+  if (target.closest('#fortune-custom-color .color-reset')) return { color: undefined }
+  if (target.closest('#fortune-custom-color .button-primary')) {
+    const input = popup.querySelector<HTMLInputElement>('#fortune-custom-color input[type="color"]')
+    const color = normalizeExcelToolbarColor(input?.value)
+    return color ? { color } : null
+  }
+  return null
+}
+
+function isExcelCellEditorActiveWithoutSelection(shell: HTMLElement) {
+  const editor = shell.querySelector<HTMLElement>('.luckysheet-input-box-inner')
+  const box = editor?.closest<HTMLElement>('#luckysheet-input-box')
+  if (!editor || !box) return false
+  const style = getComputedStyle(box)
+  if (style.display === 'none' || style.visibility === 'hidden' || box.getClientRects().length === 0) {
+    return false
+  }
+
+  const selection = window.getSelection()
+  const hasSelectedEditorText = Boolean(
+    selection
+      && !selection.isCollapsed
+      && selection.anchorNode
+      && selection.focusNode
+      && editor.contains(selection.anchorNode)
+      && editor.contains(selection.focusNode),
+  )
+  return !hasSelectedEditorText
+}
+
+function cloneExcelSelection(selection: ExcelSelection): ExcelSelection {
+  return selection.map((range) => ({
+    row: [...range.row],
+    column: [...range.column],
+  }))
+}
+
+function comparableExcelColor(value: unknown): string | null {
+  if (!isAuthoredExcelCellColor(value)) return null
+  return normalizeExcelToolbarColor(value) ?? value.trim().toLowerCase()
+}
+
+function excelSelectionUsesFontColor(
+  api: WorkbookInstance,
+  selection: ExcelSelection,
+  color: string | undefined,
+) {
+  const expected = comparableExcelColor(color)
+  for (const range of selection) {
+    for (let row = range.row[0]; row <= range.row[1]; row += 1) {
+      for (let column = range.column[0]; column <= range.column[1]; column += 1) {
+        if (comparableExcelColor(api.getCellValue(row, column, { type: 'fc' })) !== expected) {
+          return false
+        }
+        const ct = api.getCellValue(row, column, { type: 'ct' }) as Cell['ct']
+        if (ct?.t === 'inlineStr' && Array.isArray(ct.s)) {
+          for (const run of ct.s) {
+            if (run && typeof run === 'object' && comparableExcelColor(run.fc) !== expected) {
+              return false
+            }
+          }
+        }
+      }
+    }
+  }
+  return true
+}
+
+function applyExcelFontColorToSelection(
+  api: WorkbookInstance,
+  selection: ExcelSelection,
+  color: string | undefined,
+) {
+  const calls: Parameters<WorkbookInstance['batchCallApis']>[0] = [{
+    name: 'setCellFormatByRange',
+    args: ['fc', color, selection],
+  }]
+
+  for (const range of selection) {
+    for (let row = range.row[0]; row <= range.row[1]; row += 1) {
+      for (let column = range.column[0]; column <= range.column[1]; column += 1) {
+        const ct = api.getCellValue(row, column, { type: 'ct' }) as Cell['ct']
+        if (ct?.t !== 'inlineStr' || !Array.isArray(ct.s)) continue
+        calls.push({
+          name: 'setCellFormat',
+          args: [row, column, 'ct', {
+            ...ct,
+            fa: ct.fa || 'General',
+            s: ct.s.map((run: unknown) => (
+              run && typeof run === 'object' ? { ...run, fc: color } : run
+            )),
+          }],
+        })
+      }
+    }
+  }
+
+  api.batchCallApis(calls)
+}
+
 export function resolveExcelCellEditorColors(
   cell: Pick<Cell, 'bg' | 'fc'> | null,
   darkMode: boolean,
