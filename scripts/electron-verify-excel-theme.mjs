@@ -258,6 +258,7 @@ async function inspectPixels(pngBuffer, cellArea, screenshotRect) {
       blue: 0,
       green: 0,
       yellow: 0,
+      pickerGreen: 0,
       grayFill: 0,
       grayText: 0,
       darkGrayText: 0,
@@ -283,6 +284,7 @@ async function inspectPixels(pngBuffer, cellArea, screenshotRect) {
         if (near(red, 22, 24) && near(green, 119, 24) && near(blue, 255, 24)) counts.blue += 1
         if (near(red, 22, 18) && near(green, 160, 18) && near(blue, 93, 18)) counts.green += 1
         if (near(red, 255, 18) && near(green, 204, 18) && near(blue, 25, 18)) counts.yellow += 1
+        if (near(red, 0, 18) && near(green, 240, 18) && near(blue, 15, 18)) counts.pickerGreen += 1
         if (near(red, 244, 8) && near(green, 244, 8) && near(blue, 244, 8)) counts.grayFill += 1
         if (near(red, 85, 14) && near(green, 85, 14) && near(blue, 85, 14)) counts.grayText += 1
         if (near(red, 68, 14) && near(green, 68, 14) && near(blue, 68, 14)) counts.darkGrayText += 1
@@ -936,6 +938,78 @@ try {
     check(`${name} keeps the black default fill and authored dark-gray font`, region.black > 500 && region.darkGrayText > 2, JSON.stringify(region))
   }
   console.log(`[PASS] screenshot saved: ${screenshotPath}`)
+
+  const fontColorSwatch = '#00f00f'
+  const fontColorPick = await evaluate(send, `(async () => {
+    const buttons = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
+    const fontFamily = buttons.find((item) => /font|瀛椾綋|瀛楅珨/i.test(
+      item.getAttribute('aria-label') || '',
+    ) && !/size|瀛楀彿|瀛楄櫉|color|棰滆壊|椤忚壊/i.test(
+      item.getAttribute('aria-label') || '',
+    ))
+    if (fontFamily?.closest('.fortune-toobar-combo-container')
+      ?.querySelector('.fortune-toolbar-combo-popup')) {
+      fontFamily.click()
+    }
+
+    const fontColor = buttons.find((item) => /font color|文本颜色|文字顏色|color texto|цвет текста/i.test(
+      item.getAttribute('aria-label') || '',
+    ))
+    const arrow = fontColor?.closest('.fortune-toolbar-combo')
+      ?.querySelector('.fortune-toolbar-combo-arrow')
+    if (!arrow) {
+      return {
+        clicked: false,
+        labels: buttons.map((item) => item.getAttribute('aria-label')),
+      }
+    }
+    arrow.click()
+    const deadline = Date.now() + 5000
+    let swatch
+    while (Date.now() < deadline) {
+      swatch = [...document.querySelectorAll('.fortune-toolbar-color-picker-item')]
+        .find((item) => item.style.backgroundColor === 'rgb(0, 240, 15)')
+      if (swatch) break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    if (!swatch) return { clicked: false, reason: 'font color swatch missing' }
+    swatch.click()
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    const editor = document.querySelector('.luckysheet-input-box-inner')
+    return {
+      clicked: true,
+      editorForeground: editor?.dataset.excelCellForeground || '',
+      editorColor: editor ? getComputedStyle(editor).color : '',
+    }
+  })()`, true)
+  check('font-color palette swatch can be clicked', fontColorPick.clicked, JSON.stringify(fontColorPick))
+  check(
+    'font-color palette swatch updates the active cell color model',
+    fontColorPick.editorForeground.toLowerCase() === fontColorSwatch,
+    JSON.stringify(fontColorPick),
+  )
+
+  const swatchScreenshot = await send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    clip: {
+      x: Math.max(0, styles.rect.x),
+      y: Math.max(0, styles.rect.y),
+      width: styles.rect.width,
+      height: styles.rect.height,
+      scale: 1,
+    },
+  })
+  const swatchPixels = await inspectPixels(
+    Buffer.from(swatchScreenshot.result.data, 'base64'),
+    styles.cellArea,
+    styles.rect,
+  )
+  check(
+    'font-color palette swatch repaints the selected cell text',
+    swatchPixels.cellRegions.plain.pickerGreen > 10,
+    JSON.stringify(swatchPixels.cellRegions.plain),
+  )
 
   const toggledToLight = await evaluate(send, `(() => {
     const button = document.querySelector('[data-testid="theme-toggle"]')
