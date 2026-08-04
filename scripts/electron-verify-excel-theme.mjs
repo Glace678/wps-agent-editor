@@ -1577,13 +1577,20 @@ try {
 
   await send('Input.dispatchKeyEvent', {
     type: 'keyDown',
-    key: 'F2',
-    code: 'F2',
-    windowsVirtualKeyCode: 113,
-    nativeVirtualKeyCode: 113,
+    key: 'ArrowUp',
+    code: 'ArrowUp',
+    windowsVirtualKeyCode: 38,
+    nativeVirtualKeyCode: 38,
   })
   await send('Input.dispatchKeyEvent', {
     type: 'keyUp',
+    key: 'ArrowUp',
+    code: 'ArrowUp',
+    windowsVirtualKeyCode: 38,
+    nativeVirtualKeyCode: 38,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
     key: 'F2',
     code: 'F2',
     windowsVirtualKeyCode: 113,
