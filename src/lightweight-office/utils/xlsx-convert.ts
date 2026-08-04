@@ -31,7 +31,6 @@ const INDEXED_COLORS = [
    hinting for small digits while explicit workbook fonts remain untouched. */
 export const DEFAULT_SPREADSHEET_FONT = DEFAULT_OFFICE_FONT_FAMILY
 export const DEFAULT_SPREADSHEET_FONT_SIZE = 11
-export const DEFAULT_SPREADSHEET_FONT_COLOR = '#000000'
 
 function normalizeRgb(value: string | undefined): string | undefined {
   if (!value) return undefined
@@ -129,7 +128,9 @@ function toFortuneStyle(cell: ExcelCell, themeColors: string[]): Partial<Cell> {
   if (font?.underline) style.un = 1
   if (font?.strike) style.cl = 1
   const fontColor = resolveExcelColor(font?.color as ExtendedExcelColor | undefined, themeColors)
-  style.fc = fontColor || DEFAULT_SPREADSHEET_FONT_COLOR
+  // Keep Excel's automatic font color implicit. The renderer can then use a
+  // readable theme default without confusing it with a color the user chose.
+  if (fontColor) style.fc = fontColor
 
   if (fill?.type === 'pattern' && fill.pattern && fill.pattern !== 'none') {
     const fillColor = resolveExcelColor(
@@ -359,7 +360,6 @@ export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> 
                 : {
                     ff: DEFAULT_SPREADSHEET_FONT,
                     fs: DEFAULT_SPREADSHEET_FONT_SIZE,
-                    fc: DEFAULT_SPREADSHEET_FONT_COLOR,
                   }),
             },
           })
