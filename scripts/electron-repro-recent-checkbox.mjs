@@ -140,22 +140,11 @@ try {
   await evaluate(cdp.send, `(() => { const el = ${rowExpr('A文档.txt')}; const r = el.getBoundingClientRect(); window.__hover = { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)
   const h = await evaluate(cdp.send, `window.__hover`)
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: h.x, y: h.y })
-  const cardOpened = await waitFor(cdp.send, cardShown, 'hover card opened', 5000)
-  const cardOverCheckbox = await evaluate(cdp.send, `(() => {
-    const card = document.querySelector('[role="tooltip"]')
-    const cb = ${selectExpr('A文档.txt')}
-    if (!card || !cb) return null
-    const a = card.getBoundingClientRect()
-    const b = cb.getBoundingClientRect()
-    const overlap = !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
-    return { overlap, cardRect: { l: a.left, r: a.right, t: a.top, b: a.bottom }, cbRect: { l: b.left, r: b.right, t: b.top, b: b.bottom } }
-  })()`)
-  await screenshot(cdp.send, 'repro1-card-open.png', fixtureDir)
-  console.log('card opened:', cardOpened, 'card vs checkbox:', JSON.stringify(cardOverCheckbox))
+  await waitFor(cdp.send, cardShown, 'hover card opened', 5000)
   await leftClick(cdp.send, selectExpr('A文档.txt'), 'click checkbox A while card open')
   await sleep(400)
   const selA = await evaluate(cdp.send, `(${rowExpr('A文档.txt')}).getAttribute('aria-selected')`)
-  record('click checkbox while hover card open selects A', selA === 'true', `cardOverlap=${cardOverCheckbox?.overlap} selected=${selA}`)
+  record('click checkbox while hover card open selects A', selA === 'true', `selected=${selA}`)
 
   // Scenario 2: hover -> wait card -> click checkbox on ANOTHER row (multi-select)
   await evaluate(cdp.send, `(() => { const el = ${rowExpr('B文档.txt')}; const r = el.getBoundingClientRect(); window.__hover = { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)
