@@ -1496,6 +1496,137 @@ try {
     return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
   })()`)
 
+  const crossRunCellPoint = await evaluate(send, `(() => {
+    const cellArea = document.querySelector('.fortune-cell-area')
+    if (!cellArea) return null
+    const rect = cellArea.getBoundingClientRect()
+    return { x: rect.left + 16, y: rect.top + 19 * 8 + 8 }
+  })()`)
+  check('cross-run font-color test locates A9', Boolean(crossRunCellPoint), JSON.stringify(crossRunCellPoint))
+  await clickAt(send, crossRunCellPoint, 1)
+  await sleep(80)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    const editor = box?.querySelector('.luckysheet-input-box-inner')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
+      && editor?.innerText === 'AABBCC'
+  })()`)
+  const initialCrossRuns = await readRichTextEditorColors()
+  check(
+    'imported rich-text cell starts with three independent color runs',
+    initialCrossRuns?.redText === 'AA'
+      && initialCrossRuns?.blueText === 'CC'
+      && initialCrossRuns?.segments.some((segment) => (
+        segment.text === 'BB' && segment.color === 'rgb(0, 240, 15)'
+      )),
+    JSON.stringify(initialCrossRuns),
+  )
+
+  const crossRunSelection = await selectRichTextRange(1, 5)
+  check(
+    'cross-run test selects text through the complete middle run',
+    crossRunSelection?.selected === 'ABBC',
+    JSON.stringify(crossRunSelection),
+  )
+  await openFontColorPalette()
+  await clickFontColor('rgb(240, 255, 15)')
+  const correctedCrossRuns = await readRichTextEditorColors()
+  check(
+    'font color applies to every character across three existing runs',
+    correctedCrossRuns?.yellowText === 'ABBC'
+      && correctedCrossRuns?.redText === 'A'
+      && correctedCrossRuns?.blueText === 'C',
+    JSON.stringify(correctedCrossRuns),
+  )
+  await closeFontColorPalette()
+  await evaluate(send, `(() => {
+    document.querySelector('.luckysheet-input-box .luckysheet-cell-input')?.focus()
+    return true
+  })()`)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
+  })()`)
+
+  await clickAt(send, crossRunCellPoint, 1)
+  await sleep(80)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
+  })()`)
+  const reopenedCrossRuns = await readRichTextEditorColors()
+  check(
+    'cross-run font color survives committing and reopening the cell',
+    reopenedCrossRuns?.yellowText === 'ABBC'
+      && reopenedCrossRuns?.redText === 'A'
+      && reopenedCrossRuns?.blueText === 'C',
+    JSON.stringify(reopenedCrossRuns),
+  )
+  await evaluate(send, `(() => {
+    document.querySelector('.luckysheet-input-box .luckysheet-cell-input')?.focus()
+    return true
+  })()`)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
+  })()`)
+
   const toggledToLight = await evaluate(send, `(() => {
     const button = document.querySelector('[data-testid="theme-toggle"]')
     if (!button) return false
