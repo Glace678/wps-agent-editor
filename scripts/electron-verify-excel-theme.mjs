@@ -1308,19 +1308,25 @@ try {
 
   const openFontColorPalette = async () => {
     await clickAt(send, fontColorArrowPoint, 1)
-    await waitFor(send, `Boolean(document.querySelector(
-      '.fortune-toobar-combo-container .fortune-toolbar-color-picker-item'
-    ))`)
+    await waitFor(send, `[
+      ...document.querySelectorAll('.fortune-toobar-combo-container .fortune-toolbar-color-picker-item')
+    ].some((item) => item.getClientRects().length > 0
+      && getComputedStyle(item).display !== 'none'
+      && getComputedStyle(item).visibility !== 'hidden')`)
   }
   const closeFontColorPalette = async () => {
-    const isOpen = await evaluate(send, `Boolean(document.querySelector(
-      '.fortune-toobar-combo-container .fortune-toolbar-color-picker-item'
-    ))`)
+    const isOpen = await evaluate(send, `[
+      ...document.querySelectorAll('.fortune-toobar-combo-container .fortune-toolbar-color-picker-item')
+    ].some((item) => item.getClientRects().length > 0
+      && getComputedStyle(item).display !== 'none'
+      && getComputedStyle(item).visibility !== 'hidden')`)
     if (!isOpen) return
     await clickAt(send, fontColorArrowPoint, 1)
-    await waitFor(send, `!document.querySelector(
-      '.fortune-toobar-combo-container .fortune-toolbar-color-picker-item'
-    )`)
+    await waitFor(send, `![
+      ...document.querySelectorAll('.fortune-toobar-combo-container .fortune-toolbar-color-picker-item')
+    ].some((item) => item.getClientRects().length > 0
+      && getComputedStyle(item).display !== 'none'
+      && getComputedStyle(item).visibility !== 'hidden')`)
   }
   const clickFontColor = async (cssColor) => {
     const point = await evaluate(send, `(() => {
