@@ -979,6 +979,10 @@ try {
       buttons: 0,
     }))
     await new Promise((resolve) => setTimeout(resolve, 100))
+    const editorBeforePick = document.querySelector('.luckysheet-input-box-inner')
+    const editingBeforePick = editorBeforePick?.closest('#luckysheet-input-box')
+      ? getComputedStyle(editorBeforePick.closest('#luckysheet-input-box')).display !== 'none'
+      : false
 
     const buttons = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
     const fontFamily = buttons.find((item) => /font|瀛椾綋|瀛楅珨/i.test(
@@ -1018,7 +1022,8 @@ try {
     return {
       clicked: true,
       selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
-      editing: editor?.closest('#luckysheet-input-box')
+      editingBeforePick,
+      editingAfterPick: editor?.closest('#luckysheet-input-box')
         ? getComputedStyle(editor.closest('#luckysheet-input-box')).display !== 'none'
         : false,
       editorForeground: editor?.dataset.excelCellForeground || '',
@@ -1027,7 +1032,7 @@ try {
   })()`, true)
   check('font-color palette swatch can be clicked', fontColorPick.clicked, JSON.stringify(fontColorPick))
   check('font-color palette test targets A7', fontColorPick.selection === 'A7', JSON.stringify(fontColorPick))
-  check('font-color palette test keeps A7 in edit mode', fontColorPick.editing, JSON.stringify(fontColorPick))
+  check('font-color palette test starts with A7 in edit mode', fontColorPick.editingBeforePick, JSON.stringify(fontColorPick))
   check(
     'font-color palette swatch updates the active cell color model',
     fontColorPick.editorForeground.toLowerCase() === fontColorSwatch,
