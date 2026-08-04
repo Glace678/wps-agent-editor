@@ -538,20 +538,38 @@ function getActiveExcelCellEditor(shell: HTMLElement) {
   return editor
 }
 
+function captureExcelCellEditorTextRange(shell: HTMLElement): Range | null {
+  const editor = getActiveExcelCellEditor(shell)
+  const selection = window.getSelection()
+  if (!editor || !selection || selection.isCollapsed || selection.rangeCount === 0) return null
+
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return null
+  return range.cloneRange()
+}
+
+function restoreExcelCellEditorTextRange(shell: HTMLElement, range: Range): boolean {
+  const editor = getActiveExcelCellEditor(shell)
+  const selection = window.getSelection()
+  if (!editor || !selection
+    || !range.startContainer.isConnected
+    || !range.endContainer.isConnected
+    || !editor.contains(range.startContainer)
+    || !editor.contains(range.endContainer)) return false
+
+  try {
+    selection.removeAllRanges()
+    selection.addRange(range.cloneRange())
+    return true
+  } catch {
+    return false
+  }
+}
+
 function isExcelCellEditorActiveWithoutSelection(shell: HTMLElement) {
   const editor = getActiveExcelCellEditor(shell)
   if (!editor) return false
-
-  const selection = window.getSelection()
-  const hasSelectedEditorText = Boolean(
-    selection
-      && !selection.isCollapsed
-      && selection.anchorNode
-      && selection.focusNode
-      && editor.contains(selection.anchorNode)
-      && editor.contains(selection.focusNode),
-  )
-  return !hasSelectedEditorText
+  return captureExcelCellEditorTextRange(shell) === null
 }
 
 function cloneExcelSelection(selection: ExcelSelection): ExcelSelection {
@@ -840,6 +858,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     }
 
     let fallbackSnapshot: boolean | null = null
+    let richTextRangeSnapshot: Range | null = null
     let triggerSawMouseDown = false
     let pendingCommand: PendingFontColorCommand | null = null
     let pendingResetAfterEdit: PendingFontColorCommand | null = null
@@ -889,7 +908,12 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       const command = getExcelFontColorCommand(target)
       if (command) {
         if (fallbackSnapshot === null) {
-          fallbackSnapshot = isExcelCellEditorActiveWithoutSelection(shell)
+          richTextRangeSnapshot = captureExcelCellEditorTextRange(shell)
+          fallbackSnapshot = richTextRangeSnapshot === null
+            && isExcelCellEditorActiveWithoutSelection(shell)
+        }
+        if (richTextRangeSnapshot) {
+          restoreExcelCellEditorTextRange(shell, richTextRangeSnapshot)
         }
         if (fallbackSnapshot && !pendingCommand) {
           pendingCommand = captureCommand(command.color)
@@ -899,6 +923,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
           const commandToApply = pendingCommand
           pendingCommand = null
           fallbackSnapshot = null
+          richTextRangeSnapshot = null
           triggerSawMouseDown = false
           if (commandToApply) scheduleFallback(commandToApply)
         }
@@ -908,11 +933,15 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       if (isExcelFontColorPickerTrigger(target)) {
         if (event.type === 'mousedown') {
           // Capture before the toolbar takes focus and collapses a rich-text selection.
-          fallbackSnapshot = isExcelCellEditorActiveWithoutSelection(shell)
+          richTextRangeSnapshot = captureExcelCellEditorTextRange(shell)
+          fallbackSnapshot = richTextRangeSnapshot === null
+            && isExcelCellEditorActiveWithoutSelection(shell)
           triggerSawMouseDown = true
         } else if (!triggerSawMouseDown) {
           // Keyboard activation and programmatic clicks do not emit mousedown.
-          fallbackSnapshot = isExcelCellEditorActiveWithoutSelection(shell)
+          richTextRangeSnapshot = captureExcelCellEditorTextRange(shell)
+          fallbackSnapshot = richTextRangeSnapshot === null
+            && isExcelCellEditorActiveWithoutSelection(shell)
         }
         if (event.type === 'click') triggerSawMouseDown = false
         return
@@ -923,6 +952,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
       if (event.type === 'mousedown') {
         fallbackSnapshot = null
+        richTextRangeSnapshot = null
         triggerSawMouseDown = false
         pendingCommand = null
       }
