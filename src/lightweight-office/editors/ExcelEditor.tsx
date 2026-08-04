@@ -65,6 +65,9 @@ const EXCEL_FONT_SIZE_LABEL_RE =
 const EXCEL_FONT_LABEL_RE =
   /\bfont\b|\bfuente\b|шрифт|फ़ॉन्ट|\u5b57\u4f53|\u5b57\u9ad4|\bschriftart\b|\bpolice\b|\bfonte\b|フォント|الخط/
 
+const EXCEL_FONT_COLOR_LABEL_RE =
+  /font[\s-]*colou?r|text[\s-]*colou?r|\u6587\u672c\u989c\u8272|\u5b57\u4f53\u989c\u8272|\u6587\u5b57\u984f\u8272|\u5b57\u9ad4\u984f\u8272|color\s*(?:de\s*)?(?:texto|fuente)|цвет\s*шрифта/
+
 /** Fortune toolbar tips for cell number format (格式 / Format / …). */
 const EXCEL_FORMAT_LABEL_RE =
   /\bformat(?:o|ear)?\b|\bformatear\b|формат|\u683c\u5f0f|प्रारूप|फॉर्मेट|書式|تنسيق/
@@ -147,7 +150,7 @@ function getExcelToolbarPickerKindForPicker(
     .toLocaleLowerCase()
 
   // Font color / other non-list combos must not get a search field.
-  if (/font[\s-]*colou?r|\u5b57\u4f53\u989c\u8272|\u5b57\u9ad4\u984f\u8272|color\s*de\s*fuente|цвет\s*шрифта/.test(label)) {
+  if (EXCEL_FONT_COLOR_LABEL_RE.test(label)) {
     return null
   }
 
