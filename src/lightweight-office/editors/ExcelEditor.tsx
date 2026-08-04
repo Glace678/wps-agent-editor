@@ -436,7 +436,7 @@ function parseExcelFontSizeForPicker(value: string): number | null {
   return Math.round(size * 100) / 100
 }
 
-function isAuthoredExcelCellColor(value: unknown) {
+function isAuthoredExcelCellColor(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
