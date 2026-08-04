@@ -387,8 +387,6 @@ type PdbLastCommand =
   | 'set-break'
   | 'continue'
   | 'step'
-  | 'next'
-  | 'return'
   | 'vars'
   | 'eval'
   | 'none'
@@ -409,30 +407,29 @@ interface PythonSession extends DebugSession {
   breakpointSet: Set<string>
 }
 
-const PDB_STACK_LINE = /^(>|\s+)(.*?)\((\d+)\)([A-Za-z_<][\w.<>]*)?/
+/** pdb prefixes the current frame with '>' e.g. "> C:\\path\\prog.py(5)add()" */
+const PDB_CURRENT_LINE = /^>(.*?)\((\d+)\)/
+const PDB_ACK_LINE = /Breakpoint\s+\d+\s+at|Error in argument/
 const PDB_RETURN_LINE = /^--Return--/
 const PDB_FINISHED_LINE = /The program finished/
 
-function pdbStackFrames(lines: string[]): Array<{
-  index: number
-  name: string
-  file: string
-  line: number
-  column: number
-}> {
-  const frames: Array<{ index: number; name: string; file: string; line: number; column: number }> = []
+function pdbCurrentFrame(lines: string[]): { file: string; line: number; name: string } | null {
   for (const line of lines) {
-    const match = PDB_STACK_LINE.exec(line.trim())
+    const match = PDB_CURRENT_LINE.exec(line.trim())
     if (!match) continue
-    frames.push({
-      index: frames.length,
-      name: match[4] ? String(match[4]) : '<module>',
-      file: match[2],
-      line: Number(match[3]),
-      column: 1,
-    })
+    return {
+      file: match[1],
+      line: Number(match[2]),
+      name: line.includes('()') ? '<module>' : line.slice(line.lastIndexOf('(') + 1, line.lastIndexOf(')')).split('(')[0] || '<module>',
+    }
   }
-  return frames
+  return null
+}
+
+function programOutputOf(lines: string[]): string {
+  return lines
+    .filter((line) => !PDB_CURRENT_LINE.test(line.trim()) && !line.trim().startsWith('->'))
+    .join('\n')
 }
 
 function sendPdbVarsQuery(session: PythonSession): void {
@@ -531,9 +528,6 @@ async function createPythonSession(
     const raw = session.pendingLines
     session.pendingLines = []
 
-    const isReturn = raw.some((line) => PDB_RETURN_LINE.test(line.trim()))
-    const isFinished = raw.some((line) => PDB_FINISHED_LINE.test(line))
-
     if (session.lastCommand === 'start') {
       session.breakIndex = 0
       if (breakpoints.length === 0) {
@@ -549,6 +543,8 @@ async function createPythonSession(
     }
 
     if (session.lastCommand === 'set-break') {
+      // Skip empty echo prompts until the ack arrives.
+      if (!raw.some((line) => PDB_ACK_LINE.test(line))) return
       session.breakIndex += 1
       if (session.breakIndex < breakpoints.length) {
         const next = breakpoints[session.breakIndex]
@@ -562,11 +558,12 @@ async function createPythonSession(
     }
 
     if (session.lastCommand === 'vars') {
+      if (raw.length === 0) return
       const paused = session.pendingPaused
       session.pendingPaused = null
       session.lastCommand = 'none'
       const body = raw
-        .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !line.trim().startsWith('->'))
+        .filter((line) => !PDB_CURRENT_LINE.test(line.trim()) && !line.trim().startsWith('->'))
         .join('\n')
         .trim()
       const variables: DebugVariable[] = []
@@ -585,11 +582,12 @@ async function createPythonSession(
     }
 
     if (session.lastCommand === 'eval') {
+      if (raw.length === 0) return
       const pending = session.pendingEval
       session.pendingEval = null
       session.lastCommand = 'none'
       const body = raw
-        .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !line.trim().startsWith('->'))
+        .filter((line) => !PDB_CURRENT_LINE.test(line.trim()) && !line.trim().startsWith('->'))
         .join('\n')
         .trim()
       emit({
@@ -600,65 +598,50 @@ async function createPythonSession(
       return
     }
 
-    if (isFinished) {
-      const output = raw
-        .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !PDB_FINISHED_LINE.test(line))
-        .join('\n')
-      if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
-      emit({ event: 'output', kind: 'stdout', text: 'The program finished.\n' })
-      emit({ event: 'exit', code: 0 })
-      quitPdb(session)
-      session.lastCommand = 'none'
-      return
-    }
+    const isFinished = raw.some((line) => PDB_FINISHED_LINE.test(line))
+    const isReturn = raw.some((line) => PDB_RETURN_LINE.test(line.trim()))
+    const current = pdbCurrentFrame(raw)
 
-    const frames = pdbStackFrames(raw)
-    const current = frames[0]
-    const programOutput = (lines: string[]) => lines
-      .filter((line) => !PDB_STACK_LINE.test(line.trim()) && !line.trim().startsWith('->'))
-      .join('\n')
-
-    if (current && session.lastCommand === 'continue') {
-      const key = `${current.file}:${current.line}`
-      const hitBreakpoint = session.breakpointSet.has(key)
-      if (!hitBreakpoint) {
-        // The program terminated without hitting a breakpoint (e.g. an exception).
-        const text = programOutput(raw)
-        if (text) emit({ event: 'output', kind: 'stderr', text: `${text}\n` })
+    if (session.lastCommand === 'continue' || session.lastCommand === 'step') {
+      if (!current && !isFinished) return
+      if (isFinished) {
+        const output = programOutputOf(raw)
+        if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
+        emit({ event: 'output', kind: 'stdout', text: 'The program finished.\n' })
+        emit({ event: 'exit', code: 0 })
+        quitPdb(session)
+        session.lastCommand = 'none'
+        return
+      }
+      const frames = current
+        ? [{
+            index: 0,
+            name: current.name,
+            file: current.file,
+            line: current.line,
+            column: 1,
+          }]
+        : []
+      if (session.lastCommand === 'continue') {
+        const key = `${current!.file}:${current!.line}`
+        const hitBreakpoint = session.breakpointSet.has(key)
+        const output = programOutputOf(raw)
+        if (hitBreakpoint) {
+          if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
+          session.pendingPaused = { reason: 'breakpoint', frames }
+          sendPdbVarsQuery(session)
+          return
+        }
+        // Program terminated without hitting a breakpoint (e.g. an exception).
+        if (output) emit({ event: 'output', kind: 'stderr', text: `${output}\n` })
         emit({ event: 'exit', code: 1 })
         quitPdb(session)
         session.lastCommand = 'none'
         return
       }
-      const output = programOutput(raw)
+      const output = programOutputOf(raw)
       if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
-      session.pendingPaused = {
-        reason: 'breakpoint',
-        frames: frames.map((frame) => ({
-          index: frame.index,
-          name: frame.name,
-          file: frame.file,
-          line: frame.line,
-          column: frame.column,
-        })),
-      }
-      sendPdbVarsQuery(session)
-      return
-    }
-
-    if (current && ['step', 'next', 'return'].includes(session.lastCommand)) {
-      const output = programOutput(raw)
-      if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
-      session.pendingPaused = {
-        reason: isReturn ? 'step-out' : 'step',
-        frames: frames.map((frame) => ({
-          index: frame.index,
-          name: frame.name,
-          file: frame.file,
-          line: frame.line,
-          column: frame.column,
-        })),
-      }
+      session.pendingPaused = { reason: isReturn ? 'step-out' : 'step', frames }
       sendPdbVarsQuery(session)
       return
     }
@@ -678,11 +661,6 @@ async function createPythonSession(
   })
 
   session.lastCommand = 'start'
-  try {
-    child.stdin.write('\n')
-  } catch {
-    // Ignore
-  }
 
   return session
 }
