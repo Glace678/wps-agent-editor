@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Workbook } from '@fortune-sheet/react'
 import type { WorkbookInstance } from '@fortune-sheet/react'
-import type { Sheet } from '@fortune-sheet/core'
+import type { Cell, Sheet } from '@fortune-sheet/core'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { documentBridge } from '../agent/document-bridge'
 import { readFileBuffer, saveFileBuffer } from '../utils/file-io'
@@ -436,6 +436,34 @@ function parseExcelFontSizeForPicker(value: string): number | null {
   return Math.round(size * 100) / 100
 }
 
+function isAuthoredExcelCellColor(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isImplicitFortuneFontColor(value: unknown) {
+  if (!isAuthoredExcelCellColor(value)) return true
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, '')
+  return normalized === 'rgb(51,51,51)' || normalized === 'rgba(51,51,51,1)'
+}
+
+export function resolveExcelCellEditorColors(
+  cell: Pick<Cell, 'bg' | 'fc'> | null,
+  darkMode: boolean,
+) {
+  const hasBackground = isAuthoredExcelCellColor(cell?.bg)
+  const hasFontColor = !isImplicitFortuneFontColor(cell?.fc)
+  return {
+    background: hasBackground ? cell!.bg!.trim() : darkMode ? '#000000' : '#ffffff',
+    foreground: hasFontColor
+      ? cell!.fc!.trim()
+      : hasBackground
+        ? '#000000'
+        : darkMode
+          ? '#f5f5f5'
+          : '#000000',
+  }
+}
+
 export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegisterSave }: ExcelEditorProps) {
   const { language, t } = useTranslation()
   const shellRef = useRef<HTMLDivElement>(null)
@@ -448,6 +476,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   const lastContentSnapshotRef = useRef<readonly Sheet[] | null>(null)
   const dirtyCheckTimerRef = useRef<number | null>(null)
   const dirtyReportedRef = useRef(false)
+  const activeCellColorSyncRef = useRef<() => void>(() => {})
   const sheetsRef = useRef<Sheet[]>([])
   const onDirtyRef = useRef(onDirty)
   const onReadyRef = useRef(onReady)
@@ -600,6 +629,61 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     if (!shell || !sheets) return
     if (localStorage.getItem('wps-smooth-excel-scroll-disabled') === '1') return
     return attachExcelFrameScroll(shell)
+  }, [sheets, fontLibraryReady])
+
+  useEffect(() => {
+    const shell = shellRef.current
+    if (!shell || !sheets || !fontLibraryReady) return
+
+    let syncFrame: number | null = null
+    const syncActiveCellColors = () => {
+      syncFrame = null
+      const editor = shell.querySelector<HTMLElement>('.luckysheet-input-box-inner')
+      const api = workbookRef.current
+      const selection = api?.getSelection?.()?.[0]
+      const row = selection?.row?.[0]
+      const column = selection?.column?.[0]
+      if (!editor || !api || row === undefined || column === undefined) return
+
+      const cell = {
+        bg: api.getCellValue(row, column, { type: 'bg' }) as Cell['bg'],
+        fc: api.getCellValue(row, column, { type: 'fc' }) as Cell['fc'],
+      }
+      const colors = resolveExcelCellEditorColors(
+        cell,
+        document.documentElement.classList.contains('dark'),
+      )
+      if (editor.style.backgroundColor !== colors.background) {
+        editor.style.backgroundColor = colors.background
+      }
+      if (editor.style.color !== colors.foreground) editor.style.color = colors.foreground
+      editor.dataset.excelCellBackground = colors.background
+      editor.dataset.excelCellForeground = colors.foreground
+    }
+
+    const scheduleActiveCellColorSync = () => {
+      if (syncFrame !== null) cancelAnimationFrame(syncFrame)
+      syncFrame = requestAnimationFrame(syncActiveCellColors)
+    }
+    activeCellColorSyncRef.current = scheduleActiveCellColorSync
+
+    const editorObserver = new MutationObserver(scheduleActiveCellColorSync)
+    editorObserver.observe(shell, { childList: true, subtree: true })
+    shell.addEventListener('mousedown', scheduleActiveCellColorSync, true)
+    shell.addEventListener('dblclick', scheduleActiveCellColorSync, true)
+    shell.addEventListener('keydown', scheduleActiveCellColorSync, true)
+    shell.addEventListener('click', scheduleActiveCellColorSync, true)
+    scheduleActiveCellColorSync()
+
+    return () => {
+      activeCellColorSyncRef.current = () => {}
+      editorObserver.disconnect()
+      shell.removeEventListener('mousedown', scheduleActiveCellColorSync, true)
+      shell.removeEventListener('dblclick', scheduleActiveCellColorSync, true)
+      shell.removeEventListener('keydown', scheduleActiveCellColorSync, true)
+      shell.removeEventListener('click', scheduleActiveCellColorSync, true)
+      if (syncFrame !== null) cancelAnimationFrame(syncFrame)
+    }
   }, [sheets, fontLibraryReady])
 
   useEffect(() => {
@@ -1319,6 +1403,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   // selection / click / layout onChange must not light the tab dirty dot.
   const handleChange = useCallback((data: Sheet[]) => {
     sheetsRef.current = data
+    activeCellColorSyncRef.current()
     const contentReferencesUnchanged = excelSheetsShareContentReferences(
       lastContentSnapshotRef.current,
       data,
