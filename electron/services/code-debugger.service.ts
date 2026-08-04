@@ -712,7 +712,6 @@ async function createPythonSession(
       if (session.lastCommand === 'continue') {
         const key = pdbBreakpointKey(current!.file, current!.line)
         const hitBreakpoint = session.breakpointSet.has(key)
-        console.log('[pdb] continue key=' + key + ' hit=' + hitBreakpoint + ' set=' + JSON.stringify([...session.breakpointSet]))
         const output = programOutputOf(raw)
         if (hitBreakpoint) {
           if (output) emit({ event: 'output', kind: 'stdout', text: `${output}\n` })
