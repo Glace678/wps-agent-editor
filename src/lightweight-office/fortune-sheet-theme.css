@@ -104,6 +104,8 @@
   --fortune-dark-border: #2a2a2a;
   --fortune-dark-text: #f5f5f5;
   --fortune-dark-muted: #a3a3a3;
+  --fortune-dark-sheet-bg: #fff;
+  --fortune-dark-sheet-text: #1f1f1f;
   --fortune-dark-picker-bg: #252525;
   --fortune-dark-picker-field-bg: #303030;
   --fortune-dark-picker-hover: #363636;
@@ -124,23 +126,31 @@
    finished bitmap and soften small numbers. */
 .dark .excel-editor-shell .fortune-sheet-canvas {
   filter: none;
-  background: #000;
+  background: var(--fortune-dark-sheet-bg);
 }
 
-/* Match the live DOM editor to the native black worksheet. */
+/* Keep the live editor on the authored cell colors instead of forcing black. */
 .dark .excel-editor-shell .luckysheet-input-box-inner,
 .dark .excel-editor-shell .luckysheet-cell-input {
-  background: #000 !important;
-  color: #f5f5f5 !important;
-  caret-color: #f5f5f5;
+  caret-color: currentColor;
   filter: none !important;
+}
+
+.dark .excel-editor-shell .luckysheet-input-box-inner {
+  background: var(--fortune-dark-sheet-bg);
+  color: var(--fortune-dark-sheet-text);
+}
+
+.dark .excel-editor-shell .luckysheet-cell-input {
+  background: transparent;
+  color: inherit;
 }
 
 .dark .excel-editor-shell .fortune-workarea,
 .dark .excel-editor-shell .fortune-sheet-container,
 .dark .excel-editor-shell .fortune-col-body,
 .dark .excel-editor-shell .fortune-sheet-area {
-  background: #000;
+  background: var(--fortune-dark-sheet-bg);
 }
 
 /* These transparent hit-test layers sit above the canvas. Giving either one
