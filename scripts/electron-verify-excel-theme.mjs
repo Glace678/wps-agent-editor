@@ -1325,9 +1325,17 @@ try {
       return Boolean(container?.querySelector('.fortune-toolbar-combo-popup'))
     })()`)
     if (!isOpen) return
-    // Fortune's outside-click listener closes the popup on mousedown. Clicking
-    // its arrow can immediately reopen it on the following click event.
-    await clickAt(send, richTextCellPoint, 1)
+    // Avoid Fortune's outside-mousedown + arrow-click race while the test
+    // closes the panel between two independent text selections.
+    await evaluate(send, `(() => {
+      const button = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
+        .find((candidate) => [...candidate.querySelectorAll('use')].some((icon) => (
+          (icon.getAttribute('href') || icon.getAttribute('xlink:href') || '').endsWith('#font-color')
+        )))
+      button?.closest('.fortune-toolbar-combo')
+        ?.querySelector('.fortune-toolbar-combo-arrow')?.click()
+      return true
+    })()`)
     await waitFor(send, `(() => {
       const container = [...document.querySelectorAll('.fortune-toobar-combo-container')]
         .find((candidate) => [...candidate.querySelectorAll('use')].some((icon) => (
