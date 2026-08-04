@@ -108,288 +108,331 @@ export function evaluateDebugExpression(expression: string, id: string): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* Node.js / TypeScript 鈥?CDP inspector session inside a child process */
+/* Node.js / TypeScript 鈥?real CDP debugging over WebSocket            */
 /* ------------------------------------------------------------------ */
-
-const NODE_CHILD_CODE = [
-  "'use strict';",
-  'const inspector = require(\'node:inspector\');',
-  'const readline = require(\'node:readline\');',
-  'const fs = require(\'node:fs\');',
-  'const os = require(\'node:os\');',
-  'const path = require(\'node:path\');',
-  'const { pathToFileURL } = require(\'node:url\');',
-  'const session = new inspector.Session();',
-  'const post = (method, params) => new Promise((resolve, reject) => {',
-  '  session.post(method, params, (err, result) => err ? reject(err) : resolve(result));',
-  '});',
-  'const send = (msg) => process.stdout.write(JSON.stringify(msg) + \'\\n\');',
-  'let filePath = \'\';',
-  'let scriptPath = \'\';',
-  'let breakpoints = [];',
-  'function mapFile(url) {',
-  '  if (scriptPath && url === pathToFileURL(scriptPath).href) return filePath;',
-  '  return url;',
-  '}',
-  'function propText(prop) {',
-  '  if (prop.value !== undefined && prop.value !== null) {',
-  '    if (typeof prop.value === \'object\') {',
-  '      try { return JSON.stringify(prop.value); } catch (e) { return String(prop.value); }',
-  '    }',
-  '    return String(prop.value);',
-  '  }',
-  '  if (prop.unserializableValue !== undefined) return String(prop.unserializableValue);',
-  '  if (prop.objectId) return prop.description !== undefined ? String(prop.description) : \'(Object)\';',
-  '  return prop.value === undefined ? \'undefined\' : String(prop.value);',
-  '}',
-  'function argText(arg) {',
-  '  if (arg && arg.value !== undefined) {',
-  '    if (arg.value !== null && typeof arg.value === \'object\') {',
-  '      try { return JSON.stringify(arg.value); } catch (e) { return String(arg.value); }',
-  '    }',
-  '    return String(arg.value);',
-  '  }',
-  '  if (arg && arg.unserializableValue !== undefined) return String(arg.unserializableValue);',
-  '  if (arg && arg.description !== undefined) return String(arg.description);',
-  '  return \'[object]\';',
-  '}',
-  'async function collectVariables(params) {',
-  '  const frames = (params.callFrames || []).map((frame) => ({',
-  '    index: frame.callFrameId,',
-  '    name: frame.functionName || \'(anonymous)\',',
-  '    file: mapFile(frame.url || \'\'),',
-  '    line: frame.location.lineNumber + 1,',
-  '    column: frame.location.columnNumber + 1,',
-  '  }));',
-  '  const variables = [];',
-  '  const top = (params.callFrames || [])[0];',
-  '  if (top) {',
-  '    const localScope = top.scopeChain.find((s) => s.type === \'local\');',
-  '    if (localScope && localScope.object && localScope.object.objectId) {',
-  '      try {',
-  '        const props = await post(\'Runtime.getProperties\', {',
-  '          objectId: localScope.object.objectId,',
-  '          ownProperties: true,',
-  '        });',
-  '        const entries = (props.result || [])',
-  '          .filter((p) => !String(p.name).startsWith(\'_\'))',
-  '          .map((p) => ({ name: String(p.name), value: propText(p) }));',
-  '        variables.push(...entries);',
-  '      } catch (e) { /* ignore */ }',
-  '    }',
-  '  }',
-  '  return { frames, variables };',
-  '}',
-  'async function onPaused(params) {',
-  '  const frames = params.callFrames || [];',
-  '  if (frames.length === 0) {',
-  '    // Internal pauses (evaluation start / end of script) carry no frames.',
-  '    session.post(\'Debugger.resume\');',
-  '    return;',
-  '  }',
-  '  const reason = params.reason || \'breakpoint\';',
-  '  const data = await collectVariables(params);',
-  '  send({ event: \'paused\', reason, frames: data.frames, variables: data.variables });',
-  '}',
-  'function prepareScript(msg) {',
-  '  const extension = path.extname(msg.filePath).slice(1).toLowerCase();',
-  '  if (extension === \'js\' || extension === \'cjs\') return msg.filePath;',
-  '  let code = msg.code;',
-  '  let loader = null;',
-  '  if (extension === \'ts\') loader = \'ts\';',
-  '  else if (extension === \'tsx\') loader = \'tsx\';',
-  '  else if (extension === \'jsx\') loader = \'jsx\';',
-  '  else if (extension === \'mjs\') loader = \'js\';',
-  '  if (loader) {',
-  '    const esbuild = require(msg.esbuildPath);',
-  '    code = esbuild.transformSync(code, { loader, format: \'cjs\' }).code;',
-  '  }',
-  '  const dir = fs.mkdtempSync(path.join(os.tmpdir(), \'wps-debug-run-\'));',
-  '  const name = path.basename(msg.filePath).replace(/\\.(ts|tsx|mjs|jsx)$/i, \'.js\');',
-  '  const target = path.join(dir, name);',
-  '  fs.writeFileSync(target, code);',
-  '  return target;',
-  '}',
-  'async function run(msg) {',
-  '  filePath = msg.filePath;',
-  '  breakpoints = msg.breakpoints || [];',
-  '  try {',
-  '    scriptPath = prepareScript(msg);',
-  '    const sourceUrl = pathToFileURL(scriptPath).href;',
-  '    session.connect();',
-  '    session.on(\'Debugger.paused\', onPaused);',
-  '    session.on(\'Debugger.resumed\', () => {',
-  '      send({ event: \'resumed\' });',
-  '    });',
-  '    session.on(\'Runtime.exceptionThrown\', (exceptionParams) => {',
-  '      const details = exceptionParams.exceptionDetails || {};',
-  '      const text = details.exception && details.exception.description',
-  '        ? String(details.exception.description)',
-  '        : details.text || \'Uncaught exception\';',
-  '      send({ event: \'output\', kind: \'stderr\', text: text + \'\\n\' });',
-  '    });',
-  '    await post(\'Debugger.enable\');',
-  '    await post(\'Runtime.enable\');',
-  '    for (const bp of breakpoints) {',
-  '      session.post(\'Debugger.setBreakpointByUrl\', {',
-  '        lineNumber: bp.line - 1,',
-  '        url: sourceUrl,',
-  '      }, (err, result) => {',
-  '        if (err) {',
-  '          send({ event: \'error\', message: String(err && err.message || err) });',
-  '          return;',
-  '        }',
-  '        send({ event: \'breakpoint-verified\', file: filePath, line: bp.line });',
-  '        void result;',
-  '      });',
-  '    }',
-  '    global.__wpsDebugRequire = require;',
-  '    global.__wpsDebugScriptPath = scriptPath;',
-  '    const result = await post(\'Runtime.evaluate\', {',
-  '      expression: \'global.__wpsDebugRequire(global.__wpsDebugScriptPath)\',',
-  '      silent: true,',
-  '      awaitPromise: false,',
-  '    });',
-  '    if (result.exceptionDetails) {',
-  '      const details = result.exceptionDetails;',
-  '      const text = details.exception && details.exception.description',
-  '        ? String(details.exception.description)',
-  '        : details.text || \'Uncaught exception\';',
-  '      send({ event: \'output\', kind: \'stderr\', text: text + \'\\n\' });',
-  '    }',
-  '  } catch (e) {',
-  '    send({ event: \'error\', message: String(e && e.message || e) });',
-  '  }',
-  '  send({ event: \'exit\', code: 0 });',
-  '  process.exit(0);',
-  '}',
-  'async function evaluate(msg) {',
-  '  try {',
-  '    const result = await post(\'Runtime.evaluate\', {',
-  '      expression: msg.expression,',
-  '      includeCommandLineAPI: true,',
-  '      silent: true,',
-  '    });',
-  '    if (result.exceptionDetails) {',
-  '      const details = result.exceptionDetails;',
-  '      const text = details.exception && details.exception.description',
-  '        ? String(details.exception.description)',
-  '        : details.text || \'Evaluation failed\';',
-  '      send({ event: \'eval-result\', id: msg.id, error: text });',
-  '    } else {',
-  '      send({ event: \'eval-result\', id: msg.id, result: argText(result.result) });',
-  '    }',
-  '  } catch (e) {',
-  '    send({ event: \'eval-result\', id: msg.id, error: String(e && e.message || e) });',
-  '  }',
-  '}',
-  'readline.createInterface({ input: process.stdin }).on(\'line\', (line) => {',
-  '  let msg;',
-  '  try { msg = JSON.parse(line); } catch (e) { return; }',
-  '  if (msg.type === \'start\') {',
-  '    void run(msg);',
-  '  } else if (msg.type === \'stop\') {',
-  '    process.exit(0);',
-  '  } else if (msg.type === \'continue\') {',
-  '    session.post(\'Debugger.resume\');',
-  '  } else if (msg.type === \'step-over\') {',
-  '    session.post(\'Debugger.stepOver\');',
-  '  } else if (msg.type === \'step-into\') {',
-  '    session.post(\'Debugger.stepInto\');',
-  '  } else if (msg.type === \'step-out\') {',
-  '    session.post(\'Debugger.stepOut\');',
-  '  } else if (msg.type === \'evaluate\') {',
-  '    void evaluate(msg);',
-  '  }',
-  '});',
-].join('\n')
 
 interface NodeSession extends DebugSession {
   kind: 'node'
   child: ChildProcessWithoutNullStreams
+  ws: WebSocket
+}
+
+function isDebugScriptUrl(url: string, scriptPath: string): boolean {
+  if (!url) return false
+  const normalized = url.replace(/^file:\/\//, '').replace(/^\/+/, '')
+  const candidates = [
+    scriptPath,
+    scriptPath.replace(/\\/g, '/'),
+  ]
+  return candidates.some((candidate) => {
+    const c = candidate.replace(/^[a-zA-Z]:/, '').replace(/\\/g, '/')
+    return normalized.replace(/^[a-zA-Z]:/, '').replace(/\\/g, '/') === c
+  })
+}
+
+function bootCodeFor(scriptPath: string): string {
+  return [
+    'global.__wpsDebugRequire = require;',
+    `global.__wpsDebugScriptPath = process.argv[1] || ${JSON.stringify(scriptPath)};`,
+    'global.__wpsDebugRequire(global.__wpsDebugScriptPath);',
+  ].join('\n')
 }
 
 async function createNodeSession(
   filePath: string,
   breakpoints: DebugBreakpoint[],
 ): Promise<DebugSession | null> {
-  const code = await fs.readFile(filePath, 'utf8')
-  let esbuildPath = ''
-  try {
-    esbuildPath = require.resolve('esbuild')
-  } catch {
-    esbuildPath = ''
+  const { default: WebSocket } = await import('ws')
+
+  // Transpile TypeScript / JSX / ESM so the script can run inside a CommonJS boot.
+  const extension = extensionOf(filePath)
+  let code = await fs.readFile(filePath, 'utf8')
+  let scriptPath = filePath
+  if (['ts', 'tsx', 'mjs', 'jsx'].includes(extension)) {
+    let transpiled = code
+    try {
+      const esbuild = require('esbuild')
+      const loader = extension === 'tsx' ? 'tsx' : extension === 'jsx' ? 'jsx' : extension === 'ts' ? 'ts' : 'js'
+      transpiled = esbuild.transformSync(code, { loader, format: 'cjs' }).code
+    } catch (error) {
+      emit({ event: 'error', message: `Transpile failed: ${error instanceof Error ? error.message : String(error)}` })
+      return null
+    }
+    const tempRoot = await fs.mkdtemp(path.join(await import('node:os').then((os) => os.tmpdir()), 'wps-debug-run-'))
+    const name = path.basename(filePath).replace(/\.(ts|tsx|mjs|jsx)$/i, '.js')
+    scriptPath = path.join(tempRoot, name)
+    await fs.writeFile(scriptPath, transpiled, 'utf8')
   }
-  const child = spawn(process.execPath, ['-e', NODE_CHILD_CODE], {
+
+  const child = spawn(process.execPath, ['--inspect-brk=0', '-e', bootCodeFor(scriptPath), scriptPath], {
     cwd: path.dirname(filePath),
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   })
 
-  const interface_ = createInterface({ input: child.stdout })
-  interface_.on('line', (line) => {
-    try {
-      const message = JSON.parse(line) as DebugEvent & Record<string, unknown>
-      if (message && typeof message === 'object' && typeof message.event === 'string') {
-        emit(message)
-      } else {
-        // Raw program stdout that is not part of the message protocol.
-        emit({ event: 'output', kind: 'stdout', text: `${line}\n` })
-      }
-    } catch {
-      emit({ event: 'output', kind: 'stdout', text: `${line}\n` })
-    }
-  })
   const stderrInterface = createInterface({ input: child.stderr })
+  const stdoutInterface = createInterface({ input: child.stdout })
+  stdoutInterface.on('line', (line) => {
+    emit({ event: 'output', kind: 'stdout', text: `${line}\n` })
+  })
   stderrInterface.on('line', (line) => {
+    if (/ws:\/\/[^\s]+/.test(line)) return
     emit({ event: 'output', kind: 'stderr', text: `${line}\n` })
   })
 
+  let started = false
+  let stopped = false
+  let resumeAfterBreakpoints: (() => void) | null = null
+  let wsUrl = ''
+
+  const waitForWsUrl = new Promise<string>((resolve) => {
+    const matcher = (line: string) => {
+      const match = /ws:\/\/[^\s]+/.exec(line)
+      if (!match) return
+      stderrInterface.off('line', matcher)
+      resolve(match[0])
+    }
+    stderrInterface.on('line', matcher)
+  })
+
+  try {
+    wsUrl = await Promise.race([
+      waitForWsUrl,
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Inspector did not start.')), 10_000)),
+    ])
+  } catch {
+    emit({ event: 'error', message: 'The Node debugger failed to start.' })
+    child.kill()
+    stdoutInterface.close()
+    stderrInterface.close()
+    return null
+  }
+
+  let ws: WebSocket
+  let wsConnected = false
+  try {
+    ws = new WebSocket(wsUrl)
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve())
+      ws.on('error', () => reject(new Error('Inspector connection failed.')))
+    })
+    wsConnected = true
+  } catch {
+    emit({ event: 'error', message: 'Could not connect to the Node debugger.' })
+    child.kill()
+    stdoutInterface.close()
+    stderrInterface.close()
+    return null
+  }
+
+  let commandId = 0
+  let armed = false
+  let brkPauseArrived = false
+  let setupFailed = false
+  const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
+  const cdp = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => new Promise((resolve, reject) => {
+    const id = ++commandId
+    pending.set(id, { resolve, reject })
+    ws.send(JSON.stringify({ id, method, params }))
+  })
+
+  const mapFile = (url: string): string => (isDebugScriptUrl(url, scriptPath) ? filePath : url)
+
+  const collectVariables = async (frame: { scopeChain?: Array<{ type: string; object?: { objectId?: string } }> }) => {
+    const variables: DebugVariable[] = []
+    const localScope = frame.scopeChain?.find((scope) => scope.type === 'local')
+    if (localScope?.object?.objectId) {
+      try {
+        const props = await cdp('Runtime.getProperties', {
+          objectId: localScope.object.objectId,
+          ownProperties: true,
+        }) as { result?: Array<{ name: string; value?: { value?: unknown; description?: string }; unserializableValue?: unknown; objectId?: string; description?: string }> }
+        for (const prop of props.result ?? []) {
+          if (String(prop.name).startsWith('_')) continue
+          let value: string
+          if (prop.value !== undefined && prop.value !== null) {
+            value = typeof prop.value.value === 'object'
+              ? JSON.stringify(prop.value.value)
+              : String(prop.value.value ?? prop.value.description ?? '')
+          } else if (prop.unserializableValue !== undefined) {
+            value = String(prop.unserializableValue)
+          } else if (prop.objectId) {
+            value = prop.description ?? '(Object)'
+          } else {
+            value = 'undefined'
+          }
+          variables.push({ name: String(prop.name), value })
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return variables
+  }
+
+  const onPaused = async (params: {
+    reason?: string
+    callFrames?: Array<{
+      callFrameId: string
+      functionName: string
+      url: string
+      location: { lineNumber: number; columnNumber: number }
+      scopeChain?: Array<{ type: string; object?: { objectId?: string } }>
+    }>
+  }) => {
+    const frames = params.callFrames ?? []
+    if (frames.length === 0) {
+      // Internal pause (end of script) 鈥?resume silently.
+      void cdp('Debugger.resume').catch(() => {})
+      return
+    }
+    if (!armed) {
+      // Break-on-start pause 鈥?hold until breakpoints are armed.
+      brkPauseArrived = true
+      if (armed) void cdp('Debugger.resume').catch(() => {})
+      return
+    }
+    const variables = await collectVariables(frames[0])
+    emit({
+      event: 'paused',
+      reason: params.reason ?? 'breakpoint',
+      frames: frames.map((frame, index) => ({
+        index,
+        name: frame.functionName || '(anonymous)',
+        file: mapFile(frame.url),
+        line: frame.location.lineNumber + 1,
+        column: frame.location.columnNumber + 1,
+      })),
+      variables,
+    })
+  }
+
+  ws.on('message', (data: Buffer) => {
+    let message: Record<string, unknown>
+    try {
+      message = JSON.parse(String(data)) as Record<string, unknown>
+    } catch {
+      return
+    }
+    if (typeof message.id === 'number' && pending.has(message.id)) {
+      const entry = pending.get(message.id)!
+      pending.delete(message.id)
+      if (message.error) {
+        entry.reject(new Error(String((message.error as { message?: string }).message ?? 'CDP error')))
+      } else {
+        entry.resolve(message.result)
+      }
+      return
+    }
+    const method = String(message.method ?? '')
+    if (method === 'Debugger.paused') {
+      void onPaused(message.params as Parameters<typeof onPaused>[0])
+    } else if (method === 'Debugger.resumed') {
+      emit({ event: 'resumed' })
+    } else if (method === 'Debugger.breakpointResolved') {
+      const location = (message.params as { location?: { lineNumber?: number } })?.location
+      emit({
+        event: 'breakpoint-verified',
+        file: filePath,
+        line: (location?.lineNumber ?? -1) + 1,
+      })
+    } else if (method === 'Runtime.exceptionThrown') {
+      const details = (message.params as { exceptionDetails?: { exception?: { description?: string }; text?: string } })?.exceptionDetails
+      const text = details?.exception?.description ?? details?.text ?? 'Uncaught exception'
+      emit({ event: 'output', kind: 'stderr', text: `${text}\n` })
+    }
+  })
+
+  try {
+    await cdp('Debugger.enable')
+    await cdp('Runtime.enable')
+    const urlForms = [
+      pathToFileURL(scriptPath).href,
+      scriptPath.replace(/\\/g, '/'),
+      scriptPath,
+    ]
+    for (const bp of breakpoints) {
+      for (const url of urlForms) {
+        await cdp('Debugger.setBreakpointByUrl', {
+          lineNumber: bp.line - 1,
+          url,
+        }).catch(() => {})
+      }
+    }
+    armed = true
+    if (brkPauseArrived) void cdp('Debugger.resume').catch(() => {})
+  } catch (error) {
+    setupFailed = true
+    emit({ event: 'error', message: error instanceof Error ? error.message : String(error) })
+  }
+
   child.on('error', (error) => {
-    emit({ event: 'error', message: String(error.message) })
+    if (!stopped) emit({ event: 'error', message: String(error.message) })
   })
   child.on('exit', (code) => {
     if (activeSession && activeSession.filePath === filePath) {
       emit({ event: 'exit', code })
       activeSession = null
     }
-    interface_.close()
+    stdoutInterface.close()
     stderrInterface.close()
+    try {
+      ws.close()
+    } catch {
+      // ignore
+    }
   })
 
   const session: NodeSession = {
     kind: 'node',
     filePath,
     child,
+    ws,
     stop() {
-      child.stdin.write(JSON.stringify({ type: 'stop' }) + '\n')
-      const killer = setTimeout(() => child.kill(), 800)
+      stopped = true
+      try {
+        ws.close()
+      } catch {
+        // ignore
+      }
+      const killer = setTimeout(() => child.kill(), 400)
       killer.unref()
     },
     sendCommand(command) {
       const mapping: Record<DebugCommand, string> = {
-        continue: 'continue',
-        'step-over': 'step-over',
-        'step-into': 'step-into',
-        'step-out': 'step-out',
+        continue: 'Debugger.resume',
+        'step-over': 'Debugger.stepOver',
+        'step-into': 'Debugger.stepInto',
+        'step-out': 'Debugger.stepOut',
       }
-      child.stdin.write(JSON.stringify({ type: mapping[command] }) + '\n')
+      void cdp(mapping[command]).catch(() => {})
     },
     evaluate(expression, id) {
-      child.stdin.write(JSON.stringify({ type: 'evaluate', expression, id }) + '\n')
+      void cdp('Runtime.evaluate', {
+        expression,
+        includeCommandLineAPI: true,
+        silent: true,
+      }).then((result) => {
+        const evaluated = result as { result?: { value?: unknown; description?: string }; exceptionDetails?: { exception?: { description?: string }; text?: string } }
+        if (evaluated.exceptionDetails) {
+          emit({
+            event: 'eval-result',
+            id,
+            error: evaluated.exceptionDetails.exception?.description ?? evaluated.exceptionDetails.text ?? 'Evaluation failed',
+          })
+        } else {
+          const value = evaluated.result?.value ?? evaluated.result?.description ?? '(undefined)'
+          emit({ event: 'eval-result', id, result: typeof value === 'object' ? JSON.stringify(value) : String(value) })
+        }
+      }).catch((error) => {
+        emit({ event: 'eval-result', id, error: error instanceof Error ? error.message : String(error) })
+      })
     },
   }
 
-  child.stdin.write(JSON.stringify({
-    type: 'start',
-    filePath,
-    code,
-    breakpoints,
-    esbuildPath,
-  }) + '\n')
-
-  return session
+  return setupFailed ? null : session
+}
 }
 
 /* ------------------------------------------------------------------ */
