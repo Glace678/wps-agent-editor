@@ -218,16 +218,13 @@ try {
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   await waitFor(cdp.send, `!document.querySelector('[data-testid="recent-file-context-menu"]')`, 'single menu closed', 5000)
-  const hiddenBeforeHover = await evaluate(
+  const checkboxAlwaysVisible = await evaluate(
     cdp.send,
-    `getComputedStyle(${recentSelectExpr(path.basename(missingFile))}).opacity === '0'`,
-  )
-  await hover(cdp.send, recentRowExpr(path.basename(missingFile)), 'hover missing recent row')
-  const visibleOnHover = await waitFor(
-    cdp.send,
-    `getComputedStyle(${recentSelectExpr(path.basename(missingFile))}).opacity === '1'`,
-    'selection square visible on row hover',
-    3000,
+    `(() => {
+      const checkbox = ${recentSelectExpr(path.basename(missingFile))}
+      const style = getComputedStyle(checkbox)
+      return { opacity: style.opacity, pointerEvents: style.pointerEvents }
+    })()`,
   )
   const themeColors = await evaluate(cdp.send, `(() => {
     const checkbox = ${recentSelectExpr(path.basename(missingFile))}
