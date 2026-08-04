@@ -218,7 +218,7 @@ try {
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   await waitFor(cdp.send, `!document.querySelector('[data-testid="recent-file-context-menu"]')`, 'single menu closed', 5000)
-  const checkboxAlwaysVisible = await evaluate(
+  const checkboxHiddenBeforeHover = await evaluate(
     cdp.send,
     `(() => {
       const checkbox = ${recentSelectExpr(path.basename(missingFile))}
@@ -248,16 +248,31 @@ try {
   )
   const themeAware = themeColors?.lightColors?.border !== themeColors?.darkColors?.border
     && themeColors?.lightColors?.background !== themeColors?.darkColors?.background
+  await hover(cdp.send, recentRowExpr(path.basename(missingFile)), 'hover missing row')
+  const checkboxVisibleOnHover = await evaluate(
+    cdp.send,
+    `getComputedStyle(${recentSelectExpr(path.basename(missingFile))}).opacity`,
+  )
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+  await sleep(200)
+  await rightClick(cdp.send, recentRowExpr(path.basename(missingFile)), 'unselected recent row right-click')
+  await sleep(350)
+  const unselectedMenuSuppressed = !(await evaluate(
+    cdp.send,
+    `Boolean(document.querySelector('[data-testid=\"recent-file-context-menu\"]'))`,
+  ))
   await rightClick(cdp.send, recentRowExpr(path.basename(realFile)), 'multi-selected recent row right-click')
   await waitFor(cdp.send, `Boolean(document.querySelector('[data-testid="recent-file-context-menu"]'))`, 'multi-select context menu open', 8000)
   const multiMenuItems = await evaluate(cdp.send, `[...document.querySelectorAll('[data-testid="recent-file-context-menu"] [role="menuitem"]')].map((el) => el.textContent.trim())`)
   await screenshot(cdp.send, 'v1b-checkbox-multi-menu.png')
   record(
     'V1b checkboxes multi-select with the single-file menu',
-    checkboxAlwaysVisible?.opacity === '1' && checkboxAlwaysVisible?.pointerEvents === 'auto'
-      && themeAware && selectedCount === 3
+    checkboxHiddenBeforeHover?.opacity === '0'
+      && checkboxVisibleOnHover === '1'
+      && checkboxHiddenBeforeHover?.pointerEvents === 'auto'
+      && unselectedMenuSuppressed && themeAware && selectedCount === 3
       && JSON.stringify(multiMenuItems) === JSON.stringify(menuItems),
-    `opacity=${checkboxAlwaysVisible?.opacity} pointerEvents=${checkboxAlwaysVisible?.pointerEvents} theme=${themeAware} selected=${selectedCount}`,
+    `hidden=${checkboxHiddenBeforeHover?.opacity} hover=${checkboxVisibleOnHover} pointerEvents=${checkboxHiddenBeforeHover?.pointerEvents} unselectedMenu=${unselectedMenuSuppressed} theme=${themeAware} selected=${selectedCount}`,
   )
   // ---------- V2: file info dialog ----------
   await leftClick(cdp.send, `document.querySelector('[data-testid="recent-menu-info"]')`, 'file info item')
