@@ -1090,7 +1090,7 @@ try {
   })()`)
   await sleep(250)
 
-  const swatchPixels = await evaluate(send, `(() => {
+  const readA7TextPixels = () => evaluate(send, `(() => {
     const canvas = document.querySelector('.fortune-sheet-canvas')
     const cellArea = document.querySelector('.fortune-cell-area')
     const context = canvas?.getContext('2d')
@@ -1105,16 +1105,21 @@ try {
     const height = Math.max(1, Math.floor(15 * scaleY))
     const pixels = context.getImageData(left, top, width, height).data
     let pickerGreen = 0
+    let dark = 0
+    let light = 0
     for (let index = 0; index < pixels.length; index += 4) {
       const red = pixels[index]
       const green = pixels[index + 1]
       const blue = pixels[index + 2]
+      if (red <= 96 && green <= 96 && blue <= 96) dark += 1
+      if (red >= 200 && green >= 200 && blue >= 200) light += 1
       if (Math.abs(red - 0) <= 18
         && Math.abs(green - 240) <= 18
         && Math.abs(blue - 15) <= 18) pickerGreen += 1
     }
-    return { pickerGreen, samples: pixels.length / 4 }
+    return { pickerGreen, dark, light, samples: pixels.length / 4 }
   })()`)
+  const swatchPixels = await readA7TextPixels()
   check(
     'font-color palette swatch remains painted after the edit is committed',
     swatchPixels?.pickerGreen > 10,
