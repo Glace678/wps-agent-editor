@@ -1,7 +1,12 @@
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
-import type { Cell as ExcelCell, Color as ExcelColor } from 'exceljs'
-import type { Cell, CellMatrix, Sheet } from '@fortune-sheet/core'
+import type {
+  Alignment as ExcelAlignment,
+  Cell as ExcelCell,
+  Color as ExcelColor,
+} from 'exceljs'
+import { locale } from '@fortune-sheet/core'
+import type { Cell, CellMatrix, Context, Sheet } from '@fortune-sheet/core'
 import { DEFAULT_OFFICE_FONT_FAMILY } from './system-fonts'
 
 type ExtendedExcelColor = Partial<ExcelColor> & {
@@ -30,8 +35,36 @@ export const DEFAULT_SPREADSHEET_FONT_COLOR = '#000000'
 
 function normalizeRgb(value: string | undefined): string | undefined {
   if (!value) return undefined
-  const rgb = value.replace(/^#/, '').slice(-6)
-  return /^[0-9a-f]{6}$/i.test(rgb) ? rgb.toUpperCase() : undefined
+  const trimmed = value.trim()
+
+  const shortHex = /^#?([0-9a-f]{3})$/i.exec(trimmed)
+  if (shortHex) {
+    return shortHex[1]
+      .split('')
+      .map((channel) => channel + channel)
+      .join('')
+      .toUpperCase()
+  }
+
+  const hex = /^#?([0-9a-f]{6}|[0-9a-f]{8})$/i.exec(trimmed)
+  if (hex) return hex[1].slice(-6).toUpperCase()
+
+  const rgb = /^rgba?\(\s*(\d{1,3})(?:\.\d+)?\s*,\s*(\d{1,3})(?:\.\d+)?\s*,\s*(\d{1,3})(?:\.\d+)?(?:\s*,\s*(\d+(?:\.\d+)?))?\s*\)$/i.exec(trimmed)
+  if (!rgb) return undefined
+
+  return rgb
+    .slice(1, 4)
+    .map((channel) => {
+      const value = Math.max(0, Math.min(255, Number(channel)))
+      return Math.round(value).toString(16).padStart(2, '0')
+    })
+    .join('')
+    .toUpperCase()
+}
+
+function fortuneColorToArgb(value: string | undefined): string | undefined {
+  const rgb = normalizeRgb(value)
+  return rgb ? `FF${rgb}` : undefined
 }
 
 function applyTint(rgb: string, tint = 0): string {
@@ -93,6 +126,8 @@ function toFortuneStyle(cell: ExcelCell, themeColors: string[]): Partial<Cell> {
   style.fs = font?.size || DEFAULT_SPREADSHEET_FONT_SIZE
   if (font?.bold) style.bl = 1
   if (font?.italic) style.it = 1
+  if (font?.underline) style.un = 1
+  if (font?.strike) style.cl = 1
   const fontColor = resolveExcelColor(font?.color as ExtendedExcelColor | undefined, themeColors)
   style.fc = fontColor || DEFAULT_SPREADSHEET_FONT_COLOR
 
@@ -112,6 +147,8 @@ function toFortuneStyle(cell: ExcelCell, themeColors: string[]): Partial<Cell> {
   else if (alignment?.vertical === 'top') style.vt = 1
   else if (alignment?.vertical === 'bottom') style.vt = 2
 
+  if (typeof alignment?.textRotation === 'number') style.rt = alignment.textRotation
+
   return style
 }
 
@@ -123,7 +160,7 @@ async function loadStyledWorkbook(buffer: ArrayBuffer): Promise<ExcelJS.Workbook
     await workbook.xlsx.load(buffer as never)
     return workbook
   } catch (error) {
-    console.warn('[ExcelEditor] 无法读取工作簿颜色样式，使用基础格式:', error)
+    console.warn('[ExcelEditor] 鏃犳硶璇诲彇宸ヤ綔绨块鑹叉牱寮忥紝浣跨敤鍩虹鏍煎紡:', error)
     return null
   }
 }
@@ -132,7 +169,7 @@ function ensureSheetId(order: number, existing?: string): string {
   return existing && existing.length > 0 ? existing : `sheet_${order}_${Math.random().toString(36).slice(2, 9)}`
 }
 
-/** 将二维 data 矩阵转回 Fortune Sheet celldata */
+/** 灏嗕簩缁?data 鐭╅樀杞洖 Fortune Sheet celldata */
 function matrixToCelldata(data: CellMatrix | undefined): Sheet['celldata'] {
   if (!data?.length) return []
   const celldata: NonNullable<Sheet['celldata']> = []
@@ -147,6 +184,134 @@ function matrixToCelldata(data: CellMatrix | undefined): Sheet['celldata'] {
     }
   }
   return celldata
+}
+
+function resolveFortuneFontFamily(value: Cell['ff']): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed || undefined
+  }
+  if (!Number.isInteger(value) || value < 0) return undefined
+  const localeData = locale({ lang: 'en' } as unknown as Context) as unknown as {
+    fontarray?: unknown[]
+  }
+  const family = localeData.fontarray?.[value]
+  return typeof family === 'string' && family.trim() ? family.trim() : undefined
+}
+
+function resolveExcelHorizontalAlignment(value: Cell['ht']): ExcelAlignment['horizontal'] | undefined {
+  if (value === 0) return 'center'
+  if (value === 1) return 'left'
+  if (value === 2) return 'right'
+  return undefined
+}
+
+function resolveExcelVerticalAlignment(value: Cell['vt']): ExcelAlignment['vertical'] | undefined {
+  if (value === 0) return 'middle'
+  if (value === 1) return 'top'
+  if (value === 2) return 'bottom'
+  return undefined
+}
+
+function applyFortuneCellStyle(excelCell: ExcelCell, cell: Cell | null | undefined): void {
+  if (!cell) return
+
+  const fontName = resolveFortuneFontFamily(cell.ff) || DEFAULT_SPREADSHEET_FONT
+  const fontColor = fortuneColorToArgb(cell.fc)
+  const fontSize = typeof cell.fs === 'number' && Number.isFinite(cell.fs)
+    ? cell.fs
+    : DEFAULT_SPREADSHEET_FONT_SIZE
+
+  excelCell.font = {
+    name: fontName,
+    size: fontSize,
+    color: fontColor ? { argb: fontColor } : undefined,
+    bold: cell.bl === 1,
+    italic: cell.it === 1,
+    underline: cell.un === 1 || undefined,
+    strike: cell.cl === 1,
+  }
+
+  const fillColor = fortuneColorToArgb(cell.bg)
+  if (fillColor) {
+    excelCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: fillColor },
+      bgColor: { argb: fillColor },
+    }
+  }
+
+  const horizontal = resolveExcelHorizontalAlignment(cell.ht)
+  const vertical = resolveExcelVerticalAlignment(cell.vt)
+  const textRotation = typeof cell.rt === 'number' && Number.isFinite(cell.rt)
+    ? Math.max(-90, Math.min(90, Math.round(cell.rt)))
+    : undefined
+
+  if (horizontal || vertical || textRotation !== undefined) {
+    excelCell.alignment = {
+      horizontal,
+      vertical,
+      textRotation,
+    }
+  }
+
+  const numberFormat = cell.ct?.fa?.trim()
+  if (numberFormat && numberFormat !== 'General') {
+    excelCell.numFmt = numberFormat
+  }
+}
+
+function applyFortuneCellValue(excelCell: ExcelCell, cell: Cell | null | undefined): void {
+  if (!cell) return
+
+  if (typeof cell.f === 'string' && cell.f.length > 0) {
+    excelCell.value = cell.v !== undefined
+      ? { formula: cell.f, result: cell.v as string | number | boolean }
+      : { formula: cell.f }
+    return
+  }
+
+  if (cell.v !== undefined) {
+    excelCell.value = cell.v as string | number | boolean
+    return
+  }
+
+  if (cell.m !== undefined) {
+    excelCell.value = String(cell.m)
+  }
+}
+
+function applyFortuneSheetMerges(worksheet: ExcelJS.Worksheet, sheet: Sheet): void {
+  const merges = sheet.config?.merge
+  if (!merges) return
+
+  const seen = new Set<string>()
+  for (const merge of Object.values(merges)) {
+    if (!merge) continue
+    const row = Number(merge.r)
+    const column = Number(merge.c)
+    const rowSpan = Math.max(1, Number(merge.rs) || 1)
+    const columnSpan = Math.max(1, Number(merge.cs) || 1)
+    if (!Number.isInteger(row) || !Number.isInteger(column)) continue
+    if (rowSpan === 1 && columnSpan === 1) continue
+
+    const key = `${row}:${column}:${rowSpan}:${columnSpan}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    worksheet.mergeCells(
+      row + 1,
+      column + 1,
+      row + rowSpan,
+      column + columnSpan,
+    )
+  }
+}
+
+function asArrayBuffer(value: ArrayBuffer | Uint8Array): ArrayBuffer {
+  if (value instanceof ArrayBuffer) return value
+  return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
 }
 
 export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> {
@@ -169,24 +334,35 @@ export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> 
         for (let c = range.s.c; c <= range.e.c; c++) {
           const addr = XLSX.utils.encode_cell({ r, c })
           const cell = ws[addr]
-          if (cell != null && cell.v !== undefined) {
-            celldata.push({
-              r,
-              c,
-              v: {
-                v: cell.v as string | number | boolean,
-                m: String(cell.w ?? cell.v),
-                ct: cell.t === 'n' ? { fa: 'General', t: 'n' } : { fa: 'General', t: 'g' },
-                ...(styledSheet
-                  ? toFortuneStyle(styledSheet.getCell(r + 1, c + 1), themeColors)
-                  : {
-                      ff: DEFAULT_SPREADSHEET_FONT,
-                      fs: DEFAULT_SPREADSHEET_FONT_SIZE,
-                      fc: DEFAULT_SPREADSHEET_FONT_COLOR,
-                    }),
-              },
-            })
-          }
+          if (cell == null || (cell.v === undefined && cell.f === undefined && cell.w === undefined)) continue
+
+          const styledCell = styledSheet?.getCell(r + 1, c + 1)
+          const numberFormat = styledCell?.numFmt?.trim() || 'General'
+          const cellType = cell.t === 'n'
+            ? 'n'
+            : cell.t === 'b'
+              ? 'b'
+              : cell.t === 'd'
+                ? 'd'
+                : 'g'
+
+          celldata.push({
+            r,
+            c,
+            v: {
+              v: cell.v as string | number | boolean,
+              m: String(cell.w ?? cell.v ?? ''),
+              f: typeof cell.f === 'string' ? cell.f : undefined,
+              ct: { fa: numberFormat, t: cellType },
+              ...(styledSheet
+                ? toFortuneStyle(styledCell, themeColors)
+                : {
+                    ff: DEFAULT_SPREADSHEET_FONT,
+                    fs: DEFAULT_SPREADSHEET_FONT_SIZE,
+                    fc: DEFAULT_SPREADSHEET_FONT_COLOR,
+                  }),
+            },
+          })
         }
       }
     }
@@ -203,34 +379,42 @@ export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> 
   })
 }
 
-export function sheetsToXlsxBuffer(sheets: Sheet[]): ArrayBuffer {
-  const wb = XLSX.utils.book_new()
-  for (const sheet of sheets) {
+export async function sheetsToXlsxBuffer(sheets: Sheet[]): Promise<ArrayBuffer> {
+  const workbook = new ExcelJS.Workbook()
+  const sourceSheets = sheets.length > 0
+    ? sheets
+    : [{
+        name: 'Sheet1',
+        id: 'sheet_0',
+        row: 84,
+        column: 60,
+        status: 1,
+        celldata: [],
+      } satisfies Sheet]
+
+  for (const [index, sheet] of sourceSheets.entries()) {
+    const worksheet = workbook.addWorksheet(sheet.name || `Sheet${index + 1}`)
+    if (sheet.hide === 1) worksheet.state = 'hidden'
+
     const cells = (sheet.celldata && sheet.celldata.length > 0)
       ? sheet.celldata
       : matrixToCelldata(sheet.data)
 
-    const data: (string | number | boolean | null)[][] = []
-    let maxR = 0
-    let maxC = 0
-    for (const cell of cells || []) {
-      maxR = Math.max(maxR, cell.r)
-      maxC = Math.max(maxC, cell.c)
+    let wroteContent = false
+    for (const entry of cells || []) {
+      const excelCell = worksheet.getCell(entry.r + 1, entry.c + 1)
+      applyFortuneCellValue(excelCell, entry.v)
+      applyFortuneCellStyle(excelCell, entry.v)
+      wroteContent = true
     }
-    for (let r = 0; r <= maxR; r++) {
-      data[r] = []
-      for (let c = 0; c <= maxC; c++) data[r][c] = null
+
+    applyFortuneSheetMerges(worksheet, sheet)
+
+    if (!wroteContent) {
+      worksheet.getCell('A1').value = ''
     }
-    for (const cell of cells || []) {
-      const v = cell.v?.v
-      if (v !== undefined) data[cell.r][cell.c] = v as string | number | boolean
-    }
-    const ws = XLSX.utils.aoa_to_sheet(data.length ? data : [['']])
-    XLSX.utils.book_append_sheet(wb, ws, sheet.name || 'Sheet1')
   }
-  if (wb.SheetNames.length === 0) {
-    const ws = XLSX.utils.aoa_to_sheet([['']])
-    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
-  }
-  return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  return asArrayBuffer(buffer as ArrayBuffer | Uint8Array)
 }
