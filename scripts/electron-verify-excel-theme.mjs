@@ -941,6 +941,36 @@ try {
 
   const fontColorSwatch = '#00f00f'
   const fontColorPick = await evaluate(send, `(async () => {
+    const cellArea = document.querySelector('.fortune-cell-area')
+    if (!cellArea) return { clicked: false, reason: 'cell area missing' }
+    const cellRect = cellArea.getBoundingClientRect()
+    const point = {
+      clientX: cellRect.left + 16,
+      clientY: cellRect.top + 8,
+    }
+    cellArea.dispatchEvent(new MouseEvent('mousedown', {
+      ...point,
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 1,
+    }))
+    cellArea.dispatchEvent(new MouseEvent('mouseup', {
+      ...point,
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 0,
+    }))
+    cellArea.dispatchEvent(new MouseEvent('click', {
+      ...point,
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 0,
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
     const buttons = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
     const fontFamily = buttons.find((item) => /font|瀛椾綋|瀛楅珨/i.test(
       item.getAttribute('aria-label') || '',
@@ -978,11 +1008,13 @@ try {
     const editor = document.querySelector('.luckysheet-input-box-inner')
     return {
       clicked: true,
+      selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
       editorForeground: editor?.dataset.excelCellForeground || '',
       editorColor: editor ? getComputedStyle(editor).color : '',
     }
   })()`, true)
   check('font-color palette swatch can be clicked', fontColorPick.clicked, JSON.stringify(fontColorPick))
+  check('font-color palette test targets A1', fontColorPick.selection === 'A1', JSON.stringify(fontColorPick))
   check(
     'font-color palette swatch updates the active cell color model',
     fontColorPick.editorForeground.toLowerCase() === fontColorSwatch,
