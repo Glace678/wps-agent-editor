@@ -59,106 +59,16 @@ function installNativeDarkCanvasRendering() {
       ...args: unknown[]
     ) {
       const canvas = this.canvasElement
-      const manageDarkPixels = isWorksheetCanvas(canvas)
-      if (manageDarkPixels) {
-        WORKSHEET_CANVASES.add(canvas)
+      if (isWorksheetCanvas(canvas)) {
         // Fortune re-applies its integer CSS size on every container resize
         // (updateContextWithCanvas), so re-snap on every draw.
         snapCanvasCssSizeToBacking(canvas)
-        restoreNativeLightPixels(canvas)
       }
-
-      try {
-        return original.apply(this, args)
-      } finally {
-        if (manageDarkPixels) scheduleNativeDarkPixels(canvas)
-      }
+      return original.apply(this, args)
     }
   }
 
   prototype[PATCH_FLAG] = true
-
-  const themeObserver = new MutationObserver(syncWorksheetCanvasTheme)
-  themeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['class'],
-  })
-}
-
-function installCrispDarkCellText() {
-  const prototype = Canvas.prototype as unknown as Record<PropertyKey, unknown>
-  if (prototype[TEXT_PATCH_FLAG]) return
-
-  const original = prototype.cellTextRender as CanvasDrawMethod | undefined
-  if (typeof original !== 'function') return
-
-  prototype.cellTextRender = function patchedCellTextRender(
-    this: Canvas,
-    ...args: unknown[]
-  ) {
-    const canvas = this.canvasElement
-    const context = args[1] as CanvasRenderingContext2D | undefined
-    if (!context || !isWorksheetCanvas(canvas) || !isDarkMode()) {
-      return original.apply(this, args)
-    }
-
-    const textInfo = args[0] as FortuneTextInfo | null | undefined
-    const previousFillStyle = context.fillStyle
-    const previousFillText = context.fillText
-    const hadOwnFillText = Object.prototype.hasOwnProperty.call(context, 'fillText')
-    const savedInlineColors: SavedInlineColor[] = []
-
-    if (shouldSharpenDarkText(previousFillStyle)) {
-      // The whole worksheet is inverted after Fortune finishes drawing, so
-      // #0a becomes the same #f5 used by the sharp live cell editor.
-      context.fillStyle = '#0a0a0a'
-    }
-
-    for (const word of textInfo?.values ?? []) {
-      if (!word.inline || !word.style || typeof word.style === 'string') continue
-      if (!shouldSharpenDarkText(word.style.fc)) continue
-      savedInlineColors.push({
-        style: word.style,
-        hadOwnColor: Object.prototype.hasOwnProperty.call(word.style, 'fc'),
-        color: word.style.fc,
-      })
-      word.style.fc = '#0a0a0a'
-    }
-
-    context.fillText = function crispDarkFillText(text, x, y, maxWidth) {
-      const drawText = () => {
-        if (maxWidth === undefined) previousFillText.call(context, text, x, y)
-        else previousFillText.call(context, text, x, y, maxWidth)
-      }
-
-      drawText()
-      if (
-        typeof context.fillStyle !== 'string'
-        || context.fillStyle.trim().toLowerCase() !== '#0a0a0a'
-      ) return
-
-      // Chromium Canvas uses grayscale antialiasing while the active cell
-      // editor uses ClearType. Repeating at the identical position raises only
-      // edge coverage, without changing glyph metrics or layout.
-      for (let pass = 0; pass < CRISP_TEXT_EXTRA_PASSES; pass += 1) {
-        drawText()
-      }
-    }
-
-    try {
-      return original.apply(this, args)
-    } finally {
-      context.fillStyle = previousFillStyle
-      if (hadOwnFillText) context.fillText = previousFillText
-      else delete (context as unknown as { fillText?: CanvasRenderingContext2D['fillText'] }).fillText
-      for (const saved of savedInlineColors) {
-        if (saved.hadOwnColor) saved.style.fc = saved.color
-        else delete saved.style.fc
-      }
-    }
-  }
-
-  prototype[TEXT_PATCH_FLAG] = true
 }
 
 function getSharedSpreadsheetFontFamilies(
