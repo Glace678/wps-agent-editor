@@ -228,6 +228,7 @@ async function createNodeSession(
 
   let commandId = 0
   let setupFailed = false
+  const lineCount = code.split('\n').length
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
   const cdp = (method: string, params: Record<string, unknown> = {}): Promise<unknown> => new Promise((resolve, reject) => {
     const id = ++commandId
@@ -287,16 +288,19 @@ async function createNodeSession(
     }
     const variables = await collectVariables(frames[0])
     // Node reports empty URLs for CommonJS frames in some builds — map the
-    // leading frames (our script) to the original file path.
+    // leading frames (our script) to the original file path. Frames whose line
+    // exceeds the script length are inspector internals and stay unmapped.
     let mapped = 0
     const mappedFrames = frames.map((frame, index) => {
-      const mappedFile = mapped === index && !frame.url ? filePath : mapFile(frame.url)
-      if (mappedFile === filePath) mapped += 1
+      const line = frame.location.lineNumber + 1
+      const isOurFrame = mapped === index && !frame.url && line <= lineCount + 8
+      const mappedFile = isOurFrame ? filePath : mapFile(frame.url)
+      if (isOurFrame) mapped += 1
       return {
         index,
         name: frame.functionName || '(anonymous)',
         file: mappedFile,
-        line: frame.location.lineNumber + 1,
+        line,
         column: frame.location.columnNumber + 1,
       }
     })
@@ -326,10 +330,6 @@ async function createNodeSession(
       return
     }
     const method = String(message.method ?? '')
-    if (method === 'Debugger.scriptParsed') {
-      const url = (message.params as { url?: string })?.url ?? ''
-      if (url.includes('prog.')) console.log('[node-debug] scriptParsed url=' + JSON.stringify(url))
-    }
     if (method === 'Debugger.paused') {
       void onPaused(message.params as Parameters<typeof onPaused>[0])
     } else if (method === 'Debugger.resumed') {
@@ -356,13 +356,12 @@ async function createNodeSession(
       scriptPath.replace(/\\/g, '/'),
       scriptPath,
     ]
+    const url = urlForms.find((form) => form.startsWith('file:')) ?? urlForms[0]
     for (const bp of breakpoints) {
-      for (const url of urlForms) {
-        await cdp('Debugger.setBreakpointByUrl', {
-          lineNumber: bp.line - 1,
-          url,
-        }).catch(() => {})
-      }
+      await cdp('Debugger.setBreakpointByUrl', {
+        lineNumber: bp.line - 1,
+        url,
+      }).catch(() => {})
     }
     // Launch the script through the boot globals. Pending breakpoints resolve
     // as the script is compiled, pausing execution at the matching lines.
@@ -426,8 +425,9 @@ async function createNodeSession(
       } catch {
         // ignore
       }
-      const killer = setTimeout(() => child.kill(), 400)
-      killer.unref()
+      // Kill immediately: detaching the inspector would otherwise resume the
+      // paused script and let it keep producing output after the session ends.
+      child.kill()
     },
     sendCommand(command) {
       const mapping: Record<DebugCommand, string> = {
