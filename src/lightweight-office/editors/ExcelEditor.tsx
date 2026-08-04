@@ -495,6 +495,17 @@ function normalizeExcelToolbarColor(value: string | null | undefined): string | 
 
 function getExcelFontColorCommand(target: Element): ExcelFontColorCommand | null {
   const combo = getExcelFontColorCombo(target)
+  const mainButton = target.closest('.fortune-toolbar-combo-button')
+  if (combo && mainButton) {
+    const recentColor = combo.previousElementSibling
+    const color = recentColor instanceof HTMLElement
+      ? normalizeExcelToolbarColor(
+          recentColor.style.backgroundColor || getComputedStyle(recentColor).backgroundColor,
+        )
+      : undefined
+    return color ? { color } : null
+  }
+
   const popup = target.closest('.fortune-toolbar-combo-popup')
   if (!combo || !popup || !combo.contains(popup)) return null
 
@@ -520,6 +531,8 @@ function isExcelCellEditorActiveWithoutSelection(shell: HTMLElement) {
   if (style.display === 'none' || style.visibility === 'hidden' || box.getClientRects().length === 0) {
     return false
   }
+  const editorZIndex = Number.parseInt(style.zIndex, 10)
+  if (!Number.isFinite(editorZIndex) || editorZIndex < 0) return false
 
   const selection = window.getSelection()
   const hasSelectedEditorText = Boolean(
@@ -545,6 +558,10 @@ function comparableExcelColor(value: unknown): string | null {
   return normalizeExcelToolbarColor(value) ?? value.trim().toLowerCase()
 }
 
+function getExcelCellFromActiveSheet(api: WorkbookInstance, row: number, column: number) {
+  return api.getSheet()?.data?.[row]?.[column] ?? null
+}
+
 function excelSelectionUsesFontColor(
   api: WorkbookInstance,
   selection: ExcelSelection,
@@ -554,10 +571,11 @@ function excelSelectionUsesFontColor(
   for (const range of selection) {
     for (let row = range.row[0]; row <= range.row[1]; row += 1) {
       for (let column = range.column[0]; column <= range.column[1]; column += 1) {
-        if (comparableExcelColor(api.getCellValue(row, column, { type: 'fc' })) !== expected) {
+        const cell = getExcelCellFromActiveSheet(api, row, column)
+        if (comparableExcelColor(cell?.fc) !== expected) {
           return false
         }
-        const ct = api.getCellValue(row, column, { type: 'ct' }) as Cell['ct']
+        const ct = cell?.ct
         if (ct?.t === 'inlineStr' && Array.isArray(ct.s)) {
           for (const run of ct.s) {
             if (run && typeof run === 'object' && comparableExcelColor(run.fc) !== expected) {
@@ -584,7 +602,7 @@ function applyExcelFontColorToSelection(
   for (const range of selection) {
     for (let row = range.row[0]; row <= range.row[1]; row += 1) {
       for (let column = range.column[0]; column <= range.column[1]; column += 1) {
-        const ct = api.getCellValue(row, column, { type: 'ct' }) as Cell['ct']
+        const ct = getExcelCellFromActiveSheet(api, row, column)?.ct
         if (ct?.t !== 'inlineStr' || !Array.isArray(ct.s)) continue
         calls.push({
           name: 'setCellFormat',
