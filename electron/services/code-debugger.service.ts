@@ -145,8 +145,6 @@ async function createNodeSession(
   filePath: string,
   breakpoints: DebugBreakpoint[],
 ): Promise<DebugSession | null> {
-  const { default: WebSocket } = await import('ws')
-
   // Transpile TypeScript / JSX / ESM so the script can run inside a CommonJS boot.
   const extension = extensionOf(filePath)
   let code = await fs.readFile(filePath, 'utf8')
@@ -161,7 +159,7 @@ async function createNodeSession(
       emit({ event: 'error', message: `Transpile failed: ${error instanceof Error ? error.message : String(error)}` })
       return null
     }
-    const tempRoot = await fs.mkdtemp(path.join(await import('node:os').then((os) => os.tmpdir()), 'wps-debug-run-'))
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wps-debug-run-'))
     const name = path.basename(filePath).replace(/\.(ts|tsx|mjs|jsx)$/i, '.js')
     scriptPath = path.join(tempRoot, name)
     await fs.writeFile(scriptPath, transpiled, 'utf8')
