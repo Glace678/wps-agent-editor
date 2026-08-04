@@ -5,7 +5,12 @@ import type { AgentTaskResult, ChatMessage } from './services/agent-orchestrator
 import type { RecentFile } from './services/recent-files.service'
 import type { FileStatInfo, FileOpErrorCode } from './services/file-ops.service'
 import type { FileVersion } from './services/file-history.service'
-import type { ProviderDefinition, CustomProviderConfig, AuthStatus } from '../src/types/provider'
+import type {
+  ProviderDefinition,
+  CustomProviderConfig,
+  CustomProviderConnectionTestResult,
+  AuthStatus,
+} from '../src/types/provider'
 import type { LanguageCode } from '../src/lib/i18n/types'
 import type { AppMenuAction } from '../src/types/app-menu'
 import type { ThemePreference } from '../src/lib/theme'
@@ -95,6 +100,7 @@ export interface ElectronAPI {
   customProvider: {
     list: () => Promise<CustomProviderConfig[]>
     save: (provider: CustomProviderConfig) => Promise<CustomProviderConfig[]>
+    testConnection: (baseURL: string, apiKey: string) => Promise<CustomProviderConnectionTestResult>
     delete: (id: string) => Promise<CustomProviderConfig[]>
   }
   i18n: {

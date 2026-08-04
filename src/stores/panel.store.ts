@@ -101,9 +101,9 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   setReferences: (symbol, items) => {
     set({ referencesSymbol: symbol, references: items, open: true, tab: 'references' })
   },
-  navigateToLine: (line, column = 1) => {
+  navigateToLine: (line, column = 1, file) => {
     const nonce = Date.now()
     const next = get().pendingNavigation?.nonce ?? 0
-    set({ pendingNavigation: { line, column, nonce: Math.max(nonce, next + 1) } })
+    set({ pendingNavigation: { line, column, file, nonce: Math.max(nonce, next + 1) } })
   },
 }))

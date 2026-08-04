@@ -48,6 +48,7 @@ export const IPC = {
   CUSTOM_PROVIDER_LIST: 'custom-provider:list',
   CUSTOM_PROVIDER_SAVE: 'custom-provider:save',
   CUSTOM_PROVIDER_DELETE: 'custom-provider:delete',
+  CUSTOM_PROVIDER_TEST_CONNECTION: 'custom-provider:test-connection',
 
   // 国际化
   I18N_SET_LANGUAGE: 'i18n:set-language',

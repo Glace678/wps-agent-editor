@@ -64,6 +64,8 @@ const api = {
   customProvider: {
     list: () => ipcRenderer.invoke(IPC.CUSTOM_PROVIDER_LIST),
     save: (provider: unknown) => ipcRenderer.invoke(IPC.CUSTOM_PROVIDER_SAVE, provider),
+    testConnection: (baseURL: string, apiKey: string) =>
+      ipcRenderer.invoke(IPC.CUSTOM_PROVIDER_TEST_CONNECTION, { baseURL, apiKey }),
     delete: (id: string) => ipcRenderer.invoke(IPC.CUSTOM_PROVIDER_DELETE, id),
   },
   i18n: {

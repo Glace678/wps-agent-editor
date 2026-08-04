@@ -83,6 +83,13 @@ export function registerProviderHandlers(): void {
     })
   })
 
+  ipcMain.handle(IPC.CUSTOM_PROVIDER_TEST_CONNECTION, async (_e, payload) => {
+    if (!payload || typeof payload.baseURL !== 'string' || typeof payload.apiKey !== 'string') {
+      return { success: false, models: [], error: 'invalid-base-url' }
+    }
+    return customProvider.testCustomProviderConnection(payload.baseURL, payload.apiKey)
+  })
+
   ipcMain.handle(IPC.CUSTOM_PROVIDER_DELETE, async (_e, id: string) => {
     await providerBaseURL.setProviderBaseURL(id, '')
     return customProvider.deleteCustomProvider(id)

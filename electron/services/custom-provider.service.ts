@@ -2,16 +2,38 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
-import type { ProviderDefinition, ProviderProtocol } from './provider-registry.service'
+import type { ProviderDefinition, ProviderModel, ProviderProtocol } from './provider-registry.service'
 import { t } from '../i18n/translate'
+import { normalizeProviderBaseURL } from './provider-base-url.util'
 
 export interface CustomProviderConfig {
   id: string
   name: string
   baseURL: string
   defaultModel: string
+  models?: ProviderModel[]
   protocol: ProviderProtocol
   createdAt: number
+}
+
+export type CustomProviderConnectionTestError =
+  | 'invalid-base-url'
+  | 'missing-api-key'
+  | 'unauthorized'
+  | 'no-models'
+  | 'connection-failed'
+
+export interface CustomProviderConnectionTestResult {
+  success: boolean
+  models: ProviderModel[]
+  error?: CustomProviderConnectionTestError
+}
+
+interface OpenAIModelsResponse {
+  data?: Array<{
+    id?: unknown
+    name?: unknown
+  }>
 }
 
 function getStorePath(): string {
@@ -55,6 +77,8 @@ export function createCustomProvider(partial?: Partial<CustomProviderConfig>): C
 }
 
 export function toProviderDefinition(custom: CustomProviderConfig): ProviderDefinition {
+  const models = custom.models?.filter((model) => model.id.trim()) ?? []
+
   return {
     id: custom.id,
     name: custom.name,
@@ -63,6 +87,60 @@ export function toProviderDefinition(custom: CustomProviderConfig): ProviderDefi
     npm: '@ai-sdk/openai-compatible',
     protocol: custom.protocol,
     isCustom: true,
-    models: [{ id: custom.defaultModel, name: custom.defaultModel }],
+    // Older saved providers only have defaultModel, so retain it as a fallback.
+    models: models.length > 0 ? models : [{ id: custom.defaultModel, name: custom.defaultModel }],
+  }
+}
+
+function failure(error: CustomProviderConnectionTestError): CustomProviderConnectionTestResult {
+  return { success: false, models: [], error }
+}
+
+/**
+ * Validates an OpenAI-compatible endpoint with GET /models. The API key remains
+ * in the main process for the request and is not persisted while testing.
+ */
+export async function testCustomProviderConnection(
+  baseURL: string,
+  apiKey: string,
+): Promise<CustomProviderConnectionTestResult> {
+  if (!apiKey.trim()) return failure('missing-api-key')
+
+  let normalizedBaseURL: string
+  try {
+    normalizedBaseURL = normalizeProviderBaseURL('openai-compatible', baseURL)
+  } catch {
+    return failure('invalid-base-url')
+  }
+  if (!normalizedBaseURL) return failure('invalid-base-url')
+
+  try {
+    const modelsURL = new URL('models', `${normalizedBaseURL}/`).toString()
+    const response = await fetch(modelsURL, {
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey.trim()}`,
+      },
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (response.status === 401 || response.status === 403) return failure('unauthorized')
+    if (!response.ok) return failure('connection-failed')
+
+    const body = await response.json() as OpenAIModelsResponse
+    const seen = new Set<string>()
+    const models = (Array.isArray(body.data) ? body.data : []).flatMap((model) => {
+      if (typeof model.id !== 'string' || !model.id.trim()) return []
+      const id = model.id.trim()
+      if (seen.has(id)) return []
+      seen.add(id)
+      return [{ id, name: typeof model.name === 'string' && model.name.trim() ? model.name.trim() : id }]
+    })
+
+    return models.length > 0
+      ? { success: true, models }
+      : failure('no-models')
+  } catch {
+    return failure('connection-failed')
   }
 }
