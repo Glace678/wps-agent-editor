@@ -808,7 +808,8 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       selection: ExcelSelection
     }
 
-    let fallbackArmed = false
+    let fallbackSnapshot: boolean | null = null
+    let triggerSawMouseDown = false
     let pendingCommand: PendingFontColorCommand | null = null
     const pendingTimers = new Set<number>()
 
@@ -839,33 +840,44 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       const target = event.target
       if (!(target instanceof Element)) return
 
-      if (isExcelFontColorPickerTrigger(target)) {
-        const editorNeedsFallback = isExcelCellEditorActiveWithoutSelection(shell)
-        fallbackArmed = event.type === 'mousedown'
-          ? editorNeedsFallback
-          : fallbackArmed || editorNeedsFallback
-        return
-      }
-
       const command = getExcelFontColorCommand(target)
       if (command) {
-        const editorNeedsFallback = fallbackArmed
-          || isExcelCellEditorActiveWithoutSelection(shell)
-        if (editorNeedsFallback && !pendingCommand) {
+        if (fallbackSnapshot === null) {
+          fallbackSnapshot = isExcelCellEditorActiveWithoutSelection(shell)
+        }
+        if (fallbackSnapshot && !pendingCommand) {
           pendingCommand = captureCommand(command.color)
         }
 
         if (event.type === 'click') {
           const commandToApply = pendingCommand
           pendingCommand = null
-          fallbackArmed = false
+          fallbackSnapshot = null
+          triggerSawMouseDown = false
           if (commandToApply) scheduleFallback(commandToApply)
         }
         return
       }
 
+      if (isExcelFontColorPickerTrigger(target)) {
+        if (event.type === 'mousedown') {
+          // Capture before the toolbar takes focus and collapses a rich-text selection.
+          fallbackSnapshot = isExcelCellEditorActiveWithoutSelection(shell)
+          triggerSawMouseDown = true
+        } else if (!triggerSawMouseDown) {
+          // Keyboard activation and programmatic clicks do not emit mousedown.
+          fallbackSnapshot = isExcelCellEditorActiveWithoutSelection(shell)
+        }
+        if (event.type === 'click') triggerSawMouseDown = false
+        return
+      }
+
+      if (getExcelFontColorCombo(target)
+        && target.closest('.fortune-toolbar-combo-popup')) return
+
       if (event.type === 'mousedown') {
-        fallbackArmed = false
+        fallbackSnapshot = null
+        triggerSawMouseDown = false
         pendingCommand = null
       }
     }
