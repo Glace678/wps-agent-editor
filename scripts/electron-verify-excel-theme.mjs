@@ -1209,6 +1209,258 @@ try {
     JSON.stringify(resetDarkPixels),
   )
 
+  const richTextCellPoint = await evaluate(send, `(() => {
+    const cellArea = document.querySelector('.fortune-cell-area')
+    if (!cellArea) return null
+    const rect = cellArea.getBoundingClientRect()
+    return { x: rect.left + 16, y: rect.top + 19 * 7 + 8 }
+  })()`)
+  check('rich-text font-color test locates A8', Boolean(richTextCellPoint), JSON.stringify(richTextCellPoint))
+  await clickAt(send, richTextCellPoint, 1)
+  await sleep(80)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
+  })()`)
+
+  const selectRichTextRange = (start, end) => evaluate(send, `(() => {
+    const editor = document.querySelector('.luckysheet-input-box .luckysheet-input-box-inner')
+    if (!editor) return null
+    editor.focus()
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+    const nodes = []
+    let node
+    while ((node = walker.nextNode())) nodes.push(node)
+    let offset = 0
+    let startNode = null
+    let endNode = null
+    let startOffset = 0
+    let endOffset = 0
+    for (const textNode of nodes) {
+      const nextOffset = offset + textNode.data.length
+      if (!startNode && ${start} >= offset && ${start} <= nextOffset) {
+        startNode = textNode
+        startOffset = ${start} - offset
+      }
+      if (!endNode && ${end} > offset && ${end} <= nextOffset) {
+        endNode = textNode
+        endOffset = ${end} - offset
+      }
+      offset = nextOffset
+    }
+    if (!startNode || !endNode) return { text: editor.innerText, reason: 'range nodes missing' }
+    const range = document.createRange()
+    range.setStart(startNode, startOffset)
+    range.setEnd(endNode, endOffset)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return { text: editor.innerText, selected: selection.toString() }
+  })()`)
+
+  const readRichTextEditorColors = () => evaluate(send, `(() => {
+    const editor = document.querySelector('.luckysheet-input-box .luckysheet-input-box-inner')
+    if (!editor) return null
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+    const segments = []
+    let node
+    while ((node = walker.nextNode())) {
+      if (!node.data) continue
+      const element = node.parentElement || editor
+      segments.push({ text: node.data, color: getComputedStyle(element).color })
+    }
+    return {
+      text: editor.innerText,
+      redText: segments.filter((segment) => segment.color === 'rgb(240, 15, 0)')
+        .map((segment) => segment.text).join(''),
+      blueText: segments.filter((segment) => segment.color === 'rgb(15, 0, 240)')
+        .map((segment) => segment.text).join(''),
+      segments,
+    }
+  })()`)
+
+  const fontColorArrowPoint = await evaluate(send, `(() => {
+    const button = [...document.querySelectorAll('.fortune-toolbar-combo-button')]
+      .find((candidate) => [...candidate.querySelectorAll('use')].some((icon) => (
+        (icon.getAttribute('href') || icon.getAttribute('xlink:href') || '').endsWith('#font-color')
+      )))
+    const arrow = button?.closest('.fortune-toolbar-combo')
+      ?.querySelector('.fortune-toolbar-combo-arrow')
+    if (!arrow) return null
+    const rect = arrow.getBoundingClientRect()
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+  })()`)
+  check('rich-text test locates the font-color arrow', Boolean(fontColorArrowPoint), JSON.stringify(fontColorArrowPoint))
+
+  const openFontColorPalette = async () => {
+    await clickAt(send, fontColorArrowPoint, 1)
+    await waitFor(send, `Boolean(document.querySelector(
+      '.fortune-toobar-combo-container .fortune-toolbar-color-picker-item'
+    ))`)
+  }
+  const closeFontColorPalette = async () => {
+    const isOpen = await evaluate(send, `Boolean(document.querySelector(
+      '.fortune-toobar-combo-container .fortune-toolbar-color-picker-item'
+    ))`)
+    if (!isOpen) return
+    await clickAt(send, fontColorArrowPoint, 1)
+    await waitFor(send, `!document.querySelector(
+      '.fortune-toobar-combo-container .fortune-toolbar-color-picker-item'
+    )`)
+  }
+  const clickFontColor = async (cssColor) => {
+    const point = await evaluate(send, `(() => {
+      const swatch = [...document.querySelectorAll('.fortune-toolbar-color-picker-item')]
+        .find((item) => getComputedStyle(item).backgroundColor === ${JSON.stringify(cssColor)})
+      if (!swatch) return null
+      const rect = swatch.getBoundingClientRect()
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    })()`)
+    check(`rich-text test locates ${cssColor} swatch`, Boolean(point), JSON.stringify(point))
+    await clickAt(send, point, 1)
+    await sleep(180)
+  }
+
+  const redSelection = await selectRichTextRange(0, 3)
+  check('rich-text test selects the RED substring', redSelection?.selected === 'RED', JSON.stringify(redSelection))
+  await openFontColorPalette()
+  await clickFontColor('rgb(240, 15, 0)')
+  const redEditorRuns = await readRichTextEditorColors()
+  check(
+    'selected RED substring receives only the red font color',
+    redEditorRuns?.redText === 'RED' && redEditorRuns?.blueText === '',
+    JSON.stringify(redEditorRuns),
+  )
+
+  await closeFontColorPalette()
+  const blueSelection = await selectRichTextRange(4, 8)
+  check('rich-text test selects the BLUE substring', blueSelection?.selected === 'BLUE', JSON.stringify(blueSelection))
+  await openFontColorPalette()
+  await clickFontColor('rgb(15, 0, 240)')
+  const mixedEditorRuns = await readRichTextEditorColors()
+  check(
+    'one Excel cell can display independent red and blue text runs',
+    mixedEditorRuns?.redText === 'RED' && mixedEditorRuns?.blueText === 'BLUE',
+    JSON.stringify(mixedEditorRuns),
+  )
+
+  await closeFontColorPalette()
+  await evaluate(send, `(() => {
+    document.querySelector('.luckysheet-input-box .luckysheet-cell-input')?.focus()
+    return true
+  })()`)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
+  })()`)
+  await sleep(250)
+
+  const richTextCanvasPixels = await evaluate(send, `(() => {
+    const canvas = document.querySelector('.fortune-sheet-canvas')
+    const cellArea = document.querySelector('.fortune-cell-area')
+    const context = canvas?.getContext('2d')
+    if (!canvas || !cellArea || !context) return null
+    const canvasRect = canvas.getBoundingClientRect()
+    const cellRect = cellArea.getBoundingClientRect()
+    const scaleX = canvas.width / canvasRect.width
+    const scaleY = canvas.height / canvasRect.height
+    const left = Math.floor((cellRect.left - canvasRect.left + 2) * scaleX)
+    const top = Math.floor((cellRect.top - canvasRect.top + 19 * 7 + 2) * scaleY)
+    const pixels = context.getImageData(left, top, Math.floor(86 * scaleX), Math.floor(15 * scaleY)).data
+    let red = 0
+    let blue = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      const r = pixels[index]
+      const g = pixels[index + 1]
+      const b = pixels[index + 2]
+      if (r > 120 && r > g * 2 && r > b * 2) red += 1
+      if (b > 120 && b > r * 2 && b > g * 2) blue += 1
+    }
+    return { red, blue }
+  })()`)
+  check(
+    'red and blue text runs remain on the worksheet canvas after commit',
+    richTextCanvasPixels?.red > 5 && richTextCanvasPixels?.blue > 5,
+    JSON.stringify(richTextCanvasPixels),
+  )
+
+  await clickAt(send, richTextCellPoint, 1)
+  await sleep(80)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
+  })()`)
+  const reopenedRichTextRuns = await readRichTextEditorColors()
+  check(
+    'red and blue text runs survive closing and reopening the cell editor',
+    reopenedRichTextRuns?.redText === 'RED' && reopenedRichTextRuns?.blueText === 'BLUE',
+    JSON.stringify(reopenedRichTextRuns),
+  )
+  await evaluate(send, `(() => {
+    document.querySelector('.luckysheet-input-box .luckysheet-cell-input')?.focus()
+    return true
+  })()`)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
+  })()`)
+
   const toggledToLight = await evaluate(send, `(() => {
     const button = document.querySelector('[data-testid="theme-toggle"]')
     if (!button) return false
