@@ -127,11 +127,6 @@ export function FileHoverCard({
     }, closeDelay)
   }, [clearTimers, closeDelay])
 
-  const keepOpen = useCallback(() => {
-    clearTimers()
-    setOpen(true)
-  }, [clearTimers])
-
   useLayoutEffect(() => {
     if (!open) return
     measure()
