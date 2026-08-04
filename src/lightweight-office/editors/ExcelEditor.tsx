@@ -523,18 +523,24 @@ function getExcelFontColorCommand(target: Element): ExcelFontColorCommand | null
   return null
 }
 
-function isExcelCellEditorActiveWithoutSelection(shell: HTMLElement) {
+function getActiveExcelCellEditor(shell: HTMLElement) {
   const editor = shell.querySelector<HTMLElement>(
     '#luckysheet-input-box .luckysheet-input-box-inner',
   )
   const box = editor?.closest<HTMLElement>('#luckysheet-input-box')
-  if (!editor || !box) return false
+  if (!editor || !box) return null
   const style = getComputedStyle(box)
   if (style.display === 'none' || style.visibility === 'hidden' || box.getClientRects().length === 0) {
-    return false
+    return null
   }
   const editorZIndex = Number.parseInt(style.zIndex, 10)
-  if (!Number.isFinite(editorZIndex) || editorZIndex < 0) return false
+  if (!Number.isFinite(editorZIndex) || editorZIndex < 0) return null
+  return editor
+}
+
+function isExcelCellEditorActiveWithoutSelection(shell: HTMLElement) {
+  const editor = getActiveExcelCellEditor(shell)
+  if (!editor) return false
 
   const selection = window.getSelection()
   const hasSelectedEditorText = Boolean(
@@ -621,6 +627,29 @@ function applyExcelFontColorToSelection(
   }
 
   api.batchCallApis(calls)
+}
+
+function syncExcelCellEditorFontColor(
+  shell: HTMLElement,
+  api: WorkbookInstance,
+  selection: ExcelSelection,
+  color: string | undefined,
+) {
+  const editor = getActiveExcelCellEditor(shell)
+  const firstRange = selection[0]
+  if (!editor || !firstRange) return false
+
+  const cell = getExcelCellFromActiveSheet(api, firstRange.row[0], firstRange.column[0])
+  const foreground = color ?? resolveExcelCellEditorColors(
+    cell,
+    document.documentElement.classList.contains('dark'),
+  ).foreground
+  editor.style.color = foreground
+  editor.dataset.excelCellForeground = foreground
+  editor.querySelectorAll<HTMLElement>('span').forEach((span) => {
+    span.style.color = foreground
+  })
+  return true
 }
 
 export function resolveExcelCellEditorColors(
