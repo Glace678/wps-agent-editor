@@ -118,7 +118,7 @@ export function evaluateDebugExpression(expression: string, id: string): void {
 interface NodeSession extends DebugSession {
   kind: 'node'
   child: ChildProcessWithoutNullStreams
-  ws: WebSocket
+  ws: CdpWebSocket
 }
 
 function isDebugScriptUrl(url: string, scriptPath: string): boolean {
@@ -211,7 +211,7 @@ async function createNodeSession(
     return null
   }
 
-  let ws: WebSocket
+  let ws: CdpWebSocket
   let wsConnected = false
   try {
     ws = new WebSocketCtor(wsUrl)
