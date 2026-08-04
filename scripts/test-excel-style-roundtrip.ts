@@ -121,4 +121,7 @@ async function main() {
   console.log('Excel style round-trip passed')
 }
 
-await main()
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})
