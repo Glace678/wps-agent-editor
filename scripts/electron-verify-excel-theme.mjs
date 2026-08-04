@@ -1068,6 +1068,28 @@ try {
     JSON.stringify(fontColorPick),
   )
 
+  const fontColorEditorFocused = await evaluate(send, `document.activeElement?.classList.contains('luckysheet-cell-input')`)
+  check('font-color palette keeps the cell editor focused until commit', fontColorEditorFocused)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
+  })()`)
+  await sleep(250)
+
   const swatchPixels = await evaluate(send, `(() => {
     const canvas = document.querySelector('.fortune-sheet-canvas')
     const cellArea = document.querySelector('.fortune-cell-area')
@@ -1094,7 +1116,7 @@ try {
     return { pickerGreen, samples: pixels.length / 4 }
   })()`)
   check(
-    'font-color palette swatch repaints the selected cell text',
+    'font-color palette swatch remains painted after the edit is committed',
     swatchPixels?.pickerGreen > 10,
     JSON.stringify(swatchPixels),
   )
