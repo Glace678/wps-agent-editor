@@ -991,43 +991,6 @@ try {
   await sleep(180)
 
   const fontColorPick = await evaluate(send, `(async () => {
-    const cellArea = document.querySelector('.fortune-cell-area')
-    if (!cellArea) return { clicked: false, reason: 'cell area missing' }
-    const cellRect = cellArea.getBoundingClientRect()
-    const point = {
-      clientX: cellRect.left + 16,
-      clientY: cellRect.top + 19 * 6 + 8,
-    }
-    cellArea.dispatchEvent(new MouseEvent('mousedown', {
-      ...point,
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      buttons: 1,
-    }))
-    cellArea.dispatchEvent(new MouseEvent('mouseup', {
-      ...point,
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      buttons: 0,
-    }))
-    cellArea.dispatchEvent(new MouseEvent('click', {
-      ...point,
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      buttons: 0,
-    }))
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    cellArea.dispatchEvent(new MouseEvent('dblclick', {
-      ...point,
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      buttons: 0,
-    }))
-    await new Promise((resolve) => setTimeout(resolve, 100))
     const editorBeforePick = document.querySelector('.luckysheet-input-box-inner')
     const editingBeforePick = editorBeforePick?.closest('#luckysheet-input-box')
       ? getComputedStyle(editorBeforePick.closest('#luckysheet-input-box')).display !== 'none'
