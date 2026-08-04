@@ -1496,15 +1496,15 @@ try {
     return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
   })()`)
 
-  const crossRunCellPoint = await evaluate(send, `(() => {
-    const cellArea = document.querySelector('.fortune-cell-area')
-    if (!cellArea) return null
-    const rect = cellArea.getBoundingClientRect()
-    return { x: rect.left + 16, y: rect.top + 19 * 8 + 8 }
-  })()`)
-  check('cross-run font-color test locates A9', Boolean(crossRunCellPoint), JSON.stringify(crossRunCellPoint))
-  await clickAt(send, crossRunCellPoint, 1)
-  await sleep(80)
+  const crossRunSelectionAddress = await evaluate(
+    send,
+    `document.querySelector('.fortune-name-box')?.textContent?.trim() || ''`,
+  )
+  check(
+    'cross-run font-color test advances to A9',
+    crossRunSelectionAddress === 'A9',
+    crossRunSelectionAddress,
+  )
   await send('Input.dispatchKeyEvent', {
     type: 'keyDown',
     key: 'F2',
@@ -1575,10 +1575,15 @@ try {
     return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
   })()`)
 
-  await clickAt(send, crossRunCellPoint, 1)
-  await sleep(80)
   await send('Input.dispatchKeyEvent', {
     type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
     key: 'F2',
     code: 'F2',
     windowsVirtualKeyCode: 113,
