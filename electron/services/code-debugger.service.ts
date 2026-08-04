@@ -1,8 +1,10 @@
 ﻿import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
+import { pathToFileURL } from 'node:url'
 import { normalizePath } from './file.service'
 import type {
   DebugBreakpoint,
@@ -13,6 +15,7 @@ import type {
 } from '../../src/types/code'
 
 const require = createRequire(import.meta.url)
+const WebSocketCtor = require('ws') as typeof import('ws').default
 
 type DebugEventSink = (event: DebugEvent) => void
 
