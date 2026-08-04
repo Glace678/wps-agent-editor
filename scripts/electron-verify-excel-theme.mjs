@@ -1005,9 +1005,9 @@ try {
 
   const fontColorPick = await evaluate(send, `(async () => {
     const editorBeforePick = document.querySelector(
-      '#luckysheet-input-box .luckysheet-input-box-inner',
+      '.luckysheet-input-box .luckysheet-input-box-inner',
     )
-    const editorBoxBeforePick = editorBeforePick?.closest('#luckysheet-input-box')
+    const editorBoxBeforePick = editorBeforePick?.closest('.luckysheet-input-box')
     const editingBeforePick = editorBoxBeforePick
       ? Number.parseInt(getComputedStyle(editorBoxBeforePick).zIndex, 10) >= 0
       : false
@@ -1046,8 +1046,8 @@ try {
     if (!swatch) return { clicked: false, reason: 'font color swatch missing' }
     swatch.click()
     await new Promise((resolve) => setTimeout(resolve, 350))
-    const editor = document.querySelector('#luckysheet-input-box .luckysheet-input-box-inner')
-    const editorBox = editor?.closest('#luckysheet-input-box')
+    const editor = document.querySelector('.luckysheet-input-box .luckysheet-input-box-inner')
+    const editorBox = editor?.closest('.luckysheet-input-box')
     return {
       clicked: true,
       selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',

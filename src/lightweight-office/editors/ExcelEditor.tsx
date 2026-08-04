@@ -525,9 +525,9 @@ function getExcelFontColorCommand(target: Element): ExcelFontColorCommand | null
 
 function getActiveExcelCellEditor(shell: HTMLElement) {
   const editor = shell.querySelector<HTMLElement>(
-    '#luckysheet-input-box .luckysheet-input-box-inner',
+    '.luckysheet-input-box .luckysheet-input-box-inner',
   )
-  const box = editor?.closest<HTMLElement>('#luckysheet-input-box')
+  const box = editor?.closest<HTMLElement>('.luckysheet-input-box')
   if (!editor || !box) return null
   const style = getComputedStyle(box)
   if (style.display === 'none' || style.visibility === 'hidden' || box.getClientRects().length === 0) {
@@ -931,7 +931,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     const handleEditorFocusOut = (event: FocusEvent) => {
       const target = event.target
       if (!(target instanceof Element)
-        || !target.matches('#luckysheet-input-box .luckysheet-cell-input')) return
+        || !target.matches('.luckysheet-input-box .luckysheet-cell-input')) return
       const resetCommand = pendingResetAfterEdit
       if (!resetCommand) return
       pendingResetAfterEdit = null
