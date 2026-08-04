@@ -329,6 +329,7 @@ async function createNodeSession(
   const session: NodeSession = {
     kind: 'node',
     filePath,
+    child,
     stop() {
       child.stdin.write(JSON.stringify({ type: 'stop' }) + '\n')
       const killer = setTimeout(() => child.kill(), 800)

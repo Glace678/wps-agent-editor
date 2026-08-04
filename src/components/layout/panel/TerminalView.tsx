@@ -23,12 +23,12 @@ export function TerminalView() {
     const dispose = window.api.on('lw:terminal-event', (payload) => {
       const event = payload as { type?: string; text?: string; code?: number | null }
       if (event?.type === 'output') {
-        setLines((prev) => [...prev, { id: `t${terminalLineId++}`, kind: 'out', text: String(event.text ?? '') }].slice(-2000))
+        setLines((prev) => [...prev, { id: `t${terminalLineId++}`, kind: 'out' as const, text: String(event.text ?? '') }].slice(-2000))
       } else if (event?.type === 'exit') {
         setRunning(false)
         setLines((prev) => [...prev, {
           id: `t${terminalLineId++}`,
-          kind: 'sys',
+          kind: 'sys' as const,
           text: `[${t('bottomPanel.terminalExited')} (${String(event.code ?? '')})]`,
         }])
       }
@@ -46,7 +46,7 @@ export function TerminalView() {
     if (!command) return
     setInput('')
     setRunning(true)
-    setLines((prev) => [...prev, { id: `t${terminalLineId++}`, kind: 'in', text: command }])
+    setLines((prev) => [...prev, { id: `t${terminalLineId++}`, kind: 'in' as const, text: command }])
     void window.api?.lw.terminalExec(command)
   }
 

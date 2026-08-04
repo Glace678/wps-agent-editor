@@ -13,6 +13,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const electronPath = require('electron')
 const profilePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wps-provider-settings-verify-'))
 const screenshotPath = path.join(root, '.cache', 'electron-verify-provider-settings.png')
+const customModelsScreenshotPath = path.join(root, '.cache', 'electron-verify-custom-provider-models.png')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function getFreePort() {
@@ -316,6 +317,10 @@ try {
       'automatically opened custom model list',
     )
 
+    const customModelsScreenshot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+    fs.mkdirSync(path.dirname(customModelsScreenshotPath), { recursive: true })
+    fs.writeFileSync(customModelsScreenshotPath, customModelsScreenshot.result.data, 'base64')
+
     const detectedModels = await evaluate(cdp, `Array.from(document.querySelectorAll('[data-testid=custom-provider-model-option]'))
       .map((option) => option.textContent.trim())`)
     assert.deepEqual(detectedModels, ['custom-alpha', 'Custom Beta'])
@@ -360,7 +365,7 @@ try {
   })()`)
   await waitFor(cdp, "!document.querySelector('[role=dialog]')", 'provider settings backdrop dismissal')
 
-  console.log(`PASS provider documentation, editable Base URL, custom model discovery, persistence, and backdrop dismissal\n${screenshotPath}`)
+  console.log(`PASS provider documentation, editable Base URL, custom model discovery, persistence, and backdrop dismissal\n${screenshotPath}\n${customModelsScreenshotPath}`)
 } finally {
   cdp?.close()
   await stopElectron(child)
