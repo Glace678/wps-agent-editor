@@ -66,6 +66,14 @@ export const IPC = {
   LW_SET_CURRENT_FILE: 'lw:set-current-file',
   LW_AGENT_RESULT: 'lw:agent-result',
   LW_RUN_CODE: 'lw:run-code',
+  LW_DEBUG_START: 'lw:debug-start',
+  LW_DEBUG_STOP: 'lw:debug-stop',
+  LW_DEBUG_COMMAND: 'lw:debug-command',
+  LW_DEBUG_EVALUATE: 'lw:debug-evaluate',
+  LW_DEBUG_EVENT: 'lw:debug-event',
+  LW_TERMINAL_EXEC: 'lw:terminal-exec',
+  LW_TERMINAL_KILL: 'lw:terminal-kill',
+  LW_TERMINAL_EVENT: 'lw:terminal-event',
 
   // 窗口事件
   WINDOW_MINIMIZE: 'window:minimize',
