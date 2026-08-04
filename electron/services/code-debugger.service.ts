@@ -115,25 +115,21 @@ const NODE_CHILD_CODE = [
   "'use strict';",
   'const inspector = require(\'node:inspector\');',
   'const readline = require(\'node:readline\');',
+  'const fs = require(\'node:fs\');',
+  'const os = require(\'node:os\');',
+  'const path = require(\'node:path\');',
   'const { pathToFileURL } = require(\'node:url\');',
   'const session = new inspector.Session();',
   'const post = (method, params) => new Promise((resolve, reject) => {',
   '  session.post(method, params, (err, result) => err ? reject(err) : resolve(result));',
   '});',
   'const send = (msg) => process.stdout.write(JSON.stringify(msg) + \'\\n\');',
-  'let sourceUrl = \'\';',
   'let filePath = \'\';',
+  'let scriptPath = \'\';',
   'let breakpoints = [];',
-  'function argText(arg) {',
-  '  if (arg && arg.value !== undefined) {',
-  '    if (arg.value !== null && typeof arg.value === \'object\') {',
-  '      try { return JSON.stringify(arg.value); } catch (e) { return String(arg.value); }',
-  '    }',
-  '    return String(arg.value);',
-  '  }',
-  '  if (arg && arg.unserializableValue !== undefined) return String(arg.unserializableValue);',
-  '  if (arg && arg.description !== undefined) return String(arg.description);',
-  '  return \'[object]\';',
+  'function mapFile(url) {',
+  '  if (scriptPath && url === pathToFileURL(scriptPath).href) return filePath;',
+  '  return url;',
   '}',
   'function propText(prop) {',
   '  if (prop.value !== undefined && prop.value !== null) {',
@@ -146,11 +142,22 @@ const NODE_CHILD_CODE = [
   '  if (prop.objectId) return prop.description !== undefined ? String(prop.description) : \'(Object)\';',
   '  return prop.value === undefined ? \'undefined\' : String(prop.value);',
   '}',
+  'function argText(arg) {',
+  '  if (arg && arg.value !== undefined) {',
+  '    if (arg.value !== null && typeof arg.value === \'object\') {',
+  '      try { return JSON.stringify(arg.value); } catch (e) { return String(arg.value); }',
+  '    }',
+  '    return String(arg.value);',
+  '  }',
+  '  if (arg && arg.unserializableValue !== undefined) return String(arg.unserializableValue);',
+  '  if (arg && arg.description !== undefined) return String(arg.description);',
+  '  return \'[object]\';',
+  '}',
   'async function collectVariables(params) {',
   '  const frames = (params.callFrames || []).map((frame) => ({',
   '    index: frame.callFrameId,',
   '    name: frame.functionName || \'(anonymous)\',',
-  '    file: frame.url || \'\',',
+  '    file: mapFile(frame.url || \'\'),',
   '    line: frame.location.lineNumber + 1,',
   '    column: frame.location.columnNumber + 1,',
   '  }));',
@@ -184,11 +191,31 @@ const NODE_CHILD_CODE = [
   '  const data = await collectVariables(params);',
   '  send({ event: \'paused\', reason, frames: data.frames, variables: data.variables });',
   '}',
+  'function prepareScript(msg) {',
+  '  const extension = path.extname(msg.filePath).slice(1).toLowerCase();',
+  '  if (extension === \'js\' || extension === \'cjs\') return msg.filePath;',
+  '  let code = msg.code;',
+  '  let loader = null;',
+  '  if (extension === \'ts\') loader = \'ts\';',
+  '  else if (extension === \'tsx\') loader = \'tsx\';',
+  '  else if (extension === \'jsx\') loader = \'jsx\';',
+  '  else if (extension === \'mjs\') loader = \'js\';',
+  '  if (loader) {',
+  '    const esbuild = require(msg.esbuildPath);',
+  '    code = esbuild.transformSync(code, { loader, format: \'cjs\' }).code;',
+  '  }',
+  '  const dir = fs.mkdtempSync(path.join(os.tmpdir(), \'wps-debug-run-\'));',
+  '  const name = path.basename(msg.filePath).replace(/\\.(ts|tsx|mjs|jsx)$/i, \'.js\');',
+  '  const target = path.join(dir, name);',
+  '  fs.writeFileSync(target, code);',
+  '  return target;',
+  '}',
   'async function run(msg) {',
-  '  sourceUrl = pathToFileURL(msg.filePath).href;',
   '  filePath = msg.filePath;',
   '  breakpoints = msg.breakpoints || [];',
   '  try {',
+  '    scriptPath = prepareScript(msg);',
+  '    const sourceUrl = pathToFileURL(scriptPath).href;',
   '    session.connect();',
   '    session.on(\'Debugger.paused\', onPaused);',
   '    session.on(\'Debugger.resumed\', () => {',
@@ -201,37 +228,27 @@ const NODE_CHILD_CODE = [
   '        : details.text || \'Uncaught exception\';',
   '      send({ event: \'output\', kind: \'stderr\', text: text + \'\\n\' });',
   '    });',
-  '    session.on(\'Debugger.scriptParsed\', (parsed) => {',
-  '      if (parsed.url !== sourceUrl) return;',
-  '      // Execution is suspended while scriptParsed is dispatched, so setting',
-  '      // breakpoints here applies them before the first statement runs.',
-  '      for (const bp of breakpoints) {',
-  '        session.post(\'Debugger.setBreakpoint\', {',
-  '          location: { scriptId: parsed.scriptId, lineNumber: bp.line - 1, columnNumber: 0 },',
-  '        }, (err, result) => {',
-  '          if (!err && result && result.breakpointId) {',
-  '            const line = result.location ? result.location.lineNumber : bp.line - 1;',
-  '            send({ event: \'breakpoint-verified\', file: filePath, line: line + 1 });',
-  '          }',
-  '        });',
-  '      }',
-  '    });',
   '    await post(\'Debugger.enable\');',
   '    await post(\'Runtime.enable\');',
-  '    let code = msg.code;',
-  '    if (msg.loader) {',
-  '      try {',
-  '        const esbuild = require(msg.esbuildPath);',
-  '        code = esbuild.transformSync(code, { loader: msg.loader }).code;',
-  '      } catch (e) {',
-  '        send({ event: \'output\', kind: \'stderr\', text: \'Transpile failed: \' + String(e && e.message || e) + \'\\n\' });',
-  '      }',
+  '    for (const bp of breakpoints) {',
+  '      session.post(\'Debugger.setBreakpointByUrl\', {',
+  '        lineNumber: bp.line - 1,',
+  '        url: sourceUrl,',
+  '      }, (err, result) => {',
+  '        if (err) {',
+  '          send({ event: \'error\', message: String(err && err.message || err) });',
+  '          return;',
+  '        }',
+  '        send({ event: \'breakpoint-verified\', file: filePath, line: bp.line });',
+  '        void result;',
+  '      });',
   '    }',
+  '    global.__wpsDebugRequire = require;',
+  '    global.__wpsDebugScriptPath = scriptPath;',
   '    const result = await post(\'Runtime.evaluate\', {',
-  '      expression: code + \'\\n//# sourceURL=\' + sourceUrl,',
-  '      includeCommandLineAPI: true,',
+  '      expression: \'global.__wpsDebugRequire(global.__wpsDebugScriptPath)\',',
   '      silent: true,',
-  '      awaitPromise: true,',
+  '      awaitPromise: false,',
   '    });',
   '    if (result.exceptionDetails) {',
   '      const details = result.exceptionDetails;',
@@ -297,8 +314,6 @@ async function createNodeSession(
   breakpoints: DebugBreakpoint[],
 ): Promise<DebugSession | null> {
   const code = await fs.readFile(filePath, 'utf8')
-  const extension = extensionOf(filePath)
-  const loader = extension === 'ts' ? 'ts' : extension === 'tsx' ? 'tsx' : extension === 'jsx' ? 'jsx' : null
   let esbuildPath = ''
   try {
     esbuildPath = require.resolve('esbuild')
@@ -371,7 +386,6 @@ async function createNodeSession(
     filePath,
     code,
     breakpoints,
-    loader,
     esbuildPath,
   }) + '\n')
 
@@ -542,7 +556,7 @@ async function createPythonSession(
       }
       session.lastCommand = 'set-break'
       const first = breakpoints[0]
-      session.breakpointSet.add(`${first.file}:${first.line}`)
+      session.breakpointSet.add(pdbBreakpointKey(first.file, first.line))
       child.stdin.write(`break ${first.file}:${first.line}\n`)
       return
     }
@@ -553,7 +567,7 @@ async function createPythonSession(
       session.breakIndex += 1
       if (session.breakIndex < breakpoints.length) {
         const next = breakpoints[session.breakIndex]
-        session.breakpointSet.add(`${next.file}:${next.line}`)
+        session.breakpointSet.add(pdbBreakpointKey(next.file, next.line))
         child.stdin.write(`break ${next.file}:${next.line}\n`)
         return
       }
@@ -628,7 +642,7 @@ async function createPythonSession(
           }]
         : []
       if (session.lastCommand === 'continue') {
-        const key = `${current!.file}:${current!.line}`
+        const key = pdbBreakpointKey(current!.file, current!.line)
         const hitBreakpoint = session.breakpointSet.has(key)
         const output = programOutputOf(raw)
         if (hitBreakpoint) {

@@ -14,7 +14,7 @@ import {
   renameFile,
   deleteFileToTrash,
   showInFolder,
-  copyFileToClipboard,
+  copyFilesToClipboard,
 } from '../services/file-ops.service'
 import {
   snapshotFile,
@@ -32,6 +32,15 @@ const TEXT_FILE_EXTENSIONS = Object.freeze(['txt', 'md', 'markdown', 'json', 'lo
 
 function uniqueExtensions(...groups: readonly (readonly string[])[]): string[] {
   return [...new Set(groups.flat())]
+}
+
+function normalizeClipboardPaths(filePaths: string | string[]): string[] {
+  const values = Array.isArray(filePaths) ? filePaths : [filePaths]
+  return [...new Set(
+    values
+      .map((filePath) => normalizePath(filePath))
+      .filter((filePath) => filePath.length > 0),
+  )]
 }
 
 export function registerFileHandlers(): void {
@@ -82,10 +91,14 @@ export function registerFileHandlers(): void {
     return removeRecentFile(normalizePath(filePath))
   })
 
-  ipcMain.handle(IPC.FILE_COPY_TO_CLIPBOARD, async (_e, filePath: string) => {
-    const stat = await statFile(filePath)
-    if (!stat.exists) return { success: false, errorCode: 'not-found' }
-    return copyFileToClipboard(filePath)
+  ipcMain.handle(IPC.FILE_COPY_TO_CLIPBOARD, async (_e, filePaths: string | string[]) => {
+    const normalizedPaths = normalizeClipboardPaths(filePaths)
+    if (normalizedPaths.length === 0) return { success: false, errorCode: 'failed' }
+
+    const stats = await Promise.all(normalizedPaths.map((filePath) => statFile(filePath)))
+    if (stats.some((stat) => !stat.exists)) return { success: false, errorCode: 'not-found' }
+
+    return copyFilesToClipboard(normalizedPaths)
   })
 
   ipcMain.handle(IPC.FILE_HISTORY_LIST, async (_e, filePath: string) => {

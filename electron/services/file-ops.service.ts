@@ -110,21 +110,37 @@ export function showInFolder(filePath: string): void {
   shell.showItemInFolder(normalizePath(filePath))
 }
 
+function normalizeClipboardPaths(filePaths: string | readonly string[]): string[] {
+  const values = Array.isArray(filePaths) ? filePaths : [filePaths]
+  return [...new Set(
+    values
+      .map((filePath) => normalizePath(filePath))
+      .filter((filePath) => filePath.length > 0),
+  )]
+}
+
 /**
- * “分享”：把文件本体放入系统剪贴板（Windows/macOS），
+ * “分享”：把一个或多个文件本体放入系统剪贴板（Windows/macOS），
  * 用户可直接粘贴到聊天窗口/资源管理器发送；
  * 不支持的平台退化为复制文件路径文本。
  */
-export async function copyFileToClipboard(filePath: string): Promise<{ success: boolean; method: 'file' | 'path' }> {
-  const normalized = normalizePath(filePath)
+export async function copyFilesToClipboard(filePaths: string | readonly string[]): Promise<{ success: boolean; method: 'file' | 'path' }> {
+  const normalized = normalizeClipboardPaths(filePaths)
+  if (normalized.length === 0) return { success: false, method: 'path' }
+  const fallbackText = normalized.join('\n')
 
   if (process.platform === 'win32') {
     try {
       // 路径经环境变量传入，避免命令行注入与引号转义问题
       await execFileAsync(
         'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -LiteralPath $env:WPS_SHARE_FILE'],
-        { env: { ...process.env, WPS_SHARE_FILE: normalized }, windowsHide: true },
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          '$paths = @(ConvertFrom-Json -InputObject $env:WPS_SHARE_FILES_JSON); Set-Clipboard -LiteralPath $paths',
+        ],
+        { env: { ...process.env, WPS_SHARE_FILES_JSON: JSON.stringify(normalized) }, windowsHide: true },
       )
       return { success: true, method: 'file' }
     } catch {
@@ -134,8 +150,15 @@ export async function copyFileToClipboard(filePath: string): Promise<{ success: 
     try {
       await execFileAsync(
         'osascript',
-        ['-e', 'set the clipboard to POSIX file (system attribute "WPS_SHARE_FILE")'],
-        { env: { ...process.env, WPS_SHARE_FILE: normalized } },
+        [
+          '-e', 'set rawPaths to paragraphs of (system attribute "WPS_SHARE_FILES")',
+          '-e', 'set fileList to {}',
+          '-e', 'repeat with rawPath in rawPaths',
+          '-e', 'if (contents of rawPath) is not "" then set end of fileList to POSIX file (contents of rawPath)',
+          '-e', 'end repeat',
+          '-e', 'set the clipboard to fileList',
+        ],
+        { env: { ...process.env, WPS_SHARE_FILES: fallbackText } },
       )
       return { success: true, method: 'file' }
     } catch {
@@ -143,6 +166,6 @@ export async function copyFileToClipboard(filePath: string): Promise<{ success: 
     }
   }
 
-  clipboard.writeText(normalized)
+  clipboard.writeText(fallbackText)
   return { success: true, method: 'path' }
 }

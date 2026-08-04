@@ -26,7 +26,7 @@ interface RecentFilesProps {
 type DialogState =
   | { kind: 'info'; file: RecentFile; stat: FileStatInfo }
   | { kind: 'rename'; file: RecentFile }
-  | { kind: 'share'; file: RecentFile }
+  | { kind: 'share'; files: RecentFile[] }
   | { kind: 'history'; file: RecentFile }
   | { kind: 'delete'; file: RecentFile }
   | { kind: 'message'; title: string; message: string }
@@ -90,11 +90,22 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
         break
       }
       case 'share': {
-        const stat = await window.api.file.stat(file.path)
-        if (!stat.exists) {
+        const candidates = files.filter((candidate) => selectedPaths.has(candidate.path))
+        const filesToShare = candidates.length > 0 ? candidates : [file]
+        const shareable = await Promise.all(
+          filesToShare.map(async (candidate) => ({
+            file: candidate,
+            stat: await window.api.file.stat(candidate.path),
+          })),
+        )
+        const existingFiles = shareable
+          .filter(({ stat }) => stat.exists)
+          .map(({ file: candidate }) => candidate)
+
+        if (existingFiles.length === 0) {
           showError(t('recentFiles.errorNotFound'))
         } else {
-          setDialog({ kind: 'share', file })
+          setDialog({ kind: 'share', files: existingFiles })
         }
         break
       }
@@ -123,7 +134,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
         setDialog({ kind: 'delete', file })
         break
     }
-  }, [onOpen, setRecentFiles, showError, t])
+  }, [files, onOpen, selectedPaths, setRecentFiles, showError, t])
 
   const submitRename = useCallback(async (file: RecentFile, newName: string) => {
     const result = await window.api.file.rename(file.path, newName)
@@ -255,7 +266,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
         />
       )}
       {dialog?.kind === 'share' && (
-        <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />
+        <ShareDialog files={dialog.files} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'history' && (
         <HistoryDialog file={dialog.file} onClose={() => setDialog(null)} />

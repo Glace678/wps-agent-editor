@@ -21,8 +21,8 @@ const api = {
     delete: (filePath: string) => ipcRenderer.invoke(IPC.FILE_DELETE, filePath),
     showInFolder: (filePath: string) => ipcRenderer.invoke(IPC.FILE_SHOW_IN_FOLDER, filePath),
     removeRecent: (filePath: string) => ipcRenderer.invoke(IPC.FILE_REMOVE_RECENT, filePath),
-    copyToClipboard: (filePath: string) =>
-      ipcRenderer.invoke(IPC.FILE_COPY_TO_CLIPBOARD, filePath),
+    copyToClipboard: (filePaths: string | string[]) =>
+      ipcRenderer.invoke(IPC.FILE_COPY_TO_CLIPBOARD, filePaths),
     historyList: (filePath: string) => ipcRenderer.invoke(IPC.FILE_HISTORY_LIST, filePath),
     historyRestore: (filePath: string, versionId: string) =>
       ipcRenderer.invoke(IPC.FILE_HISTORY_RESTORE, filePath, versionId),

@@ -41,7 +41,7 @@ export interface ElectronAPI {
     }>
     showInFolder: (filePath: string) => Promise<{ success: boolean; errorCode?: FileOpErrorCode }>
     removeRecent: (filePath: string) => Promise<RecentFile[]>
-    copyToClipboard: (filePath: string) => Promise<{
+    copyToClipboard: (filePaths: string | string[]) => Promise<{
       success: boolean
       method?: 'file' | 'path'
       errorCode?: FileOpErrorCode
