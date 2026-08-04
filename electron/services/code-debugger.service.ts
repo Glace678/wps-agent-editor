@@ -286,16 +286,24 @@ async function createNodeSession(
       return
     }
     const variables = await collectVariables(frames[0])
+    // Node reports empty URLs for CommonJS frames in some builds — map the
+    // leading frames (our script) to the original file path.
+    let mapped = 0
+    const mappedFrames = frames.map((frame, index) => {
+      const mappedFile = mapped === index && !frame.url ? filePath : mapFile(frame.url)
+      if (mappedFile === filePath) mapped += 1
+      return {
+        index,
+        name: frame.functionName || '(anonymous)',
+        file: mappedFile,
+        line: frame.location.lineNumber + 1,
+        column: frame.location.columnNumber + 1,
+      }
+    })
     emit({
       event: 'paused',
       reason: params.reason ?? 'breakpoint',
-      frames: frames.map((frame, index) => ({
-        index,
-        name: frame.functionName || '(anonymous)',
-        file: mapFile(frame.url),
-        line: frame.location.lineNumber + 1,
-        column: frame.location.columnNumber + 1,
-      })),
+      frames: mappedFrames,
       variables,
     })
   }
