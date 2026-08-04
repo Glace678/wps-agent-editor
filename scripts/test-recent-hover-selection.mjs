@@ -18,11 +18,10 @@ function test(name, check) {
   }
 }
 
-test('selection square is always visible and always clickable (no hover gimmick)', () => {
-  assert.doesNotMatch(source, /pointer-events-none/)
-  assert.doesNotMatch(source, /group-hover:pointer-events-auto/)
-  assert.doesNotMatch(source, /opacity-0/)
-  assert.doesNotMatch(source, /group-hover:opacity-100/)
+test('selection square is visible only while its row is hovered (or selected)', () => {
+  assert.match(source, /opacity-0/)
+  assert.match(source, /group-hover:opacity-100/)
+  assert.match(source, /selectedPaths\.has\(file\.path\)\s*\n?\s*\? 'border-primary bg-primary text-primary-foreground'/)
   assert.match(source, /data-recent-file-select/)
 })
 
@@ -46,8 +45,9 @@ test('drag-selection listeners were removed', () => {
   assert.doesNotMatch(source, /dragRef|handlePointerMove|addEventListener\('pointermove'/)
 })
 
-test('right-click preserves a selected range and uses the shared menu', () => {
-  assert.match(source, /if \(!selectedPaths\.has\(file\.path\)\) setSelectedPaths\(new Set\(\[file\.path\]\)\)/)
+test('right-click opens the menu only for an already selected file', () => {
+  assert.match(source, /event\.preventDefault\(\)[\s\S]*if \(!selectedPaths\.has\(file\.path\)\) return[\s\S]*setMenu/)
+  assert.doesNotMatch(source, /if \(!selectedPaths\.has\(file\.path\)\) setSelectedPaths/)
   assert.match(source, /<RecentFileContextMenu/)
 })
 
