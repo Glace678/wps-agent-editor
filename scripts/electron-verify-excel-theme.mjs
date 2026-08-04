@@ -1296,6 +1296,8 @@ try {
         .map((segment) => segment.text).join(''),
       blueText: segments.filter((segment) => segment.color === 'rgb(15, 0, 240)')
         .map((segment) => segment.text).join(''),
+      yellowText: segments.filter((segment) => segment.color === 'rgb(240, 255, 15)')
+        .map((segment) => segment.text).join(''),
       segments,
     }
   })()`)
