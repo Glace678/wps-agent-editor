@@ -490,7 +490,7 @@ interface PythonSession extends DebugSession {
 }
 
 /** pdb prefixes the current frame with '>' e.g. "> C:\\path\\prog.py(5)add()" */
-const PDB_CURRENT_LINE = /^>(.*?)\((\d+)\)/
+const PDB_CURRENT_LINE = /^>(.*?)\((\d+)\)([\w.<>]+)?/
 const PDB_ACK_LINE = /Breakpoint\s+\d+\s+at|Error in argument/
 const PDB_RETURN_LINE = /^--Return--/
 const PDB_FINISHED_LINE = /The program finished/
@@ -507,7 +507,7 @@ function pdbCurrentFrame(lines: string[]): { file: string; line: number; name: s
     return {
       file: match[1].trim(),
       line: Number(match[2]),
-      name: line.includes('()') ? '<module>' : line.slice(line.lastIndexOf('(') + 1, line.lastIndexOf(')')).split('(')[0] || '<module>',
+      name: match[3] || '<module>',
     }
   }
   return null
