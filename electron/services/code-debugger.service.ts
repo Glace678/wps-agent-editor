@@ -16,6 +16,7 @@ import type {
 
 const require = createRequire(import.meta.url)
 const WebSocketCtor = require('ws') as typeof import('ws').default
+type CdpWebSocket = InstanceType<typeof WebSocketCtor>
 
 type DebugEventSink = (event: DebugEvent) => void
 
