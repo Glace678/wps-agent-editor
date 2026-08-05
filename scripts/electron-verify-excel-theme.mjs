@@ -1379,7 +1379,7 @@ try {
     const rect = cellArea.getBoundingClientRect()
     return {
       x: rect.left + 16 + ${columnIndex} * 72,
-      y: rect.top + 19 * ${rowIndex} + 8,
+      y: rect.top + 19 * ${rowIndex} + 12,
     }
   })()`)
   const readWorksheetTextPixels = (rowIndex, width = 110) => evaluate(send, `(() => {
