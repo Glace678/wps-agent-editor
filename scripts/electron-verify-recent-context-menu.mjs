@@ -222,18 +222,26 @@ try {
     cdp.send,
     `(() => {
       const checkbox = ${recentSelectExpr(path.basename(missingFile))}
-      const style = getComputedStyle(checkbox)
-      return { opacity: style.opacity, pointerEvents: style.pointerEvents }
+      const square = checkbox?.firstElementChild || checkbox
+      const squareStyle = getComputedStyle(square)
+      const hitAreaStyle = getComputedStyle(checkbox)
+      const rect = checkbox.getBoundingClientRect()
+      return {
+        opacity: squareStyle.opacity,
+        pointerEvents: hitAreaStyle.pointerEvents,
+        hitArea: { width: Math.round(rect.width), height: Math.round(rect.height) },
+      }
     })()`,
   )
   const themeColors = await evaluate(cdp.send, `(() => {
     const checkbox = ${recentSelectExpr(path.basename(missingFile))}
+    const square = checkbox?.firstElementChild || checkbox
     const wasDark = document.documentElement.classList.contains('dark')
     document.documentElement.classList.remove('dark')
-    const light = getComputedStyle(checkbox)
+    const light = getComputedStyle(square)
     const lightColors = { border: light.borderColor, background: light.backgroundColor }
     document.documentElement.classList.add('dark')
-    const dark = getComputedStyle(checkbox)
+    const dark = getComputedStyle(square)
     const darkColors = { border: dark.borderColor, background: dark.backgroundColor }
     document.documentElement.classList.toggle('dark', wasDark)
     return { lightColors, darkColors }
@@ -272,6 +280,8 @@ try {
       checkboxHiddenBeforeHover?.opacity === '0'
       && checkboxVisibleOnHover === '1'
       && checkboxHiddenBeforeHover?.pointerEvents !== 'none'
+      && checkboxHiddenBeforeHover?.hitArea?.width >= 20
+      && checkboxHiddenBeforeHover?.hitArea?.height >= 20
       && unselectedMenuSuppressed && themeAware && selectedCount === 3
       && JSON.stringify(multiMenuItems) === JSON.stringify(menuItems),
     `hidden=${checkboxHiddenBeforeHover?.opacity} hover=${checkboxVisibleOnHover} pointerEvents=${checkboxHiddenBeforeHover?.pointerEvents} unselectedMenu=${unselectedMenuSuppressed} theme=${themeAware} selected=${selectedCount}`,

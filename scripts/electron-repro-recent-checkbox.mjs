@@ -140,21 +140,26 @@ try {
   const hiddenCheckboxHitTarget = await evaluate(cdp.send, `(() => {
     const checkbox = ${selectExpr('A文档.txt')}
     if (!checkbox) return null
+    const square = checkbox.firstElementChild || checkbox
     const rect = checkbox.getBoundingClientRect()
     const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
-    const style = getComputedStyle(checkbox)
+    const squareStyle = getComputedStyle(square)
+    const hitAreaStyle = getComputedStyle(checkbox)
     return {
-      opacity: style.opacity,
-      pointerEvents: style.pointerEvents,
-      isTarget: target === checkbox,
-      targetSelect: target?.hasAttribute('data-recent-file-select') || false,
+      squareOpacity: squareStyle.opacity,
+      pointerEvents: hitAreaStyle.pointerEvents,
+      hitArea: { width: Math.round(rect.width), height: Math.round(rect.height) },
+      isTarget: target === checkbox || checkbox.contains(target),
+      targetSelect: Boolean(target?.closest?.('[data-recent-file-select]')),
       targetClass: String(target?.className || ''),
     }
   })()`)
   record(
     'hidden checkbox hit target stays on the checkbox',
-    hiddenCheckboxHitTarget?.opacity === '0'
+    hiddenCheckboxHitTarget?.squareOpacity === '0'
       && hiddenCheckboxHitTarget?.pointerEvents !== 'none'
+      && hiddenCheckboxHitTarget?.hitArea?.width >= 20
+      && hiddenCheckboxHitTarget?.hitArea?.height >= 20
       && hiddenCheckboxHitTarget?.isTarget,
     JSON.stringify(hiddenCheckboxHitTarget),
   )
