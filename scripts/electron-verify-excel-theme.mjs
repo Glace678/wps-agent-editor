@@ -51,7 +51,7 @@ const workbook = new ExcelJS.Workbook()
 const sampleSheet = workbook.addWorksheet('Theme check')
 sampleSheet.getColumn(1).width = 18
 sampleSheet.getColumn(2).width = 20
-for (let row = 1; row <= 9; row += 1) sampleSheet.getRow(row).height = 24
+for (let row = 1; row <= 11; row += 1) sampleSheet.getRow(row).height = 24
 
 const sampleCells = [
   ['A1', 'PLAIN', 'FF000000', 'FFFFFFFF'],
@@ -97,6 +97,8 @@ sampleSheet.getCell('A9').value = {
     { text: 'CC', font: { color: { argb: 'FF0F00F0' } } },
   ],
 }
+sampleSheet.getCell('A10').value = 'DIRECT COLOR'
+sampleSheet.getCell('A11').value = 'UNTOUCHED'
 await workbook.xlsx.writeFile(samplePath)
 
 function connect(wsUrl) {
