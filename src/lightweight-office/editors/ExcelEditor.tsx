@@ -1218,23 +1218,37 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     const syncActiveCellColors = () => {
       syncFrame = null
       const editor = shell.querySelector<HTMLElement>('.luckysheet-input-box-inner')
+      const input = editor?.querySelector<HTMLElement>('.luckysheet-cell-input')
       const api = workbookRef.current
       const selection = api?.getSelection?.()?.[0]
       const row = selection?.row?.[0]
       const column = selection?.column?.[0]
       if (!editor || !api || row === undefined || column === undefined) return
 
-      const cell = getExcelCellFromActiveSheet(api, row, column)
+      const cell = getExcelCellFromSheet(api, row, column)
       const colors = resolveExcelCellEditorColors(
         cell,
         document.documentElement.classList.contains('dark'),
       )
-      if (editor.style.backgroundColor !== colors.background) {
-        editor.style.backgroundColor = colors.background
+      const editableElements = [editor, input].filter(
+        (element): element is HTMLElement => Boolean(element),
+      )
+      for (const element of editableElements) {
+        if (element.style.backgroundColor !== colors.background) {
+          element.style.backgroundColor = colors.background
+        }
+        if (element.style.color !== colors.foreground) element.style.color = colors.foreground
+        element.dataset.excelCellBackground = colors.background
+        element.dataset.excelCellForeground = colors.foreground
       }
-      if (editor.style.color !== colors.foreground) editor.style.color = colors.foreground
-      editor.dataset.excelCellBackground = colors.background
-      editor.dataset.excelCellForeground = colors.foreground
+
+      if (!getActiveExcelCellEditor(shell) && !isExcelInlineStringCell(cell)) {
+        input?.querySelectorAll<HTMLElement>('span').forEach((span) => {
+          if (span.classList.contains('fortune-formula-functionrange-cell')
+            || span.classList.contains('luckysheet-formula-text-color')) return
+          span.style.color = colors.foreground
+        })
+      }
     }
 
     const scheduleActiveCellColorSync = () => {
