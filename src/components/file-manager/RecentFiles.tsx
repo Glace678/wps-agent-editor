@@ -192,18 +192,26 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
             </div>
           }
         >
-          <button
-            type="button"
+          <div
             data-recent-file-index={index}
             role="option"
             aria-selected={selectedPaths.has(file.path)}
+            tabIndex={0}
             className={cn(
-              'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent',
+              'group flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-primary',
               FILE_LIST_ROW_HOVER_BORDER,
               selectedPaths.has(file.path) && 'bg-accent',
             )}
             onClick={() => setSelectedPaths(new Set([file.path]))}
             onDoubleClick={() => onOpen(file.path)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                onOpen(file.path)
+              } else if (event.key === ' ') {
+                event.preventDefault()
+                setSelectedPaths(new Set([file.path]))
+              }
+            }}
             onContextMenu={(event) => {
               event.preventDefault()
               // A context menu is only meaningful for an already selected file.
@@ -213,12 +221,13 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
               setMenu({ x: event.clientX, y: event.clientY, file })
             }}
           >
-            <span
+            <button
+              type="button"
               role="checkbox"
               aria-checked={selectedPaths.has(file.path)}
               aria-label={file.name}
               data-recent-file-select
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[3px]"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[3px] outline-none focus-visible:ring-1 focus-visible:ring-primary"
               onPointerDown={(event) => event.stopPropagation()}
               onMouseDown={(event) => event.stopPropagation()}
               onClick={(event) => {
@@ -235,15 +244,15 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
               <span
                 aria-hidden="true"
                 className={cn(
-                  'flex h-3.5 w-3.5 items-center justify-center rounded-[2px] border transition-opacity',
+                  'flex h-3.5 w-3.5 items-center justify-center rounded-[2px] border transition-colors',
                   selectedPaths.has(file.path)
                     ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-black/55 bg-white text-transparent opacity-0 group-hover:opacity-100 hover:border-black dark:border-white/65 dark:bg-[#242424] dark:hover:border-white',
+                    : 'border-black/55 bg-white text-transparent hover:border-black dark:border-white/65 dark:bg-[#242424] dark:hover:border-white',
                 )}
               >
                 {selectedPaths.has(file.path) && <Check className="h-3 w-3" strokeWidth={3} />}
               </span>
-            </span>
+            </button>
             <FileIcon filePath={file.path} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">{file.name}</p>
@@ -252,7 +261,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
                 {formatDate(file.openedAt, language)}
               </p>
             </div>
-          </button>
+          </div>
         </FileHoverCard>
       ))}
 
