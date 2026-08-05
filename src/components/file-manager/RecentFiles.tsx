@@ -222,8 +222,10 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
                 'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[2px] border transition-opacity',
                 selectedPaths.has(file.path)
                   ? 'border-primary bg-primary text-primary-foreground'
-                  : 'pointer-events-none border-black/55 bg-white text-transparent opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 hover:border-black dark:border-white/65 dark:bg-[#242424] dark:hover:border-white',
+                  : 'border-black/55 bg-white text-transparent opacity-0 group-hover:opacity-100 hover:border-black dark:border-white/65 dark:bg-[#242424] dark:hover:border-white',
               )}
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation()
                 setSelectedPaths((current) => {
