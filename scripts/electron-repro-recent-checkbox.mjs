@@ -193,6 +193,28 @@ try {
   const counts2 = await evaluate(cdp.send, `[...document.querySelectorAll('[data-recent-file-index][aria-selected="true"]')].length`)
   record('multi-select fast clicks (A+B+C)', counts2 === 3, `selected=${counts2}`)
 
+  // Scenario 3b: arbitrary order should keep every previous checkbox selection.
+  await leftClick(cdp.send, rowExpr('A鏂囨。.txt'), 'reset selection to A via row click')
+  await sleep(200)
+  await leftClick(cdp.send, selectExpr('C鏂囨。.txt'), 'click checkbox C out of order')
+  await sleep(200)
+  await leftClick(cdp.send, selectExpr('B鏂囨。.txt'), 'click checkbox B out of order')
+  await sleep(400)
+  const arbitraryOrderState = await evaluate(cdp.send, `(() => ({
+    count: [...document.querySelectorAll('[data-recent-file-index][aria-selected="true"]')].length,
+    a: (${rowExpr('A鏂囨。.txt')}).getAttribute('aria-selected'),
+    b: (${rowExpr('B鏂囨。.txt')}).getAttribute('aria-selected'),
+    c: (${rowExpr('C鏂囨。.txt')}).getAttribute('aria-selected'),
+  }))()`)
+  record(
+    'arbitrary checkbox order keeps all selected files',
+    arbitraryOrderState?.count === 3
+      && arbitraryOrderState?.a === 'true'
+      && arbitraryOrderState?.b === 'true'
+      && arbitraryOrderState?.c === 'true',
+    JSON.stringify(arbitraryOrderState),
+  )
+
   // Scenario 4: narrow window — hover card may flip left and cover the checkbox
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
   await sleep(400)
