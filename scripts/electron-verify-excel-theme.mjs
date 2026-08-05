@@ -1678,6 +1678,95 @@ try {
     return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
   })()`)
 
+  const directColorCellPoint = await cellPoint(9)
+  const untouchedColorCellPoint = await cellPoint(10)
+  check('direct font-color test locates A10', Boolean(directColorCellPoint), JSON.stringify(directColorCellPoint))
+  check('font-color sync test locates A11', Boolean(untouchedColorCellPoint), JSON.stringify(untouchedColorCellPoint))
+  await clickAt(send, directColorCellPoint, 1)
+  await sleep(100)
+  const directColorSelection = await evaluate(
+    send,
+    `document.querySelector('.fortune-name-box')?.textContent?.trim() || ''`,
+  )
+  check('direct font-color test selects A10 without edit mode', directColorSelection === 'A10', directColorSelection)
+  await openFontColorPalette()
+  await clickFontColor('rgb(15, 0, 240)')
+  await closeFontColorPalette()
+  await sleep(350)
+  const directColorPixels = await readWorksheetTextPixels(9)
+  check(
+    'font color applies to a selected cell without entering edit mode',
+    directColorPixels?.blue > 5,
+    JSON.stringify(directColorPixels),
+  )
+
+  await clickAt(send, untouchedColorCellPoint, 1)
+  await sleep(250)
+  const untouchedColorPixels = await readWorksheetTextPixels(10)
+  check(
+    'clicking an untouched cell does not inherit the previous font color on the canvas',
+    untouchedColorPixels?.blue < 3 && untouchedColorPixels?.light > 5,
+    JSON.stringify(untouchedColorPixels),
+  )
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'F2',
+    code: 'F2',
+    windowsVirtualKeyCode: 113,
+    nativeVirtualKeyCode: 113,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
+  })()`)
+  const untouchedEditorColor = await evaluate(send, `(() => {
+    const editor = document.querySelector('.luckysheet-input-box .luckysheet-cell-input')
+    const segments = [...(editor?.querySelectorAll('span') || [])].map((span) => ({
+      text: span.textContent,
+      color: getComputedStyle(span).color,
+    }))
+    return {
+      foreground: editor?.dataset.excelCellForeground || '',
+      color: editor ? getComputedStyle(editor).color : '',
+      segments,
+    }
+  })()`)
+  check(
+    'untouched cell editor opens with the dark automatic font color',
+    untouchedEditorColor?.foreground.toLowerCase() === '#f5f5f5'
+      && untouchedEditorColor?.color === 'rgb(245, 245, 245)'
+      && untouchedEditorColor?.segments.every((segment) => segment.color !== 'rgb(15, 0, 240)'),
+    JSON.stringify(untouchedEditorColor),
+  )
+  await evaluate(send, `(() => {
+    document.querySelector('.luckysheet-input-box .luckysheet-cell-input')?.focus()
+    return true
+  })()`)
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+  })
+  await send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Enter',
+    code: 'Enter',
+    windowsVirtualKeyCode: 13,
+  })
+  await waitFor(send, `(() => {
+    const box = document.querySelector('.luckysheet-input-box')
+    return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
+  })()`)
+
   const toggledToLight = await evaluate(send, `(() => {
     const button = document.querySelector('[data-testid="theme-toggle"]')
     if (!button) return false
