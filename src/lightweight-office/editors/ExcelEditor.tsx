@@ -1045,7 +1045,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
     type PendingFontColorCommand = {
       color: string | undefined
-      selection: ExcelSelection
+      target: ExcelFontColorTarget
     }
 
     let fallbackSnapshot: boolean | null = null
@@ -1057,9 +1057,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
     const captureCommand = (color: string | undefined): PendingFontColorCommand | null => {
       const api = workbookRef.current
-      const selection = api?.getSelection()
-      if (!api || !selection?.length) return null
-      return { color, selection: cloneExcelSelection(selection) }
+      if (!api) return null
+      const target = getActiveExcelFontColorTarget(api)
+      return target ? { color, target } : null
     }
 
     const scheduleFallback = (
@@ -1073,13 +1073,14 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
         // Let Fortune handle a genuine rich-text selection first. Its collapsed-
         // caret branch is a no-op, so only write the whole cell when nothing changed.
-        if (!excelSelectionUsesFontColor(api, command.selection, command.color)) {
-          applyExcelFontColorToSelection(api, command.selection, command.color)
+        if (!excelSelectionUsesFontColor(api, command.target, command.color)) {
+          applyExcelFontColorToSelection(api, command.target, command.color)
+          scheduleExcelCanvasRefresh()
         }
         const editorStillActive = syncExcelCellEditorFontColor(
           shell,
           api,
-          command.selection,
+          command.target,
           command.color,
         )
         if (command.color === undefined && editorStillActive && !correctingEditorCommit) {
@@ -1112,7 +1113,6 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
         if (fallbackSnapshot === null) {
           richTextRangeSnapshot = captureExcelCellEditorTextRange(shell)
           fallbackSnapshot = richTextRangeSnapshot === null
-            && isExcelCellEditorActiveWithoutSelection(shell)
         }
         if (richTextRangeSnapshot) {
           restoreExcelCellEditorTextRange(shell, richTextRangeSnapshot)
@@ -1141,13 +1141,11 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
           // Capture before the toolbar takes focus and collapses a rich-text selection.
           richTextRangeSnapshot = captureExcelCellEditorTextRange(shell)
           fallbackSnapshot = richTextRangeSnapshot === null
-            && isExcelCellEditorActiveWithoutSelection(shell)
           triggerSawMouseDown = true
         } else if (!triggerSawMouseDown) {
           // Keyboard activation and programmatic clicks do not emit mousedown.
           richTextRangeSnapshot = captureExcelCellEditorTextRange(shell)
           fallbackSnapshot = richTextRangeSnapshot === null
-            && isExcelCellEditorActiveWithoutSelection(shell)
         }
         if (event.type === 'click') triggerSawMouseDown = false
         return
