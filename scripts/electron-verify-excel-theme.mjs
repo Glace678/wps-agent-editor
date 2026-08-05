@@ -1765,7 +1765,7 @@ try {
   const neighboringCellPoint = await cellPoint(10, 1)
   await clickAt(send, neighboringCellPoint, 1)
   await sleep(250)
-  const untouchedColorPixels = await readWorksheetTextPixels(10)
+  const untouchedColorPixels = await readWorksheetTextPixels(10, 64)
   check(
     'clicking an untouched cell does not inherit the previous font color on the canvas',
     untouchedColorPixels?.blue < 3 && untouchedColorPixels?.light > 5,
