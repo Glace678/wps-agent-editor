@@ -257,7 +257,11 @@ try {
   await hover(cdp.send, recentRowExpr(path.basename(missingFile)), 'hover missing row')
   const checkboxVisibleOnHover = await waitFor(
     cdp.send,
-    `getComputedStyle(${recentSelectExpr(path.basename(missingFile))}).opacity === '1' && '1'`,
+    `(() => {
+      const checkbox = ${recentSelectExpr(path.basename(missingFile))}
+      const square = checkbox?.firstElementChild || checkbox
+      return getComputedStyle(square).opacity === '1' && '1'
+    })()`,
     'checkbox visible on row hover',
     2000,
   )

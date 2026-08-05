@@ -33,6 +33,7 @@ test('selection square has explicit light and dark theme colors', () => {
 
 test('checkbox clicks toggle paths without bubbling into row open behavior', () => {
   assert.match(source, /data-recent-file-select/)
+  assert.match(source, /className="flex h-6 w-6 shrink-0 items-center justify-center/)
   assert.doesNotMatch(source, /pointer-events-none/)
   assert.match(source, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/)
   assert.match(source, /onMouseDown=\{\(event\) => event\.stopPropagation\(\)\}/)
