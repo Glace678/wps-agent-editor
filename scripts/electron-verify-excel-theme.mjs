@@ -1700,8 +1700,49 @@ try {
     JSON.stringify(directColorPixels),
   )
 
+  const beforeUntouchedClickState = await evaluate(send, `(() => {
+    const point = ${JSON.stringify(untouchedColorCellPoint)}
+    const element = document.elementFromPoint(point.x, point.y)
+    const box = document.querySelector('.luckysheet-input-box')
+    const boxStyle = box ? getComputedStyle(box) : null
+    return {
+      selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
+      element: element ? {
+        tagName: element.tagName,
+        className: String(element.className || ''),
+        id: element.id || '',
+        text: element.textContent?.slice(0, 40) || '',
+      } : null,
+      popupCount: document.querySelectorAll('.fortune-toolbar-combo-popup').length,
+      box: boxStyle ? {
+        zIndex: boxStyle.zIndex,
+        display: boxStyle.display,
+        visibility: boxStyle.visibility,
+        rects: box.getClientRects().length,
+      } : null,
+      active: document.activeElement ? {
+        tagName: document.activeElement.tagName,
+        className: String(document.activeElement.className || ''),
+      } : null,
+    }
+  })()`)
+  console.log('[DEBUG] before A11 click', JSON.stringify(beforeUntouchedClickState))
   await clickAt(send, untouchedColorCellPoint, 1)
   await sleep(150)
+  const afterUntouchedClickState = await evaluate(send, `(() => {
+    const point = ${JSON.stringify(untouchedColorCellPoint)}
+    const element = document.elementFromPoint(point.x, point.y)
+    return {
+      selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
+      element: element ? {
+        tagName: element.tagName,
+        className: String(element.className || ''),
+        id: element.id || '',
+        text: element.textContent?.slice(0, 40) || '',
+      } : null,
+    }
+  })()`)
+  console.log('[DEBUG] after A11 click', JSON.stringify(afterUntouchedClickState))
   const untouchedSelection = await evaluate(
     send,
     `document.querySelector('.fortune-name-box')?.textContent?.trim() || ''`,
