@@ -1702,6 +1702,11 @@ try {
 
   await clickAt(send, untouchedColorCellPoint, 1)
   await sleep(150)
+  const untouchedSelection = await evaluate(
+    send,
+    `document.querySelector('.fortune-name-box')?.textContent?.trim() || ''`,
+  )
+  check('font-color sync test selects A11', untouchedSelection === 'A11', untouchedSelection)
   await send('Input.dispatchKeyEvent', {
     type: 'keyDown',
     key: 'F2',
@@ -1728,6 +1733,7 @@ try {
       color: getComputedStyle(span).color,
     }))
     return {
+      text: editor?.innerText || '',
       foreground: editor?.dataset.excelCellForeground || '',
       color: editor ? getComputedStyle(editor).color : '',
       segments,
@@ -1735,7 +1741,9 @@ try {
   })()`)
   check(
     'untouched cell editor opens with the dark automatic font color',
-    untouchedEditorColor?.foreground.toLowerCase() === '#f5f5f5'
+    untouchedEditorColor?.text === 'UNTOUCHED'
+      &&
+      untouchedEditorColor?.foreground.toLowerCase() === '#f5f5f5'
       && untouchedEditorColor?.color === 'rgb(245, 245, 245)'
       && untouchedEditorColor?.segments.every((segment) => segment.color !== 'rgb(15, 0, 240)'),
     JSON.stringify(untouchedEditorColor),
