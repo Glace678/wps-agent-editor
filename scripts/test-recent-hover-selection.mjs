@@ -18,9 +18,9 @@ function test(name, check) {
   }
 }
 
-test('selection square is visible only while its row is hovered (or selected)', () => {
-  assert.match(source, /opacity-0/)
-  assert.match(source, /group-hover:opacity-100/)
+test('selection square is always visible and selectable', () => {
+  assert.doesNotMatch(source, /opacity-0/)
+  assert.doesNotMatch(source, /group-hover:opacity-100/)
   assert.match(source, /selectedPaths\.has\(file\.path\)\s*\n?\s*\? 'border-primary bg-primary text-primary-foreground'/)
   assert.match(source, /data-recent-file-select/)
 })
@@ -33,6 +33,7 @@ test('selection square has explicit light and dark theme colors', () => {
 
 test('checkbox clicks toggle paths without bubbling into row open behavior', () => {
   assert.match(source, /data-recent-file-select/)
+  assert.match(source, /<button\s+type="button"[\s\S]*role="checkbox"/)
   assert.match(source, /className="flex h-6 w-6 shrink-0 items-center justify-center/)
   assert.doesNotMatch(source, /pointer-events-none/)
   assert.match(source, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/)
@@ -41,6 +42,8 @@ test('checkbox clicks toggle paths without bubbling into row open behavior', () 
 })
 
 test('row click stays single-select and double-click opens', () => {
+  assert.match(source, /<div\s+data-recent-file-index=\{index\}[\s\S]*role="option"/)
+  assert.doesNotMatch(source, /<button\s+type="button"\s+data-recent-file-index/)
   assert.match(source, /onClick=\{\(\) => setSelectedPaths\(new Set\(\[file\.path\]\)\)\}/)
   assert.match(source, /onDoubleClick=\{\(\) => onOpen\(file\.path\)\}/)
 })
