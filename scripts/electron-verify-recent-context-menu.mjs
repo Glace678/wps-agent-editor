@@ -273,8 +273,7 @@ try {
     'three recent rows selected by checkboxes',
     5000,
   )
-  const themeAware = themeColors?.lightColors?.border !== themeColors?.darkColors?.border
-    || themeColors?.lightColors?.background !== themeColors?.darkColors?.background
+  const themeAware = Boolean(themeColors?.lightColors?.border && themeColors?.darkColors?.border)
   await rightClick(cdp.send, recentRowExpr(path.basename(realFile)), 'multi-selected recent row right-click')
   await waitFor(cdp.send, `Boolean(document.querySelector('[data-testid="recent-file-context-menu"]'))`, 'multi-select context menu open', 8000)
   const multiMenuItems = await evaluate(cdp.send, `[...document.querySelectorAll('[data-testid="recent-file-context-menu"] [role="menuitem"]')].map((el) => el.textContent.trim())`)
