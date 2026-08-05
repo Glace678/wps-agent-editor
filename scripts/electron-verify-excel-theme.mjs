@@ -1392,8 +1392,8 @@ try {
     const scaleX = canvas.width / canvasRect.width
     const scaleY = canvas.height / canvasRect.height
     const left = Math.floor((cellRect.left - canvasRect.left + 2) * scaleX)
-    const top = Math.floor((cellRect.top - canvasRect.top + 19 * ${rowIndex} + 2) * scaleY)
-    const pixels = context.getImageData(left, top, Math.floor(${width} * scaleX), Math.floor(15 * scaleY)).data
+    const top = Math.floor((cellRect.top - canvasRect.top + 19 * ${rowIndex} + 6) * scaleY)
+    const pixels = context.getImageData(left, top, Math.floor(${width} * scaleX), Math.floor(10 * scaleY)).data
     let red = 0
     let blue = 0
     let light = 0
