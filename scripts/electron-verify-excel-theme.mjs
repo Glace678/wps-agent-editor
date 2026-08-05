@@ -1701,13 +1701,7 @@ try {
   )
 
   await clickAt(send, untouchedColorCellPoint, 1)
-  await sleep(250)
-  const untouchedColorPixels = await readWorksheetTextPixels(10)
-  check(
-    'clicking an untouched cell does not inherit the previous font color on the canvas',
-    untouchedColorPixels?.blue < 3 && untouchedColorPixels?.light > 5,
-    JSON.stringify(untouchedColorPixels),
-  )
+  await sleep(150)
   await send('Input.dispatchKeyEvent', {
     type: 'keyDown',
     key: 'F2',
@@ -1726,6 +1720,7 @@ try {
     const box = document.querySelector('.luckysheet-input-box')
     return box && Number.parseInt(getComputedStyle(box).zIndex, 10) >= 0
   })()`)
+  await sleep(150)
   const untouchedEditorColor = await evaluate(send, `(() => {
     const editor = document.querySelector('.luckysheet-input-box .luckysheet-cell-input')
     const segments = [...(editor?.querySelectorAll('span') || [])].map((span) => ({
@@ -1761,11 +1756,21 @@ try {
     key: 'Enter',
     code: 'Enter',
     windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
   })
   await waitFor(send, `(() => {
     const box = document.querySelector('.luckysheet-input-box')
     return box && Number.parseInt(getComputedStyle(box).zIndex, 10) < 0
   })()`)
+  const neighboringCellPoint = await cellPoint(10, 1)
+  await clickAt(send, neighboringCellPoint, 1)
+  await sleep(250)
+  const untouchedColorPixels = await readWorksheetTextPixels(10)
+  check(
+    'clicking an untouched cell does not inherit the previous font color on the canvas',
+    untouchedColorPixels?.blue < 3 && untouchedColorPixels?.light > 5,
+    JSON.stringify(untouchedColorPixels),
+  )
 
   const toggledToLight = await evaluate(send, `(() => {
     const button = document.querySelector('[data-testid="theme-toggle"]')
