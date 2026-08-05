@@ -1373,6 +1373,42 @@ try {
     await clickAt(send, point, 1)
     await sleep(180)
   }
+  const cellPoint = (rowIndex, columnIndex = 0) => evaluate(send, `(() => {
+    const cellArea = document.querySelector('.fortune-cell-area')
+    if (!cellArea) return null
+    const rect = cellArea.getBoundingClientRect()
+    return {
+      x: rect.left + 16 + ${columnIndex} * 72,
+      y: rect.top + 19 * ${rowIndex} + 8,
+    }
+  })()`)
+  const readWorksheetTextPixels = (rowIndex, width = 110) => evaluate(send, `(() => {
+    const canvas = document.querySelector('.fortune-sheet-canvas')
+    const cellArea = document.querySelector('.fortune-cell-area')
+    const context = canvas?.getContext('2d')
+    if (!canvas || !cellArea || !context) return null
+    const canvasRect = canvas.getBoundingClientRect()
+    const cellRect = cellArea.getBoundingClientRect()
+    const scaleX = canvas.width / canvasRect.width
+    const scaleY = canvas.height / canvasRect.height
+    const left = Math.floor((cellRect.left - canvasRect.left + 2) * scaleX)
+    const top = Math.floor((cellRect.top - canvasRect.top + 19 * ${rowIndex} + 2) * scaleY)
+    const pixels = context.getImageData(left, top, Math.floor(${width} * scaleX), Math.floor(15 * scaleY)).data
+    let red = 0
+    let blue = 0
+    let light = 0
+    let dark = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      const r = pixels[index]
+      const g = pixels[index + 1]
+      const b = pixels[index + 2]
+      if (r > 120 && r > g * 2 && r > b * 2) red += 1
+      if (b > 120 && b > r * 2 && b > g * 2) blue += 1
+      if (r >= 200 && g >= 200 && b >= 200) light += 1
+      if (r <= 96 && g <= 96 && b <= 96) dark += 1
+    }
+    return { red, blue, light, dark }
+  })()`)
 
   const redSelection = await selectRichTextRange(0, 3)
   check('rich-text test selects the RED substring', redSelection?.selected === 'RED', JSON.stringify(redSelection))
