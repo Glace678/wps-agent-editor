@@ -123,7 +123,7 @@ async function rightClick(send, expression, label) {
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'right', buttons: 0, clickCount: 1 })
 }
 
-const recentRowExpr = (name) => `[...document.querySelectorAll('button')].find((b) => b.textContent.includes(${JSON.stringify(name)}) && b.querySelector('p'))`
+const recentRowExpr = (name) => `[...document.querySelectorAll('[data-recent-file-index]')].find((row) => row.textContent.includes(${JSON.stringify(name)}))`
 const recentSelectExpr = (name) => `(${recentRowExpr(name)}).querySelector('[data-recent-file-select]')`
 
 const results = []
@@ -218,7 +218,7 @@ try {
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   await waitFor(cdp.send, `!document.querySelector('[data-testid="recent-file-context-menu"]')`, 'single menu closed', 5000)
-  const checkboxHiddenBeforeHover = await evaluate(
+  const checkboxIdleBeforeHover = await evaluate(
     cdp.send,
     `(() => {
       const checkbox = ${recentSelectExpr(path.basename(missingFile))}
@@ -281,14 +281,14 @@ try {
   await screenshot(cdp.send, 'v1b-checkbox-multi-menu.png')
   record(
     'V1b checkboxes multi-select with the single-file menu',
-      checkboxHiddenBeforeHover?.opacity === '0'
+      checkboxIdleBeforeHover?.opacity === '1'
       && checkboxVisibleOnHover === '1'
-      && checkboxHiddenBeforeHover?.pointerEvents !== 'none'
-      && checkboxHiddenBeforeHover?.hitArea?.width >= 20
-      && checkboxHiddenBeforeHover?.hitArea?.height >= 20
+      && checkboxIdleBeforeHover?.pointerEvents !== 'none'
+      && checkboxIdleBeforeHover?.hitArea?.width >= 20
+      && checkboxIdleBeforeHover?.hitArea?.height >= 20
       && unselectedMenuSuppressed && themeAware && selectedCount === 3
       && JSON.stringify(multiMenuItems) === JSON.stringify(menuItems),
-    `hidden=${checkboxHiddenBeforeHover?.opacity} hover=${checkboxVisibleOnHover} pointerEvents=${checkboxHiddenBeforeHover?.pointerEvents} unselectedMenu=${unselectedMenuSuppressed} theme=${themeAware} selected=${selectedCount}`,
+    `idle=${checkboxIdleBeforeHover?.opacity} hover=${checkboxVisibleOnHover} pointerEvents=${checkboxIdleBeforeHover?.pointerEvents} unselectedMenu=${unselectedMenuSuppressed} theme=${themeAware} selected=${selectedCount}`,
   )
   // ---------- V2: file info dialog ----------
   await leftClick(cdp.send, `document.querySelector('[data-testid="recent-menu-info"]')`, 'file info item')
