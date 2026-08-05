@@ -1679,9 +1679,13 @@ try {
   })()`)
 
   const directColorCellPoint = await cellPoint(9)
-  const untouchedColorCellPoint = await cellPoint(10)
+  const initialUntouchedColorCellPoint = await cellPoint(10)
   check('direct font-color test locates A10', Boolean(directColorCellPoint), JSON.stringify(directColorCellPoint))
-  check('font-color sync test locates A11', Boolean(untouchedColorCellPoint), JSON.stringify(untouchedColorCellPoint))
+  check(
+    'font-color sync test locates A11',
+    Boolean(initialUntouchedColorCellPoint),
+    JSON.stringify(initialUntouchedColorCellPoint),
+  )
   await clickAt(send, directColorCellPoint, 1)
   await sleep(100)
   const directColorSelection = await evaluate(
@@ -1700,49 +1704,13 @@ try {
     JSON.stringify(directColorPixels),
   )
 
-  const beforeUntouchedClickState = await evaluate(send, `(() => {
-    const point = ${JSON.stringify(untouchedColorCellPoint)}
-    const element = document.elementFromPoint(point.x, point.y)
-    const box = document.querySelector('.luckysheet-input-box')
-    const boxStyle = box ? getComputedStyle(box) : null
-    return {
-      selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
-      element: element ? {
-        tagName: element.tagName,
-        className: String(element.className || ''),
-        id: element.id || '',
-        text: element.textContent?.slice(0, 40) || '',
-      } : null,
-      popupCount: document.querySelectorAll('.fortune-toolbar-combo-popup').length,
-      box: boxStyle ? {
-        zIndex: boxStyle.zIndex,
-        display: boxStyle.display,
-        visibility: boxStyle.visibility,
-        rects: box.getClientRects().length,
-      } : null,
-      active: document.activeElement ? {
-        tagName: document.activeElement.tagName,
-        className: String(document.activeElement.className || ''),
-      } : null,
-    }
-  })()`)
-  console.log('[DEBUG] before A11 click', JSON.stringify(beforeUntouchedClickState))
+  const untouchedColorCellPoint = await cellPoint(10)
+  check('font-color sync test refreshes A11 click target', Boolean(untouchedColorCellPoint), JSON.stringify({
+    initialUntouchedColorCellPoint,
+    untouchedColorCellPoint,
+  }))
   await clickAt(send, untouchedColorCellPoint, 1)
   await sleep(150)
-  const afterUntouchedClickState = await evaluate(send, `(() => {
-    const point = ${JSON.stringify(untouchedColorCellPoint)}
-    const element = document.elementFromPoint(point.x, point.y)
-    return {
-      selection: document.querySelector('.fortune-name-box')?.textContent?.trim() || '',
-      element: element ? {
-        tagName: element.tagName,
-        className: String(element.className || ''),
-        id: element.id || '',
-        text: element.textContent?.slice(0, 40) || '',
-      } : null,
-    }
-  })()`)
-  console.log('[DEBUG] after A11 click', JSON.stringify(afterUntouchedClickState))
   const untouchedSelection = await evaluate(
     send,
     `document.querySelector('.fortune-name-box')?.textContent?.trim() || ''`,
