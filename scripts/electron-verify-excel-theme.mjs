@@ -1716,6 +1716,11 @@ try {
     `document.querySelector('.fortune-name-box')?.textContent?.trim() || ''`,
   )
   check('font-color sync test selects A11', untouchedSelection === 'A11', untouchedSelection)
+  await evaluate(send, `(() => {
+    const overlay = document.querySelector('[data-testid="excel-editor-shell"] .fortune-sheet-overlay')
+    overlay?.focus({ preventScroll: true })
+    return true
+  })()`)
   await send('Input.dispatchKeyEvent', {
     type: 'keyDown',
     key: 'F2',
