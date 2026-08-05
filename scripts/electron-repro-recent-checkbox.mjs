@@ -120,9 +120,9 @@ child.stderr.on('data', (c) => log.push(String(c)))
 const rowExpr = (name) => `(() => {
   const expected = ${JSON.stringify(name)}
   const prefix = expected.slice(0, 1)
-  const rows = [...document.querySelectorAll('button')].filter((button) => button.querySelector('p'))
-  return rows.find((button) => button.textContent.includes(expected))
-    || rows.find((button) => prefix && button.textContent.trim().startsWith(prefix))
+  const rows = [...document.querySelectorAll('[data-recent-file-index]')]
+  return rows.find((row) => row.textContent.includes(expected))
+    || rows.find((row) => prefix && row.textContent.trim().startsWith(prefix))
 })()`
 const selectExpr = (name) => `(${rowExpr(name)}).querySelector('[data-recent-file-select]')`
 
@@ -143,7 +143,7 @@ try {
 
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
   await sleep(300)
-  const hiddenCheckboxHitTarget = await evaluate(cdp.send, `(() => {
+  const idleCheckboxHitTarget = await evaluate(cdp.send, `(() => {
     const checkbox = ${selectExpr('A文档.txt')}
     if (!checkbox) return null
     const square = checkbox.firstElementChild || checkbox
@@ -161,13 +161,13 @@ try {
     }
   })()`)
   record(
-    'hidden checkbox hit target stays on the checkbox',
-    hiddenCheckboxHitTarget?.squareOpacity === '0'
-      && hiddenCheckboxHitTarget?.pointerEvents !== 'none'
-      && hiddenCheckboxHitTarget?.hitArea?.width >= 20
-      && hiddenCheckboxHitTarget?.hitArea?.height >= 20
-      && hiddenCheckboxHitTarget?.isTarget,
-    JSON.stringify(hiddenCheckboxHitTarget),
+    'idle checkbox is visible and hit target stays on the checkbox',
+    idleCheckboxHitTarget?.squareOpacity === '1'
+      && idleCheckboxHitTarget?.pointerEvents !== 'none'
+      && idleCheckboxHitTarget?.hitArea?.width >= 20
+      && idleCheckboxHitTarget?.hitArea?.height >= 20
+      && idleCheckboxHitTarget?.isTarget,
+    JSON.stringify(idleCheckboxHitTarget),
   )
 
   // Scenario 1: hover row -> wait for hover card to open -> click checkbox
