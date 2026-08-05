@@ -135,6 +135,30 @@ try {
   await leftClick(cdp.send, `[...document.querySelectorAll('[role="tab"]')].find((el) => /最近|Recent/i.test(el.textContent))`, 'recent tab')
   await waitFor(cdp.send, `Boolean(${rowExpr('A文档.txt')})`, 'recent rows', 15000)
 
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+  await sleep(300)
+  const hiddenCheckboxHitTarget = await evaluate(cdp.send, `(() => {
+    const checkbox = ${selectExpr('A文档.txt')}
+    if (!checkbox) return null
+    const rect = checkbox.getBoundingClientRect()
+    const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    const style = getComputedStyle(checkbox)
+    return {
+      opacity: style.opacity,
+      pointerEvents: style.pointerEvents,
+      isTarget: target === checkbox,
+      targetSelect: target?.hasAttribute('data-recent-file-select') || false,
+      targetClass: String(target?.className || ''),
+    }
+  })()`)
+  record(
+    'hidden checkbox hit target stays on the checkbox',
+    hiddenCheckboxHitTarget?.opacity === '0'
+      && hiddenCheckboxHitTarget?.pointerEvents !== 'none'
+      && hiddenCheckboxHitTarget?.isTarget,
+    JSON.stringify(hiddenCheckboxHitTarget),
+  )
+
   // Scenario 1: hover row -> wait for hover card to open -> click checkbox
   const cardShown = `Boolean(document.querySelector('[role="tooltip"]'))`
   await evaluate(cdp.send, `(() => { const el = ${rowExpr('A文档.txt')}; const r = el.getBoundingClientRect(); window.__hover = { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)

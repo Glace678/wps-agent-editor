@@ -33,6 +33,9 @@ test('selection square has explicit light and dark theme colors', () => {
 
 test('checkbox clicks toggle paths without bubbling into row open behavior', () => {
   assert.match(source, /data-recent-file-select/)
+  assert.doesNotMatch(source, /pointer-events-none/)
+  assert.match(source, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/)
+  assert.match(source, /onMouseDown=\{\(event\) => event\.stopPropagation\(\)\}/)
   assert.match(source, /event\.stopPropagation\(\)[\s\S]*if \(next\.has\(file\.path\)\) next\.delete\(file\.path\)[\s\S]*else next\.add\(file\.path\)/)
 })
 
