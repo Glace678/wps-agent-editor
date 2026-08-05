@@ -117,7 +117,13 @@ const log = []
 child.stdout.on('data', (c) => log.push(String(c)))
 child.stderr.on('data', (c) => log.push(String(c)))
 
-const rowExpr = (name) => `[...document.querySelectorAll('button')].find((b) => b.textContent.includes(${JSON.stringify(name)}) && b.querySelector('p'))`
+const rowExpr = (name) => `(() => {
+  const expected = ${JSON.stringify(name)}
+  const prefix = expected.slice(0, 1)
+  const rows = [...document.querySelectorAll('button')].filter((button) => button.querySelector('p'))
+  return rows.find((button) => button.textContent.includes(expected))
+    || rows.find((button) => prefix && button.textContent.trim().startsWith(prefix))
+})()`
 const selectExpr = (name) => `(${rowExpr(name)}).querySelector('[data-recent-file-select]')`
 
 const results = []
