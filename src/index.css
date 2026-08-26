@@ -1,0 +1,774 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 13% 18%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 13% 18%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 13% 18%;
+    --primary: 217 72% 46%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 220 13% 18%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 87%;
+    --accent-foreground: 220 20% 10%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 82%;
+    --input: 220 13% 82%;
+    --ring: 217 72% 46%;
+    --radius: 0.625rem;
+    --sidebar: 220 14% 97%;
+    --sidebar-foreground: 220 13% 18%;
+  }
+
+  .dark {
+    --background: 220 13% 12%;
+    --foreground: 220 14% 90%;
+    --card: 220 13% 14%;
+    --card-foreground: 220 14% 90%;
+    --popover: 220 13% 14%;
+    --popover-foreground: 220 14% 90%;
+    --primary: 212 80% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 18%;
+    --secondary-foreground: 220 14% 90%;
+    --muted: 220 13% 18%;
+    --muted-foreground: 220 10% 60%;
+    --accent: 220 13% 22%;
+    --accent-foreground: 220 14% 95%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 220 14% 90%;
+    --border: 220 13% 22%;
+    --input: 220 13% 22%;
+    --ring: 212 80% 56%;
+    --radius: 0.625rem;
+    --sidebar: 220 13% 13%;
+    --sidebar-foreground: 220 14% 90%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    overflow: hidden;
+  }
+}
+
+/* OnlyOffice iframe 容器 */
+.onlyoffice-container iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* 文档区缩放目标（PDF/Excel/文本/OnlyOffice 等）；Word 正文单独在 word-editor.css 处理 */
+.document-zoom-target {
+  zoom: var(--document-zoom, 1);
+  transform-origin: top left;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+}
+
+/* 自定义滚动条 - 朴素实用桌面风格 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/30 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/50;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+.notepad-print-document,
+.notepad-print-header,
+.notepad-print-footer {
+  display: none;
+}
+
+.notepad-markdown-preview h1,
+.notepad-markdown-preview h2,
+.notepad-markdown-preview h3,
+.notepad-markdown-preview h4,
+.notepad-markdown-preview h5,
+.notepad-markdown-preview h6 {
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.25;
+  color: inherit;
+  margin: 0.7em 0 0.3em;
+}
+.notepad-markdown-preview h1 { font-size: 2.1em; }
+.notepad-markdown-preview h2 { font-size: 1.6em; }
+.notepad-markdown-preview h3 { font-size: 1.35em; }
+.notepad-markdown-preview h4 { font-size: 1.15em; font-weight: 600; }
+.notepad-markdown-preview h5 { font-size: 1.0em; font-weight: 600; }
+.notepad-markdown-preview h6 { font-size: 0.9em; font-weight: 600; }
+
+.notepad-markdown-preview strong,
+.notepad-markdown-preview b {
+  font-weight: 700;
+}
+.notepad-markdown-preview em,
+.notepad-markdown-preview i {
+  font-style: italic;
+}
+.notepad-markdown-preview del,
+.notepad-markdown-preview s,
+.notepad-markdown-preview strike {
+  text-decoration: line-through;
+}
+.notepad-markdown-preview u {
+  text-decoration: underline;
+}
+
+.notepad-markdown-preview p,
+.notepad-markdown-preview ul,
+.notepad-markdown-preview ol,
+.notepad-markdown-preview blockquote,
+.notepad-markdown-preview pre,
+.notepad-markdown-preview table { margin: 0.5em 0; }
+
+.notepad-markdown-preview ul {
+  list-style-type: disc;
+  padding-left: 1.8em;
+}
+.notepad-markdown-preview ol {
+  list-style-type: decimal;
+  padding-left: 1.8em;
+}
+.notepad-markdown-preview li {
+  margin: 0.2em 0;
+  line-height: 1.55;
+}
+.notepad-markdown-preview ul > li::marker {
+  font-size: 1em;
+  color: inherit;
+}
+.notepad-markdown-preview ol > li::marker {
+  font-weight: 400;
+  color: inherit;
+}
+.notepad-markdown-preview ul ul,
+.notepad-markdown-preview ol ul {
+  list-style-type: circle;
+  margin: 0.15em 0;
+  padding-left: 1.5em;
+}
+.notepad-markdown-preview ol ol,
+.notepad-markdown-preview ul ol {
+  list-style-type: decimal;
+  margin: 0.15em 0;
+  padding-left: 1.5em;
+}
+
+.notepad-markdown-preview blockquote {
+  border-left: 3px solid #8a8a8a;
+  padding-left: 0.9em;
+  color: #666;
+}
+.dark .notepad-markdown-preview blockquote { color: #aaa; }
+.notepad-markdown-preview code {
+  border-radius: 3px;
+  background: rgb(0 0 0 / 6%);
+  padding: 0.1em 0.3em;
+  font-family: Consolas, monospace;
+}
+.dark .notepad-markdown-preview code { background: rgb(255 255 255 / 8%); }
+.notepad-markdown-preview pre { overflow: auto; padding: 0.75em; border-radius: 4px; }
+.notepad-markdown-preview pre code { padding: 0; background: transparent; }
+.notepad-markdown-preview a { color: #0067c0; text-decoration: underline; }
+
+/* Windows 11 Notepad settings page - 朴素直接过渡 */
+@keyframes notepad-settings-page-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.notepad-settings-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  background: rgb(0 0 0 / 30%);
+}
+.dark .notepad-settings-overlay { background: rgb(0 0 0 / 50%); }
+.notepad-settings-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(600px, calc(100% - 32px));
+  height: min(500px, calc(100% - 32px));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 6px;
+  color: #1f1f1f;
+  background: #f8fafc;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  animation: notepad-settings-page-enter 150ms ease-out both;
+}
+.dark .notepad-settings-page {
+  border-color: rgb(255 255 255 / 14%);
+  color: #f4f4f4;
+  background: #202428;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 36%);
+}
+.notepad-settings-page:focus { outline: none; }
+.notepad-settings-topbar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  flex: 0 0 40px;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid rgb(0 0 0 / 8%);
+}
+.dark .notepad-settings-topbar {
+  border-bottom-color: rgb(255 255 255 / 8%);
+}
+.notepad-settings-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.notepad-settings-back:hover { background: rgb(0 0 0 / 7%); }
+.dark .notepad-settings-back:hover { background: rgb(255 255 255 / 8%); }
+.notepad-settings-back:focus-visible,
+.notepad-settings-card-trigger:focus-visible,
+.notepad-settings-chevron:focus-visible,
+.notepad-settings-toggle:focus-visible,
+.notepad-settings-radio:focus-visible,
+.notepad-settings-select:focus-visible {
+  outline: 2px solid #0f6cbd;
+  outline-offset: 2px;
+}
+.notepad-settings-app-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  stroke-width: 1.7;
+}
+.notepad-settings-app-name { font-size: 13.5px; font-weight: 500; }
+.notepad-settings-scroll { min-height: 0; flex: 1 1 auto; overflow-y: auto; }
+.notepad-settings-content {
+  width: min(550px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 6px 0 18px;
+}
+.notepad-settings-column { min-width: 0; }
+.notepad-settings-section + .notepad-settings-section { margin-top: 12px; }
+.notepad-settings-section-title {
+  margin: 0 0 4px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.notepad-settings-card {
+  overflow: hidden;
+  margin-bottom: 5px;
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 90%);
+}
+.dark .notepad-settings-card {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(255 255 255 / 4%);
+}
+.notepad-settings-card-header {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+}
+.notepad-settings-card-trigger {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 34px;
+  flex: 1 1 auto;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.notepad-settings-card-trigger:hover { color: #111; }
+.dark .notepad-settings-card-trigger:hover { color: #fff; }
+.notepad-settings-card-icon { width: 16px; height: 16px; flex: 0 0 16px; stroke-width: 1.5; }
+.notepad-settings-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.notepad-settings-chevron:hover,
+.notepad-settings-chevron.is-expanded { background: rgb(0 0 0 / 4%); }
+.dark .notepad-settings-chevron:hover,
+.dark .notepad-settings-chevron.is-expanded { background: rgb(255 255 255 / 8%); }
+.notepad-settings-chevron svg { transition: transform 120ms ease; }
+.notepad-settings-chevron.is-expanded svg { transform: rotate(180deg); }
+.notepad-settings-row {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  gap: 12px;
+  padding: 4px 12px;
+}
+.notepad-settings-card-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    grid-template-rows 150ms ease,
+    opacity 100ms ease,
+    visibility 0s linear 150ms;
+}
+.notepad-settings-card-panel.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.notepad-settings-card-panel-inner {
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid rgb(0 0 0 / 8%);
+}
+.dark .notepad-settings-card-panel-inner { border-top-color: rgb(255 255 255 / 10%); }
+.notepad-settings-radio-list { padding: 4px 12px 4px 38px; }
+.notepad-settings-radio-list-inset { padding-left: 38px; }
+.notepad-settings-radio-row {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.notepad-settings-radio {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  border: 1px solid rgb(0 0 0 / 45%);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.dark .notepad-settings-radio { border-color: rgb(255 255 255 / 55%); }
+.notepad-settings-radio:checked {
+  border: 5px solid #087dbb;
+  background: #fff;
+}
+.dark .notepad-settings-radio:checked { background: #202020; }
+.notepad-settings-font-controls { background: rgb(255 255 255 / 24%); }
+.dark .notepad-settings-font-controls { background: rgb(0 0 0 / 12%); }
+.notepad-settings-font-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 240px);
+  align-items: center;
+  min-height: 42px;
+  gap: 12px;
+  padding: 4px 12px 4px 38px;
+  border-bottom: 1px solid rgb(0 0 0 / 7%);
+  font-size: 13px;
+}
+.dark .notepad-settings-font-row { border-bottom-color: rgb(255 255 255 / 9%); }
+.notepad-settings-select-wrap { position: relative; display: block; min-width: 0; }
+.notepad-settings-select {
+  display: block;
+  width: 100%;
+  height: 28px;
+  appearance: none;
+  border: 1px solid rgb(0 0 0 / 16%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 92%);
+  color: inherit;
+  padding: 0 26px 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.dark .notepad-settings-select { border-color: rgb(255 255 255 / 18%); background: #2a2a2a; }
+.notepad-settings-select-chevron {
+  pointer-events: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  transform: translateY(-50%);
+  opacity: .72;
+}
+.notepad-settings-font-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: hidden;
+  color: inherit;
+  text-align: center;
+}
+.notepad-settings-inner-row,
+.notepad-settings-format-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  gap: 12px;
+  padding: 4px 12px 4px 38px;
+  border-top: 1px solid rgb(0 0 0 / 7%);
+  font-size: 13px;
+}
+.dark .notepad-settings-inner-row,
+.dark .notepad-settings-format-row { border-top-color: rgb(255 255 255 / 9%); }
+.notepad-settings-format-list { padding-bottom: 2px; }
+.notepad-settings-toggle-wrap { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.notepad-settings-toggle {
+  position: relative;
+  width: 36px;
+  height: 18px;
+  flex: 0 0 36px;
+  padding: 0;
+  border: 1px solid rgb(0 0 0 / 35%);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 10%);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.dark .notepad-settings-toggle { border-color: rgb(255 255 255 / 40%); background: rgb(255 255 255 / 12%); }
+.notepad-settings-toggle.is-checked { border-color: #087dbb; background: #087dbb; }
+.notepad-settings-toggle:disabled { cursor: not-allowed; opacity: .45; }
+.notepad-settings-toggle-thumb {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 56%);
+  transform: translateY(-50%);
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+.dark .notepad-settings-toggle-thumb { background: rgb(255 255 255 / 78%); }
+.notepad-settings-toggle.is-checked .notepad-settings-toggle-thumb { background: #fff; transform: translate(18px, -50%); }
+.notepad-settings-toggle-state { min-width: 18px; font-size: 13px; line-height: 18px; }
+
+@media (max-width: 640px) {
+  .notepad-settings-overlay { padding: 12px; }
+  .notepad-settings-content { width: 100%; padding: 8px 16px 36px; }
+  .notepad-settings-card-header,
+  .notepad-settings-row { padding-left: 14px; padding-right: 10px; }
+  .notepad-settings-font-row { grid-template-columns: 1fr; gap: 8px; padding-left: 18px; }
+  .notepad-settings-radio-list { padding-left: 20px; }
+  .notepad-settings-inner-row,
+  .notepad-settings-format-row { padding-left: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notepad-settings-page,
+  .notepad-settings-card-panel,
+  .notepad-settings-chevron svg,
+  .notepad-settings-toggle,
+  .notepad-settings-toggle-thumb { animation: none; transition-duration: 1ms; }
+}
+
+/* Windows Notepad-style table picker */
+.notepad-table-size-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 20px);
+  grid-auto-rows: 20px;
+  gap: 4px;
+  width: max-content;
+  margin: 0 auto;
+}
+.notepad-table-size-cell {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #777;
+  border-radius: 3px;
+  background: #fff;
+  transition: border-color 80ms ease, background-color 80ms ease;
+}
+.notepad-table-size-cell:hover,
+.notepad-table-size-cell:focus-visible {
+  border-color: #1677c8;
+}
+.dark .notepad-table-size-cell {
+  border-color: #7f7f7f;
+  background: #383838;
+}
+.dark .notepad-table-size-cell:hover,
+.dark .notepad-table-size-cell:focus-visible {
+  border-color: #8fc9f5;
+}
+.notepad-table-size-cell-selected {
+  border-color: #1677c8 !important;
+  background: #edf6ff !important;
+}
+.dark .notepad-table-size-cell-selected {
+  border-color: #4ccfff !important;
+  background: #383838 !important;
+}
+
+/* Markdown preview table grid */
+.notepad-markdown-preview table,
+.notepad-markdown-preview .notepad-md-table {
+  display: table;
+  width: fit-content;
+  max-width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  empty-cells: show;
+  table-layout: auto;
+  border: 1px solid #555 !important;
+  margin: 0.65em 0;
+  background: transparent;
+}
+.notepad-markdown-preview table th,
+.notepad-markdown-preview table td,
+.notepad-markdown-preview .notepad-md-table th,
+.notepad-markdown-preview .notepad-md-table td {
+  min-width: 6em;
+  height: auto;
+  padding: 0.4em 0.7em;
+  vertical-align: middle;
+  text-align: left;
+  font-size: 1em;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: #555 !important;
+  background-clip: padding-box;
+  box-sizing: border-box;
+  transition: background-color 0.12s cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+.notepad-markdown-preview table th,
+.notepad-markdown-preview .notepad-md-table th {
+  font-weight: 600;
+  background: rgb(0 0 0 / 5%);
+}
+.dark .notepad-markdown-preview table th,
+.dark .notepad-markdown-preview .notepad-md-table th {
+  background: rgb(255 255 255 / 8%);
+}
+.dark .notepad-markdown-preview table,
+.dark .notepad-markdown-preview .notepad-md-table,
+.dark .notepad-markdown-preview table th,
+.dark .notepad-markdown-preview table td,
+.dark .notepad-markdown-preview .notepad-md-table th,
+.dark .notepad-markdown-preview .notepad-md-table td {
+  border-color: #9a9a9a !important;
+}
+
+.notepad-markdown-preview tr[data-notepad-row-selected="true"] th,
+.notepad-markdown-preview tr[data-notepad-row-selected="true"] td {
+  background: rgb(15 108 189 / 18%) !important;
+}
+.dark .notepad-markdown-preview tr[data-notepad-row-selected="true"] th,
+.dark .notepad-markdown-preview tr[data-notepad-row-selected="true"] td {
+  background: rgb(96 165 250 / 22%) !important;
+}
+
+.notepad-markdown-preview table[data-notepad-table-selected="true"] {
+  outline: 2px solid #0f6cbd;
+  outline-offset: 2px;
+  transition: outline 0.12s ease;
+}
+.notepad-markdown-preview table[data-notepad-table-selected="true"] th,
+.notepad-markdown-preview table[data-notepad-table-selected="true"] td {
+  background: rgb(15 108 189 / 18%);
+}
+.dark .notepad-markdown-preview table[data-notepad-table-selected="true"] {
+  outline-color: #60a5fa;
+}
+.dark .notepad-markdown-preview table[data-notepad-table-selected="true"] th,
+.dark .notepad-markdown-preview table[data-notepad-table-selected="true"] td {
+  background: rgb(96 165 250 / 22%);
+}
+
+.notepad-markdown-preview[data-notepad-dragging="true"],
+.notepad-markdown-preview[data-notepad-dragging="true"] * {
+  user-select: none !important;
+}
+
+/* Editable table cells in formatted view */
+.notepad-markdown-preview [data-notepad-text-region],
+.notepad-markdown-preview [data-notepad-markdown-region] {
+  min-height: 1.55em;
+  overflow-wrap: anywhere;
+  cursor: text;
+  outline: none;
+}
+.notepad-markdown-preview [data-notepad-text-region] {
+  white-space: pre-wrap;
+}
+.notepad-markdown-preview [data-notepad-markdown-region] {
+  display: flow-root;
+}
+/* No focus ring on editable body regions: clicking outside a table must just
+   place the blinking caret, same as the markdown regions. */
+.notepad-markdown-preview:focus,
+.notepad-markdown-preview:focus-visible {
+  outline: none;
+}
+.notepad-markdown-preview th[contenteditable="true"],
+.notepad-markdown-preview td[contenteditable="true"] {
+  cursor: text;
+  outline: none;
+  min-height: 1.4em;
+  font-size: inherit;
+  line-height: inherit;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.notepad-markdown-preview th[contenteditable="true"]:hover,
+.notepad-markdown-preview td[contenteditable="true"]:hover {
+  background: rgb(15 108 189 / 6%);
+}
+.dark .notepad-markdown-preview th[contenteditable="true"]:hover,
+.dark .notepad-markdown-preview td[contenteditable="true"]:hover {
+  background: rgb(96 165 250 / 10%);
+}
+.notepad-markdown-preview th[contenteditable="true"]:focus,
+.notepad-markdown-preview td[contenteditable="true"]:focus {
+  outline: 2px solid #0f6cbd;
+  outline-offset: -2px;
+  background: rgb(15 108 189 / 8%);
+  position: relative;
+  z-index: 1;
+}
+.notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > th,
+.notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > td {
+  border-bottom: 2px solid #0f6cbd !important;
+}
+.notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > :last-child {
+  position: relative;
+}
+.notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > :last-child::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  /* Match one empty cell: one line box + the cell's vertical padding/borders. */
+  height: calc(2.25em + 2px);
+  max-height: calc(100% - 2px);
+  box-sizing: border-box;
+  contain: size layout paint;
+  left: calc(100% + 4px);
+  width: 2px;
+  border-radius: 1px;
+  background: #0f6cbd;
+  animation: notepad-caret-blink 1s steps(1) infinite;
+  pointer-events: none;
+}
+.dark .notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > th,
+.dark .notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > td {
+  border-bottom: 2px solid #60a5fa !important;
+}
+.dark .notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > :last-child::after {
+  background: #60a5fa;
+}
+
+@keyframes notepad-caret-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.dark .notepad-markdown-preview th[contenteditable="true"]:focus,
+.dark .notepad-markdown-preview td[contenteditable="true"]:focus {
+  outline-color: #60a5fa;
+  background: rgb(96 165 250 / 12%);
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .notepad-print-document {
+    display: block;
+    visibility: visible !important;
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    overflow: visible;
+    white-space: pre-wrap;
+    color: #000;
+    background: #fff;
+    font: 11pt/1.5 Consolas, monospace;
+  }
+
+  .notepad-print-header,
+  .notepad-print-footer {
+    display: block;
+    visibility: visible !important;
+    position: fixed;
+    left: 0;
+    right: 0;
+    color: #000;
+    font: 9pt/1.3 'Segoe UI', sans-serif;
+    text-align: center;
+  }
+
+  .notepad-print-header { top: 0; }
+  .notepad-print-footer { bottom: 0; }
+}

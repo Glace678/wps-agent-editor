@@ -1,0 +1,67 @@
+node_modules/
+out/
+release/
+dist/
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.oo-cache/
+*.log
+.env
+.env.*
+!.env.example
+!**/.env.example
+.agents/
+.cache/
+.claude/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Generated installers and packaged desktop artifacts belong in GitHub Releases,
+# not in the source history.
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.asar
+*.blockmap
+
+# Local audit/debug material and accidental shell-output files.
+/tmp/
+/0
+/'
+/134590
+/137395
+/debug-ppt-index.mjs
+/ssh_connect.py
+/ssh_shell.py
+/scripts/apply-patch-env.cjs
+/scripts/auto-git-sync.mjs
+
+# Local credentials and user activity. These files belong only in Electron's
+# userData directory and must never be committed from a copied/debug profile.
+**/auth.json
+**/recent-files.json
+**/agents.json
+**/custom-providers.json
+**/provider-base-urls.json
+**/renderer-incidents.log
+**/file-history/
+**/artifact-drafts/
+**/artifact-review-history/
+**/artifact-producer-recipes/
+*.pem
+*.p12
+*.pfx
+*.key
+id_rsa
+id_ed25519
+
+# OfficeCLI 二进制（体积大，用 npm run download:officecli 获取）
+resources/office-cli/*.exe
+resources/office-cli/officecli-*
+!resources/office-cli/README.md

@@ -1,0 +1,1294 @@
+/* ==========================================================================
+   Word 顶部工具栏 —— 与 Excel（FortuneSheet）工具栏同风格。
+   superdoc 1.44.0 结构约束：
+   - .button-group 的 justify-content / min-width 是内联样式，覆盖需 !important
+   - 溢出策略会把 documentMode 校正到 center 组，保证 DOM 与菜单顺序一致
+   - 溢出 ⋯ 固定在 center 组并绝对定位到最右
+   - 字体/字号等下拉被 Teleport 到 <body>，面板作用域样式够不到
+     → 暗色 --sd-ui-dropdown-* 令牌挂在 .dark 根上（--sd-ui-* 仅 SuperDoc 消费）
+   ========================================================================== */
+
+/* SuperDoc contained 模式：父级必须有确定高度，内部 .superdoc__sub-document 才会滚动 */
+.word-editor-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  /* SuperDoc 设计令牌：取值对齐 Excel 浅色工具栏 */
+  --sd-ui-font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
+  --sd-ui-toolbar-bg: #fafafc;
+  --sd-ui-toolbar-height: 28px;          /* 按钮 28×28，同 Excel */
+  /* 间距略小于 Excel 的 8px：SuperDoc 按每项 ~32px 估宽决定可见数，
+     间距过大会让实际宽度超出估算、挤出末尾按钮 */
+  --sd-ui-toolbar-item-gap: 4px;
+  --sd-ui-toolbar-item-padding: 2px;
+  --sd-ui-toolbar-button-text: #535a68;  /* Excel 图标灰 */
+  --sd-ui-toolbar-button-hover-bg: rgb(0 0 0 / 6%);
+  --sd-ui-toolbar-button-active-bg: rgb(0 0 0 / 12%);
+  --sd-ui-border: #e0e0e0;               /* 分隔线，同 Excel divider */
+  --sd-ui-radius: 4px;
+  --sd-ui-font-size-400: 12px;
+  --sd-ui-font-size-500: 12px;
+}
+
+.dark .word-editor-panel {
+  --sd-ui-toolbar-bg: #000;
+  --sd-ui-toolbar-button-text: #e8e8e8;
+  --sd-ui-toolbar-button-hover-bg: #171717;
+  --sd-ui-toolbar-button-active-bg: #242424;
+  --sd-ui-border: #2a2a2a;
+}
+
+/* 暗色下拉/悬浮层令牌（对照 Excel 暗色弹层）。挂根级以覆盖 body 传送门菜单。 */
+.dark {
+  --sd-ui-dropdown-bg: #000;
+  --sd-ui-dropdown-border: #2a2a2a;
+  --sd-ui-dropdown-text: #f5f5f5;
+  --sd-ui-dropdown-hover-bg: #171717;
+  --sd-ui-dropdown-hover-text: #f5f5f5;
+  --sd-ui-dropdown-active-bg: #242424;
+  --sd-ui-dropdown-selected-text: #f5f5f5;
+  --sd-ui-dropdown-shadow: 0 8px 24px rgb(0 0 0 / 70%);
+}
+
+.word-editor-panel .superdoc-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+
+.word-editor-panel .word-editor-chrome {
+  flex-shrink: 0;
+}
+
+/* 工具栏容器：⋯ 下拉从工具栏下方弹出，不可纵向裁切；不参与正文缩放 */
+.word-editor-panel .superdoc-toolbar-container {
+  position: relative;
+  z-index: 30;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* 工具栏本体：Excel = 28px 按钮 + 上5/下3内边距 + 1px 下边框 = 41px */
+.word-editor-panel .superdoc-toolbar {
+  position: relative; /* ⋯ 绝对定位的包含块 */
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 41px;
+  padding: 5px 8px 3px;
+  overflow: visible;
+  border-bottom: 1px solid #d4d4d4;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.dark .word-editor-panel .superdoc-toolbar {
+  border-bottom-color: #2a2a2a;
+}
+
+/*
+ * 分组排序：保留 left 组的撤销/重做/修订按钮，其他可回填项统一在 center。
+ * right 仅作为初始化兜底；策略安装后为空，⋯ 始终是最右一项。
+ */
+.word-editor-panel .superdoc-toolbar > .button-group {
+  display: flex;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  min-width: 0 !important;
+}
+
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='left'] {
+  order: 0;
+  flex: 0 0 auto;
+}
+
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='right'] {
+  order: 1;
+  flex: 0 0 auto;
+  justify-content: flex-start !important;
+}
+
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='center'] {
+  order: 2;
+  flex: 1 1 auto;
+  justify-content: flex-start !important;
+  overflow: visible;
+}
+
+/*
+ * ⋯ 溢出按钮钉在最右：绝对定位脱离文档流，保证它不会被末尾项目挤出容器。
+ * center 组按按钮实测宽度预留 ⋯ 的位置并裁掉意外溢出的项
+ *（center 组 position 保持 static，不会裁到 ⋯ 及其下拉层）。
+ */
+.word-editor-panel .superdoc-toolbar > [data-toolbar-position='center']:has(.overflow-menu) {
+  overflow: hidden;
+  padding-right: 37px;
+}
+
+.word-editor-panel .superdoc-toolbar [data-toolbar-position='center']
+  > .sd-toolbar-item-ctn:has(> .overflow-menu) {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  margin: 0;
+  transform: translateY(-50%);
+}
+
+/* 按钮形状：28×28、4px 圆角（颜色走上方令牌） */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-button {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 4px;
+}
+
+/* FontAwesome 图标铺满视框，16px ≈ Excel 24px 雪碧图的墨量 */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-icon__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 字体下拉保持紧凑，避免挤掉格式按钮 */
+.word-editor-panel .superdoc-toolbar .sd-font-combobox {
+  max-width: 130px;
+}
+
+/* 只居中工具栏里当前显示的字体名；下拉列表项仍保持原有左对齐。 */
+.word-editor-panel .superdoc-toolbar .sd-font-combobox__input {
+  text-align: center;
+}
+
+/* Word font picker search, matching the pinned search row used by Excel. Keep
+ * the popup at 200px on normal windows; the viewport cap only applies when a
+ * window is narrower than the requested width. The font list is teleported to
+ * body, so these selectors intentionally stay global instead of being scoped
+ * to .word-editor-panel. */
+body .sd-font-combobox__listbox.word-font-picker-listbox {
+  width: 200px !important;
+  min-width: min(200px, calc(100vw - 16px)) !important;
+  max-width: min(200px, calc(100vw - 16px)) !important;
+  padding: 4px;
+}
+
+/* SuperDoc sets `display: flex` on font options, which beats the user-agent
+ * [hidden] rule and keeps filtered-out options visible. Re-assert it so the
+ * injected search box actually narrows the list. */
+body .sd-font-combobox__listbox .sd-font-combobox__option[hidden] {
+  display: none !important;
+}
+
+body .word-font-picker-search {
+  position: sticky;
+  top: -4px;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 6px 7px;
+  background: var(--sd-ui-dropdown-bg, #fff);
+  border-bottom: 1px solid var(--sd-ui-dropdown-border, #e0e0e0);
+}
+
+body .word-font-picker-search-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  padding: 5px 8px;
+  color: var(--sd-ui-dropdown-text, #323130);
+  background: var(--sd-ui-dropdown-bg, #fff);
+  border: 1px solid var(--sd-ui-border, #aeb6c2);
+  border-radius: 4px;
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: clip;
+}
+
+body .word-font-picker-search-input::placeholder {
+  color: var(--sd-ui-text-muted, #68707d);
+  opacity: 1;
+}
+
+body .word-font-picker-search-input:focus {
+  border-color: var(--sd-ui-action, #5b63d3);
+  box-shadow: 0 0 0 2px rgb(91 99 211 / 20%);
+}
+
+body .word-font-picker-option-active {
+  color: var(--sd-ui-dropdown-hover-text, #323130) !important;
+  background: var(--sd-ui-dropdown-hover-bg, #e8e6e4) !important;
+}
+
+body .word-font-picker-empty {
+  padding: 9px 10px;
+  color: var(--sd-ui-text-muted, #68707d);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.dark body .word-font-picker-search,
+.dark body .word-font-picker-search-input {
+  background: var(--sd-ui-dropdown-bg, #000);
+}
+
+.dark body .word-font-picker-search-input {
+  color: var(--sd-ui-dropdown-text, #f5f5f5);
+  border-color: var(--sd-ui-dropdown-border, #2a2a2a);
+}
+
+.dark body .word-font-picker-search-input::placeholder,
+.dark body .word-font-picker-empty {
+  color: var(--sd-ui-text-muted, #a3a3a3);
+}
+
+/* 字号下拉只需要容纳两到三位数字，收窄组合框以减少工具栏占用。 */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
+  .sd-toolbar-split-field {
+  width: 50px !important;
+  min-width: 50px !important;
+  flex: 0 0 50px !important;
+}
+
+/* 字号下拉面板本体也按内容收窄：默认 min-width 80px + 左对齐会让两位数字
+ * 显得空旷。面板被 Teleport 到 body，选择器保持全局；用选项上的
+ * btn-fontSize-option 标记只命中字号菜单，不影响缩放/行距等其它下拉。 */
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize-option']) {
+  width: 64px;
+  min-width: 64px;
+}
+
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize-option'])
+  .toolbar-dropdown-option {
+  justify-content: center;
+  padding: 0 6px;
+}
+
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
+  .sd-toolbar-split-field__main {
+  padding: 0 2px !important;
+}
+
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
+  .button-text-input--font-size {
+  width: 28px !important;
+}
+
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
+  .sd-toolbar-split-field__caret {
+  width: 16px !important;
+  padding: 0 3px 0 2px !important;
+}
+
+/* ⋯ 弹层：贴工具栏右下、按行折行，规格同 Excel「更多」菜单 */
+.word-editor-panel .overflow-menu {
+  position: relative;
+}
+
+.word-editor-panel .overflow-menu_items {
+  z-index: 10050;
+  width: max-content;
+  max-width: 348px;
+  max-height: min(70vh, 420px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.word-editor-panel .superdoc-toolbar-overflow {
+  flex-flow: row wrap;
+  max-width: 100%;
+}
+
+.dark .word-editor-panel .overflow-menu_items {
+  border: 1px solid #2a2a2a; /* 背景/阴影走 --sd-ui-dropdown-* 令牌 */
+}
+
+/*
+ * 缩放不在这里做：外部 CSS zoom/transform 会破坏 SuperDoc PresentationEditor
+ * 的指针坐标换算（点击错位 → 无法编辑），标尺也会随之错乱。
+ * 缩放、双页布局一律走原生 API（superdoc.setZoom / setLayoutMode），
+ * 见 WordEditor.tsx / WordDocumentLayout.tsx。
+ */
+.word-editor-panel .superdoc-editor-container {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: hidden !important;
+}
+
+/* 高倍缩放时页面比容器宽，需要横向滚动（原生缩放会把视口撑到缩放后尺寸） */
+.word-editor-panel .superdoc--contained .superdoc__sub-document {
+  overflow-y: auto !important;
+  overflow-x: auto;
+}
+
+/*
+ * 文档列水平居中：superdoc 的多层容器都按内容收缩（shrink-to-fit），
+ * 在收缩链的每一层都加 margin auto——对已是全宽的层是无操作，对收缩层
+ * 生效居中；超宽（高倍缩放）时限宽为窗格宽度，改在列内横向滚动。
+ * 只是整体平移演示层，指针换算基于 client rect，不受影响。
+ */
+.word-editor-panel .superdoc,
+.word-editor-panel .superdoc__layers,
+.word-editor-panel .superdoc__document,
+.word-editor-panel .superdoc__sub-document {
+  margin-left: auto !important;
+  margin-right: auto !important;
+  max-width: 100%;
+}
+
+/*
+ * 页面拼接（双击页间黑边隐藏空白，见 WordPageStitch.tsx）：
+ * 间距本身走引擎原生通道归零；这里只做装饰——页面投影会在接缝处
+ * 形成断层感，拼接时移除（页面自带的 1px 边框保留，充当接缝细线）。
+ * 阴影是 painter 写的内联样式，需 !important 覆盖。
+ */
+.word-editor-panel .word-document-layout[data-word-stitched='true'] .superdoc-page {
+  box-shadow: none !important;
+}
+
+/* Word「多页」：从第 1 页开始两页一排，页间与行间都保留稳定留白。 */
+.word-editor-panel
+  .word-document-layout[data-word-layout-mode='book']
+  .presentation-editor__pages
+  > .superdoc-spread {
+  align-items: flex-start !important;
+  gap: 24px !important;
+}
+
+.word-editor-panel
+  .word-document-layout[data-word-layout-mode='book']
+  .superdoc-spread
+  > .superdoc-page {
+  margin: 0 !important;
+}
+
+/* 隐藏页面最上方的标尺（保留相关样式代码，按需启用） */
+.word-editor-panel .ruler-host {
+  display: none !important;
+}
+
+/* SuperDoc centers its single-page ruler host. In a two-page spread that puts the
+ * ruler over the gutter, so anchor it to the left-hand page instead. */
+.word-editor-panel
+  .word-document-layout[data-word-layout-mode='book']
+  .ruler-host {
+  justify-content: flex-start;
+}
+
+/*
+ * 双页模式下右页的标尺是主标尺的静态克隆（见 WordDocumentLayout.tsx 的
+ * syncBookRulerMirror）：刻度与页边距随主标尺同步重建，但不带 Vue 监听。
+ * 页边距手柄与光标指示线只在主标尺上生效，克隆上隐藏，避免「可拖却不动」
+ * 的假交互。
+ */
+.word-editor-panel .word-ruler-mirror {
+  pointer-events: none;
+}
+
+.word-editor-panel .word-ruler-mirror .margin-handle,
+.word-editor-panel .word-ruler-mirror .vertical-indicator {
+  display: none;
+}
+
+/* Bottom-right Word view and zoom controls. The bar remains outside the
+ * SuperDoc scroll surface so its dimensions never affect pointer mapping. */
+.word-editor-panel .word-document-layout {
+  overflow: hidden;
+}
+
+/* Ctrl+wheel 期间页面只走合成层预览，停止后再由 SuperDoc 完整重绘一次。 */
+.word-editor-panel
+  .word-document-layout[data-word-zoom-preview]
+  .super-editor-container {
+  min-width: var(--word-zoom-preview-editor-min-width) !important;
+  width: var(--word-zoom-preview-editor-outer-width) !important;
+}
+
+.word-editor-panel
+  .word-document-layout[data-word-zoom-preview]
+  .super-editor,
+.word-editor-panel
+  .word-document-layout[data-word-zoom-preview]
+  .super-editor__element {
+  width: var(--word-zoom-preview-editor-content-width) !important;
+}
+
+.word-editor-panel
+  .word-document-layout[data-word-zoom-preview]
+  .ruler-host {
+  pointer-events: none;
+}
+
+/*
+ * SuperDoc 通过 transform: scale() 实现原生页面缩放。Windows Chromium 在
+ * 某些倍率（典型是 90%）会先以 ClearType 子像素方式栅格化宋体，再缩小整层，
+ * 产生明显红蓝彩边；80% 又可能走灰度栅格，因而同一字体粗细截然不同。
+ *
+ * 低于 100% 的稳态下保留合成提示，让 Chromium 在缩放坐标系中统一使用
+ * 灰度栅格。规则由 settled 倍率门控：回到或高于 100% 会自然撤销，避免
+ * 放大场景复用低分辨率图层。滚轮预览仍由 applyWordZoomPreview() 写内联提示。
+ */
+.word-editor-panel
+  .word-document-layout[data-word-shrink-zoom='true']
+  .presentation-editor__pages {
+  will-change: transform;
+}
+
+/* 原生 setZoom 重排/合成层切换期间的最后可见帧。只复制视口内页面，
+   不参与布局和命中；新页面稳定后极短淡出，遮住 Chromium 的黑帧。 */
+.word-editor-panel .word-zoom-frame-hold {
+  position: absolute;
+  z-index: 55;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  opacity: 1;
+}
+
+.word-editor-panel .word-zoom-frame-hold[data-releasing='true'] {
+  opacity: 0;
+  transition: opacity 48ms linear;
+}
+
+.word-editor-panel .word-zoom-frame-hold__page {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.word-editor-panel [data-word-zoom-frame-copy] {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+.word-editor-panel
+  .word-zoom-frame-hold__page-copy
+  .superdoc-text-run:not([data-bookmark-marker]) {
+  color: inherit;
+}
+
+.word-status-bar {
+  container-type: inline-size;
+  position: relative;
+  z-index: 60;
+  display: flex;
+  flex: 0 0 29px;
+  align-items: stretch;
+  justify-content: flex-end;
+  width: 100%;
+  min-width: 0;
+  height: 29px;
+  color: #535a68;
+  background: #ffffff;
+  border-top: 1px solid #e0e0e0;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.word-agent-overlay {
+  position: absolute;
+  inset: 0 0 29px;
+  z-index: 56;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.word-agent-virtual-cursor {
+  --word-agent-color: #2563eb;
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  transform: translate3d(var(--agent-pointer-x), var(--agent-pointer-y), 0);
+  transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1), opacity 140ms ease;
+  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.24));
+  will-change: transform;
+}
+
+.word-agent-virtual-cursor > svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--word-agent-color) 78%, #111827);
+  fill: var(--word-agent-color);
+  stroke-width: 1.65;
+}
+
+.word-agent-virtual-cursor > span {
+  max-width: 150px;
+  margin: 11px 0 0 2px;
+  overflow: hidden;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--word-agent-color) 75%, #111827);
+  border-radius: 4px;
+  color: #fff;
+  background: color-mix(in srgb, var(--word-agent-color) 86%, #111827);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.2);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.word-agent-change-target {
+  position: absolute;
+  min-width: 12px;
+  min-height: 18px;
+  border: 1px solid rgba(37, 99, 235, 0.72);
+  border-radius: 3px;
+  background: rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.72);
+  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease,
+    border-color 140ms ease, background-color 140ms ease, opacity 180ms ease;
+}
+
+.dark .word-agent-change-target {
+  box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.72);
+}
+
+.word-agent-overlay[data-visual='text-delete'] .word-agent-change-target,
+.word-agent-overlay[data-visual='text-replace'][data-phase='before'] .word-agent-change-target {
+  border-color: rgba(220, 38, 38, 0.86);
+  background: rgba(239, 68, 68, 0.14);
+  text-decoration: line-through;
+  text-decoration-color: #dc2626;
+  text-decoration-thickness: 2px;
+}
+
+.word-agent-overlay[data-visual='text-insert'][data-phase='after'] .word-agent-change-target,
+.word-agent-overlay[data-visual='text-replace'][data-phase='after'] .word-agent-change-target {
+  border-color: rgba(22, 163, 74, 0.88);
+  background: rgba(34, 197, 94, 0.17);
+  box-shadow: inset 3px 0 0 #16a34a, 0 0 0 2px rgba(255, 255, 255, 0.72);
+}
+
+.word-agent-overlay[data-visual='text-delete'][data-phase='after'] .word-agent-change-target {
+  animation: word-agent-delete-fade 420ms ease-out forwards;
+}
+
+.word-agent-overlay[data-visual='text-insert'][data-phase='after'] .word-agent-change-target,
+.word-agent-overlay[data-visual='text-replace'][data-phase='after'] .word-agent-change-target {
+  animation: word-agent-insert-reveal 360ms ease-out both;
+}
+
+.dark .word-agent-overlay[data-phase='after'] .word-agent-change-target {
+  box-shadow: inset 3px 0 0 #4ade80, 0 0 0 2px rgba(17, 24, 39, 0.72);
+}
+
+.word-agent-delete-trace,
+.word-agent-insert-trace {
+  position: absolute;
+  inset: 0 auto auto 0;
+  max-width: min(420px, 70vw);
+  overflow: hidden;
+  color: transparent;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.word-agent-delete-trace {
+  text-decoration: line-through;
+  text-decoration-color: #dc2626;
+  text-decoration-thickness: 2px;
+}
+
+.word-agent-insert-trace {
+  border-left: 3px solid #16a34a;
+}
+
+.word-agent-property-trace {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  max-width: 180px;
+  overflow: hidden;
+  padding: 2px 5px;
+  border: 1px solid rgba(71, 85, 105, 0.28);
+  border-radius: 3px;
+  color: #334155;
+  background: rgba(255, 255, 255, 0.96);
+  font-size: 9px;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .word-agent-property-trace {
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.96);
+}
+
+.word-agent-change-sweep {
+  position: absolute;
+  inset: 0;
+  display: none;
+  border-left: 3px solid rgba(14, 116, 144, 0.9);
+  background: rgba(6, 182, 212, 0.08);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.word-agent-overlay[data-visual^='table-'] .word-agent-change-sweep,
+.word-agent-overlay[data-visual='image'] .word-agent-change-sweep,
+.word-agent-overlay[data-visual='page-region'] .word-agent-change-sweep,
+.word-agent-overlay[data-visual='object-anchor'] .word-agent-change-sweep {
+  display: block;
+  animation: word-agent-sweep 420ms ease-out forwards;
+}
+
+.word-agent-overlay[data-visual='image'] .word-agent-change-target {
+  border: 2px solid #0284c7;
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.word-agent-overlay[data-visual='page-region'] .word-agent-change-target,
+.word-agent-change-target[data-fine-grained='false'] {
+  border-style: dashed;
+  background: rgba(14, 116, 144, 0.07);
+}
+
+@keyframes word-agent-sweep {
+  from { transform: scaleX(0); opacity: 0.45; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+
+@keyframes word-agent-delete-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes word-agent-insert-reveal {
+  from { opacity: 0.35; clip-path: inset(0 100% 0 0); }
+  to { opacity: 1; clip-path: inset(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .word-agent-virtual-cursor,
+  .word-agent-change-target {
+    transition: opacity 80ms linear;
+  }
+
+  .word-agent-change-sweep {
+    animation: none !important;
+    transform: scaleX(1);
+  }
+
+
+  .word-agent-overlay[data-phase='after'] .word-agent-change-target {
+    animation: none !important;
+  }
+}
+
+.dark .word-status-bar {
+  color: #d7d7d7;
+  background: #181818;
+  border-top-color: #2c2c2c;
+}
+
+.word-status-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  margin-left: auto;
+}
+
+.word-agent-status {
+  display: flex;
+  flex: 1 1 360px;
+  min-width: 0;
+  max-width: 620px;
+  height: 28px;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  padding-inline: 9px 4px;
+}
+
+.word-agent-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.word-agent-status[data-phase='paused'] .word-agent-status-dot,
+.word-agent-status[data-phase='interrupted'] .word-agent-status-dot,
+.word-agent-status[data-phase='awaiting-approval'] .word-agent-status-dot {
+  background: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+}
+
+.word-agent-status[data-phase='completed'] .word-agent-status-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14);
+}
+
+.word-agent-status-name,
+.word-agent-status-action,
+.word-agent-status-count {
+  overflow: hidden;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.word-agent-status-name {
+  flex: 0 1 auto;
+  max-width: 110px;
+  color: #1f2937;
+  font-weight: 650;
+}
+
+.dark .word-agent-status-name {
+  color: #f3f4f6;
+}
+
+.word-agent-status-action {
+  flex: 0 1 180px;
+  color: #4b5563;
+}
+
+.dark .word-agent-status-action {
+  color: #cbd5e1;
+}
+
+.word-agent-status-count {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.word-agent-progress-track {
+  position: relative;
+  width: clamp(34px, 10cqw, 100px);
+  height: 2px;
+  flex: 0 1 100px;
+  overflow: hidden;
+  background: rgba(100, 116, 139, 0.24);
+}
+
+.word-agent-progress-track > span {
+  display: block;
+  height: 100%;
+  background: #2563eb;
+  transition: width 180ms ease;
+}
+
+.word-agent-status-actions {
+  display: flex;
+  flex: 0 0 auto;
+  height: 28px;
+  align-items: center;
+}
+
+.word-agent-control {
+  width: 28px;
+}
+
+@container (max-width: 720px) {
+  .word-agent-status-action,
+  .word-agent-progress-track {
+    display: none;
+  }
+
+  .word-agent-status {
+    flex-basis: 180px;
+    gap: 5px;
+  }
+}
+
+@container (max-width: 500px) {
+  .word-agent-status-name {
+    max-width: 72px;
+  }
+
+  .word-agent-status-count {
+    display: none;
+  }
+}
+
+.word-status-icon-button,
+.word-zoom-trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+}
+
+.word-status-icon-button {
+  width: 32px;
+}
+
+.word-status-icon-button:hover,
+.word-zoom-trigger:hover,
+.word-status-icon-button[data-active='true'],
+.word-zoom-trigger[aria-expanded='true'] {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.dark .word-status-icon-button:hover,
+.dark .word-zoom-trigger:hover,
+.dark .word-status-icon-button[data-active='true'],
+.dark .word-zoom-trigger[aria-expanded='true'] {
+  color: #fff;
+  background: #343434;
+}
+
+.word-status-icon-button:focus-visible,
+.word-zoom-trigger:focus-visible,
+.word-zoom-slider:focus-visible {
+  outline: 1px solid #0078d4;
+  outline-offset: -2px;
+}
+
+.dark .word-status-icon-button:focus-visible,
+.dark .word-zoom-trigger:focus-visible,
+.dark .word-zoom-slider:focus-visible {
+  outline-color: #6aa7ff;
+}
+
+.word-status-icon-button:disabled {
+  cursor: default;
+  color: #9ca3af;
+  background: transparent;
+}
+
+.dark .word-status-icon-button:disabled {
+  color: #666;
+}
+
+.word-status-icon-button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.6;
+}
+
+.word-status-separator {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: #e0e0e0;
+}
+
+.dark .word-status-separator {
+  background: #444;
+}
+
+.word-zoom-menu-anchor {
+  position: relative;
+  flex: 0 0 auto;
+  height: 28px;
+}
+
+.word-zoom-trigger {
+  min-width: 64px;
+  gap: 3px;
+  padding: 0 6px 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.word-zoom-trigger svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.75;
+}
+
+.word-zoom-popup {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 100;
+  box-sizing: border-box;
+  width: 154px;
+  padding: 12px 10px 10px;
+  color: #1f2937;
+  background: #ffffff;
+  border: 1px solid #d4d7de;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+  font-size: 13px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.dark .word-zoom-popup {
+  color: #f1f1f1;
+  background: #303030;
+  border-color: #454545;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 48%);
+}
+
+.word-zoom-popup-title {
+  margin-bottom: 7px;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dark .word-zoom-popup-title {
+  color: #d8d8d8;
+}
+
+.word-zoom-options {
+  display: grid;
+  gap: 1px;
+}
+
+.word-zoom-option {
+  display: flex;
+  align-items: center;
+  min-height: 27px;
+  gap: 6px;
+  padding: 0 2px;
+  cursor: default;
+  border-radius: 3px;
+}
+
+.word-zoom-option:hover {
+  background: #f1f3f7;
+}
+
+.dark .word-zoom-option:hover {
+  background: #414141;
+}
+
+.word-zoom-option input {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #0078d4;
+}
+
+.dark .word-zoom-option input {
+  accent-color: #2787e8;
+}
+
+.word-zoom-shortcut {
+  margin-left: -4px;
+  color: #6b7280;
+}
+
+.dark .word-zoom-shortcut {
+  color: #c9c9c9;
+}
+
+.word-zoom-custom-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin-top: 7px;
+  padding-top: 10px;
+  color: #374151;
+  border-top: 1px solid #e5e7eb;
+  font-size: 12px;
+}
+
+.dark .word-zoom-custom-row {
+  color: #d4d4d4;
+  border-top-color: #464646;
+}
+
+.word-zoom-number-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  align-items: center;
+  width: 88px;
+  height: 28px;
+  color: #1f2937;
+  background: #f8fafc;
+  border: 1px solid #c8cdd6;
+  border-radius: 4px;
+}
+
+.dark .word-zoom-number-field {
+  color: #d7d7d7;
+  background: #3a3a3a;
+  border-color: #505050;
+}
+
+.word-zoom-number-field:focus-within {
+  border-color: #0078d4;
+}
+
+.dark .word-zoom-number-field:focus-within {
+  border-color: #6aa7ff;
+}
+
+.word-zoom-number-field input {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  height: 26px;
+  padding: 0 3px 0 7px;
+  color: #1f2937;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .word-zoom-number-field input {
+  color: #fff;
+}
+
+.word-zoom-number-field > span {
+  text-align: center;
+}
+
+.word-zoom-slider {
+  --word-zoom-progress: 50%;
+  appearance: none;
+  flex: 1 1 108px;
+  min-width: 44px;
+  max-width: 108px;
+  height: 28px;
+  margin: 0 3px;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.word-zoom-slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    #0078d4 0,
+    #0078d4 var(--word-zoom-progress),
+    #d1d5db var(--word-zoom-progress),
+    #d1d5db 100%
+  );
+}
+
+.dark .word-zoom-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    #4a94ed 0,
+    #4a94ed var(--word-zoom-progress),
+    #555 var(--word-zoom-progress),
+    #555 100%
+  );
+}
+
+.word-zoom-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4.5px;
+  background: #ffffff;
+  border: 1px solid #9ca3af;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.dark .word-zoom-slider::-webkit-slider-thumb {
+  background: #dedede;
+  border-color: #aaa;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+}
+
+/* Non-page views are projections of the live SuperDoc editor. The editor stays
+ * mounted (preserving unsaved changes) while the selected projection is shown. */
+.word-editor-panel:not([data-word-view-mode='page']) .superdoc-wrapper {
+  visibility: hidden;
+}
+
+.word-alternate-view {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  min-width: 0;
+  overflow: auto;
+  color: #202020;
+  background: #d7d9dc;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+.word-alternate-surface {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 28px;
+}
+
+.word-alternate-content {
+  box-sizing: border-box;
+  min-height: calc(100vh - 180px);
+  margin: 0 auto;
+  color: #202020;
+  background: #fff;
+  overflow-wrap: anywhere;
+  font-size: calc(15px * var(--word-alternate-zoom));
+  line-height: 1.75;
+}
+
+.word-alternate-view--reading .word-alternate-content {
+  width: min(780px, 100%);
+  padding: 48px clamp(28px, 7%, 64px);
+}
+
+.word-alternate-view--web {
+  background: #fff;
+}
+
+.word-alternate-view--web .word-alternate-surface {
+  padding: 0;
+}
+
+.word-alternate-view--web .word-alternate-content {
+  width: 100%;
+  padding: 34px clamp(24px, 5vw, 72px);
+}
+
+.word-alternate-content h1,
+.word-alternate-content h2,
+.word-alternate-content h3,
+.word-alternate-content h4,
+.word-alternate-content h5,
+.word-alternate-content h6 {
+  margin: 1.25em 0 0.55em;
+  color: inherit;
+  line-height: 1.3;
+}
+
+.word-alternate-content h1:first-child,
+.word-alternate-content h2:first-child,
+.word-alternate-content h3:first-child,
+.word-alternate-content p:first-child {
+  margin-top: 0;
+}
+
+.word-alternate-content p,
+.word-alternate-content ul,
+.word-alternate-content ol,
+.word-alternate-content blockquote {
+  margin: 0.75em 0;
+}
+
+.word-alternate-content img {
+  max-width: 100%;
+  height: auto;
+}
+
+.word-alternate-content table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.word-alternate-content th,
+.word-alternate-content td {
+  padding: 6px 8px;
+  border: 1px solid #b8bcc2;
+  vertical-align: top;
+}
+
+.word-outline-surface {
+  box-sizing: border-box;
+  width: min(900px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 34px clamp(22px, 5vw, 52px);
+  color: #202020;
+  background: #fff;
+  font-size: calc(15px * var(--word-alternate-zoom));
+}
+
+.word-outline-item {
+  display: flex;
+  align-items: flex-start;
+  min-height: 34px;
+  gap: 10px;
+  padding-block: 7px;
+  border-bottom: 1px solid #e7e7e7;
+  line-height: 1.4;
+}
+
+.word-outline-marker {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  margin-top: 0.48em;
+  background: #687486;
+  border-radius: 1px;
+}
+
+.word-outline-empty {
+  margin: 0;
+  color: #727272;
+  font-size: 13px;
+}
+
+/* WPS-style eye-care tint applies to both the editable paper and projections. */
+.word-editor-panel[data-word-eye-care='true'] .superdoc-editor-container,
+.word-editor-panel[data-word-eye-care='true'] .superdoc__sub-document,
+.word-editor-panel[data-word-eye-care='true'] .word-alternate-view {
+  background: #b9d7bd !important;
+}
+
+.word-editor-panel[data-word-eye-care='true'] .superdoc-page,
+.word-editor-panel[data-word-eye-care='true'] .word-alternate-content,
+.word-editor-panel[data-word-eye-care='true'] .word-outline-surface {
+  color: #1e3322;
+  background: #cfe8d2 !important;
+}
+
+.word-editor-panel[data-word-eye-care='true'] .word-outline-item {
+  border-bottom-color: #aecdb2;
+}
+
+@container (max-width: 430px) {
+  .word-status-icon-button {
+    width: 27px;
+  }
+
+  .word-status-separator {
+    margin-inline: 1px;
+  }
+
+  .word-zoom-trigger {
+    min-width: 54px;
+    padding-inline: 4px;
+  }
+
+  .word-zoom-slider {
+    margin-inline: 1px;
+  }
+}

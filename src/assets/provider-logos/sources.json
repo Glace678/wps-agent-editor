@@ -1,0 +1,1529 @@
+{
+  "version": 1,
+  "retrievedAt": "2026-08-24",
+  "providers": {
+    "zhipuai": {
+      "name": "Zhipu AI",
+      "assetFile": "zhipuai.png",
+      "sourceUrl": "https://docs.bigmodel.cn/mintlify-assets/_mintlify/favicons/zhipu-ef7018ed/uX_6lYCPLvdOcSdM/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.bigmodel.cn/cn/api/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "lucidquery": {
+      "name": "LucidQuery",
+      "assetFile": "lucidquery.png",
+      "sourceUrl": "https://lucidquery.com/android-chrome-512x512.png",
+      "pageUrl": "https://lucidquery.com/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "anyapi": {
+      "name": "AnyAPI",
+      "assetFile": "anyapi.png",
+      "sourceUrl": "https://docs.anyapi.ai/mintlify-assets/_mintlify/favicons/anyapi/GHNClWSE3Pj2t_rH/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.anyapi.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "blueclaw": {
+      "name": "Blue Claw",
+      "assetFile": "blueclaw.png",
+      "sourceUrl": "https://blueclaw.network/assets/blueclaw-favicon-BDPvqg5W.png",
+      "pageUrl": "https://blueclaw.network/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "tencent-tokenhub": {
+      "name": "Tencent TokenHub",
+      "assetFile": "tencent-tokenhub.png",
+      "sourceUrl": "https://cloudcache.tencent-cloud.com/open_proj/proj_qcloud_v2/gateway/shareicons/cloud.png",
+      "pageUrl": "https://cloud.tencent.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "fireworks-ai": {
+      "name": "Fireworks AI",
+      "assetFile": "fireworks-ai.png",
+      "sourceUrl": "https://fireworks.ai/apple-icon.png?851b7c333784c47b",
+      "pageUrl": "https://docs.fireworks.ai/getting-started/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "greenpt": {
+      "name": "GreenPT",
+      "assetFile": "greenpt.png",
+      "sourceUrl": "https://greenpt.com/assets/logo/icon-512.png",
+      "pageUrl": "https://docs.greenpt.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "wandb": {
+      "name": "Weights & Biases",
+      "assetFile": "wandb.png",
+      "sourceUrl": "https://docs.wandb.ai/mintlify-assets/_mintlify/favicons/wb-21fd5541/5Z9xPfvPzDMWig23/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.wandb.ai/inference/api-reference",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "crossmodel": {
+      "name": "CrossModel",
+      "assetFile": "crossmodel.png",
+      "sourceUrl": "https://www.crossmodel.ai/icon-512.png",
+      "pageUrl": "https://www.crossmodel.ai/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "llmtr": {
+      "name": "LLMTR",
+      "assetFile": "llmtr.svg",
+      "sourceUrl": "https://llmtr.com/favicon.svg",
+      "pageUrl": "https://llmtr.com/docs/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "claudinio": {
+      "name": "Claudinio",
+      "assetFile": "claudinio.svg",
+      "sourceUrl": "https://claudin.io",
+      "pageUrl": "https://claudin.io/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "snowflake-cortex": {
+      "name": "Snowflake Cortex",
+      "assetFile": "snowflake-cortex.png",
+      "sourceUrl": "https://docs.snowflake.com/en/images/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-rest-api",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "cohere": {
+      "name": "Cohere",
+      "assetFile": "cohere.svg",
+      "sourceUrl": "https://cohere.com",
+      "pageUrl": "https://docs.cohere.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "opencode-go": {
+      "name": "OpenCode Go",
+      "assetFile": "opencode-go.svg",
+      "sourceUrl": "https://opencode.ai/docs/favicon-v3.svg",
+      "pageUrl": "https://opencode.ai/docs/go",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "poe": {
+      "name": "Poe",
+      "assetFile": "poe.svg",
+      "sourceUrl": "https://creator.poe.com/img/favicon.svg",
+      "pageUrl": "https://creator.poe.com/docs/external-applications/openai-compatible-api",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "baseten": {
+      "name": "Baseten",
+      "assetFile": "baseten.svg",
+      "sourceUrl": "https://www.baseten.co",
+      "pageUrl": "https://docs.baseten.co",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "nvidia": {
+      "name": "Nvidia",
+      "assetFile": "nvidia.svg",
+      "sourceUrl": "https://www.nvidia.com",
+      "pageUrl": "https://build.nvidia.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "nebius": {
+      "name": "Nebius Token Factory",
+      "assetFile": "nebius.png",
+      "sourceUrl": "https://docs.tokenfactory.nebius.com/mintlify-assets/_mintlify/favicons/nebius-723e8b65/c_0s9TotwR1LsmMH/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.tokenfactory.nebius.com/quickstart",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "vivgrid": {
+      "name": "Vivgrid",
+      "assetFile": "vivgrid.svg",
+      "sourceUrl": "https://vivgrid.com",
+      "pageUrl": "https://vivgrid.com/docs/models",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "google": {
+      "name": "Google",
+      "assetFile": "google.png",
+      "sourceUrl": "https://www.gstatic.com/lamda/images/gemini_sparkle_4g_512_lt_f94943af3be039176192d.png",
+      "pageUrl": "https://gemini.google.com/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "thinkingmachines": {
+      "name": "Thinking Machines",
+      "assetFile": "thinkingmachines.svg",
+      "sourceUrl": "https://thinkingmachines.ai",
+      "pageUrl": "https://tinker-docs.thinkingmachines.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "lilac": {
+      "name": "Lilac",
+      "assetFile": "lilac.png",
+      "sourceUrl": "https://docs.getlilac.com/mintlify-assets/_mintlify/favicons/lilac/LKYlNju7IlPdyqbY/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.getlilac.com/inference/models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "stepfun-ai-step-plan": {
+      "name": "StepFun Step Plan (Global)",
+      "assetFile": "stepfun-ai-step-plan.png",
+      "sourceUrl": "https://platform.stepfun.ai/docs/_mintlify/favicons/stepfun2/WXEGJc9dAmit0J0n/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "zhipuai-coding-plan": {
+      "name": "Zhipu AI Coding Plan",
+      "assetFile": "zhipuai-coding-plan.png",
+      "sourceUrl": "https://docs.bigmodel.cn/mintlify-assets/_mintlify/favicons/zhipu-ef7018ed/uX_6lYCPLvdOcSdM/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "nano-gpt": {
+      "name": "NanoGPT",
+      "assetFile": "nano-gpt.png",
+      "sourceUrl": "https://nano-gpt.com/pwa-icons/web-app-manifest-512x512.png",
+      "pageUrl": "https://docs.nano-gpt.com/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "fastrouter": {
+      "name": "FastRouter",
+      "assetFile": "fastrouter.svg",
+      "sourceUrl": "https://fastrouter.ai",
+      "pageUrl": "https://fastrouter.ai/models",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "nearai": {
+      "name": "NEAR AI Cloud",
+      "assetFile": "nearai.svg",
+      "sourceUrl": "https://docs.near.ai/img/favicon.svg",
+      "pageUrl": "https://docs.near.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "daoxe": {
+      "name": "DaoXE",
+      "assetFile": "daoxe.svg",
+      "sourceUrl": "https://daoxe.com",
+      "pageUrl": "https://daoxe.com/pricing",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "crof": {
+      "name": "CrofAI",
+      "assetFile": "crof.png",
+      "sourceUrl": "https://files.nahcrof.com/file/crofaicolor.png",
+      "pageUrl": "https://crof.ai/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "qvac": {
+      "name": "QVAC",
+      "assetFile": "qvac.png",
+      "sourceUrl": "https://docs.qvac.tether.io/favicon.png",
+      "pageUrl": "https://docs.qvac.tether.io/cli/http-server/connection/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "abliteration-ai": {
+      "name": "abliteration.ai",
+      "assetFile": "abliteration-ai.png",
+      "sourceUrl": "https://docs.abliteration.ai/mintlify-assets/_mintlify/favicons/acme-c0f07daa/XIEhOtqKiRrSn8CT/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.abliteration.ai/models",
+      "sourceType": "official-site-icon",
+      "officialColor": false,
+      "presentationColor": "#111111",
+      "presentationColorSource": "https://docs.abliteration.ai/"
+    },
+    "alibaba-coding-plan-cn": {
+      "name": "Alibaba Coding Plan (China)",
+      "assetFile": "alibaba-coding-plan-cn.svg",
+      "sourceUrl": "https://www.alibabacloud.com",
+      "pageUrl": "https://www.alibabacloud.com/help/en/model-studio",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "alibaba"
+    },
+    "llmgateway": {
+      "name": "LLM Gateway",
+      "assetFile": "llmgateway.png",
+      "sourceUrl": "https://llmgateway.io/favicon/android-chrome-512x512.png",
+      "pageUrl": "https://docs.llmgateway.io/",
+      "sourceType": "official-site-icon",
+      "officialColor": false,
+      "presentationColor": "#9C40FF",
+      "presentationColorSource": "https://llmgateway.io/"
+    },
+    "kenari": {
+      "name": "Kenari",
+      "assetFile": "kenari.svg",
+      "sourceUrl": "https://kenari.ai",
+      "pageUrl": "https://kenari.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "friendli": {
+      "name": "Friendli",
+      "assetFile": "friendli.svg",
+      "sourceUrl": "https://friendli.ai/favicon/favicon.svg",
+      "pageUrl": "https://friendli.ai/docs/guides/model-apis/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "opencode": {
+      "name": "OpenCode Zen",
+      "assetFile": "opencode.svg",
+      "sourceUrl": "https://opencode.ai/docs/favicon-v3.svg",
+      "pageUrl": "https://opencode.ai/docs/zen",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "sakana": {
+      "name": "Sakana AI",
+      "assetFile": "sakana.svg",
+      "sourceUrl": "https://console.sakana.ai/icon.svg?icon.2a-tdgq7or-8y.svg",
+      "pageUrl": "https://console.sakana.ai/models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "trustedrouter": {
+      "name": "TrustedRouter",
+      "assetFile": "trustedrouter.svg",
+      "sourceUrl": "https://trustedrouter.com/static/favicon.svg",
+      "pageUrl": "https://trustedrouter.com/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "atomic-chat": {
+      "name": "Atomic Chat",
+      "assetFile": "atomic-chat.png",
+      "sourceUrl": "https://cdn.prod.website-files.com/69d4e04c943eea1581f96f37/69e2483aac5ed9e90b9a4dfc_atomic256.png",
+      "pageUrl": "https://atomic.chat/",
+      "sourceType": "official-site-icon",
+      "officialColor": false,
+      "presentationColor": "#E68C3F",
+      "presentationColorSource": "https://atomic.chat/"
+    },
+    "inception": {
+      "name": "Inception",
+      "assetFile": "inception.png",
+      "sourceUrl": "https://docs.inceptionlabs.ai/mintlify-assets/_mintlify/favicons/inception/CR-PGfA5KwciZhoS/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.inceptionlabs.ai/get-started/get-started",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "stepfun-step-plan": {
+      "name": "StepFun Step Plan (China)",
+      "assetFile": "stepfun-step-plan.png",
+      "sourceUrl": "https://platform.stepfun.com/docs/_mintlify/favicons/stepfun/0Eq87sNRtH7IQj3X/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "cloudflare-workers-ai": {
+      "name": "Cloudflare Workers AI",
+      "assetFile": "cloudflare-workers-ai.png",
+      "sourceUrl": "https://developers.cloudflare.com/favicon.png",
+      "pageUrl": "https://developers.cloudflare.com/ai-gateway/",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "cloudflare-ai-gateway",
+      "officialColor": true
+    },
+    "modelscope": {
+      "name": "ModelScope",
+      "assetFile": "modelscope.svg",
+      "sourceUrl": "https://modelscope.cn",
+      "pageUrl": "https://modelscope.cn/docs/model-service/API-Inference/intro",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "github-copilot": {
+      "name": "GitHub Copilot",
+      "assetFile": "github-copilot.svg",
+      "sourceUrl": "https://brand.github.com/GitHub_Logos.zip",
+      "pageUrl": "https://brand.github.com/brand-identity/copilot",
+      "sourceType": "official-brand-kit",
+      "officialColor": false,
+      "presentationColor": "#8534F3",
+      "presentationColorSource": "https://brand.github.com/brand-identity/copilot"
+    },
+    "302ai": {
+      "name": "302.AI",
+      "assetFile": "302ai.svg",
+      "sourceUrl": "https://302.ai",
+      "pageUrl": "https://doc.302.ai/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "helicone": {
+      "name": "Helicone",
+      "assetFile": "helicone.png",
+      "sourceUrl": "https://docs.helicone.ai/mintlify-assets/_mintlify/favicons/helicone/My8DBiBXkkatGWhp/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.helicone.ai/getting-started/integration-method/openai-proxy",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "alibaba-coding-plan": {
+      "name": "Alibaba Coding Plan",
+      "assetFile": "alibaba-coding-plan.svg",
+      "sourceUrl": "https://www.alibabacloud.com",
+      "pageUrl": "https://www.alibabacloud.com/help/en/model-studio",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "alibaba"
+    },
+    "submodel": {
+      "name": "submodel",
+      "assetFile": "submodel.avif",
+      "sourceUrl": "https://submodel.gitbook.io/docs/~gitbook/image?url=https%3A%2F%2F889575218-files.gitbook.io%2F%7E%2Ffiles%2Fv0%2Fb%2Fgitbook-x-prod.appspot.com%2Fo%2Forganizations%252FOnidOk7XQ819nWOgKR3G%252Fsites%252Fsite_gTUWz%252Ficon%252F3eL3v5WD72Nzj0ILxC3h%252Flogo_mini.png%3Falt%3Dmedia%26token%3D989b7a83-5012-46d3-a0e4-e2a9705771d2&width=180&height=180&sign=a7a38d63&sv=2",
+      "pageUrl": "https://submodel.gitbook.io/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "neon": {
+      "name": "Neon",
+      "assetFile": "neon.svg",
+      "sourceUrl": "https://neon.tech",
+      "pageUrl": "https://neon.tech/docs",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "ambient": {
+      "name": "Ambient",
+      "assetFile": "ambient.svg",
+      "sourceUrl": "https://ambient.xyz/logos/ambient.svg",
+      "pageUrl": "https://ambient.xyz/",
+      "sourceType": "official-site-logo",
+      "officialColor": false
+    },
+    "dinference": {
+      "name": "DInference",
+      "assetFile": "dinference.png",
+      "sourceUrl": "https://api.dinference.com/swagger/favicon.png",
+      "pageUrl": "https://dinference.com/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "privatemode-ai": {
+      "name": "Privatemode AI",
+      "assetFile": "privatemode-ai.png",
+      "sourceUrl": "https://docs.privatemode.ai/logo-192.png",
+      "pageUrl": "https://docs.privatemode.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "unorouter": {
+      "name": "UnoRouter",
+      "assetFile": "unorouter.png",
+      "sourceUrl": "https://unorouter.com/images/icons/icon-512.png",
+      "pageUrl": "https://unorouter.com/en/models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "frogbot": {
+      "name": "FrogBot",
+      "assetFile": "frogbot.png",
+      "sourceUrl": "https://docs.frogbot.ai/mintlify-assets/_mintlify/favicons/firmware/-rhCEx-k_rFkB_Pu/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.frogbot.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "the-grid-ai": {
+      "name": "The Grid AI",
+      "assetFile": "the-grid-ai.png",
+      "sourceUrl": "https://thegrid.ai/pwa-512x512.png",
+      "pageUrl": "https://thegrid.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": false
+    },
+    "sap-ai-core": {
+      "name": "SAP AI Core",
+      "assetFile": "sap-ai-core.svg",
+      "sourceUrl": "https://help.sap.com",
+      "pageUrl": "https://help.sap.com/docs/sap-ai-core",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "upstage": {
+      "name": "Upstage",
+      "assetFile": "upstage.svg",
+      "sourceUrl": "https://upstage.ai",
+      "pageUrl": "https://console.upstage.ai/docs/capabilities/generate/chat",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "cline-pass": {
+      "name": "ClinePass",
+      "assetFile": "cline-pass.svg",
+      "sourceUrl": "https://docs.cline.bot/favicon.svg",
+      "pageUrl": "https://docs.cline.bot/getting-started/clinepass",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "regolo-ai": {
+      "name": "Regolo AI",
+      "assetFile": "regolo-ai.png",
+      "sourceUrl": "https://docs.regolo.ai/assets/favicon.png",
+      "pageUrl": "https://docs.regolo.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "aiand": {
+      "name": "ai&",
+      "assetFile": "aiand.png",
+      "sourceUrl": "https://docs.aiand.com/favicon.png",
+      "pageUrl": "https://docs.aiand.com/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "pioneer": {
+      "name": "Pioneer",
+      "assetFile": "pioneer.svg",
+      "sourceUrl": "https://agent.pioneer.ai",
+      "pageUrl": "https://agent.pioneer.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "siliconflow": {
+      "name": "SiliconFlow",
+      "assetFile": "siliconflow.svg",
+      "sourceUrl": "https://docs.siliconflow.cn",
+      "pageUrl": "https://docs.siliconflow.cn",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "ai-router": {
+      "name": "AI-ROUTER",
+      "assetFile": "ai-router.svg",
+      "sourceUrl": "https://ai-router.dev/logo.svg",
+      "pageUrl": "https://ai-router.dev/openai-compatible-api-gateway/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "zenmux": {
+      "name": "ZenMux",
+      "assetFile": "zenmux.svg",
+      "sourceUrl": "https://cdn.marmot-cloud.com/storage/tbox-router/2025/08/18/mplTJpZ/big-logo.svg",
+      "pageUrl": "https://zenmux.ai/docs/",
+      "sourceType": "official-site-icon",
+      "officialColor": false,
+      "presentationColor": "#14345A",
+      "presentationColorSource": "https://zenmux.ai/"
+    },
+    "inference": {
+      "name": "Inference",
+      "assetFile": "inference.png",
+      "sourceUrl": "https://inference.net/web-app-manifest-512x512.png",
+      "pageUrl": "https://inference.net/models/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "evroc": {
+      "name": "evroc",
+      "assetFile": "evroc.png",
+      "sourceUrl": "https://docs.evroc.com/favicon.png",
+      "pageUrl": "https://docs.evroc.com/products/think/think.html",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "abacus": {
+      "name": "Abacus",
+      "assetFile": "abacus.svg",
+      "sourceUrl": "https://abacus.ai",
+      "pageUrl": "https://abacus.ai/help/api",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "inceptron": {
+      "name": "Inceptron",
+      "assetFile": "inceptron.webp",
+      "sourceUrl": "https://docs.inceptron.io/img/favicon.ico",
+      "pageUrl": "https://docs.inceptron.io/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "empiriolabs": {
+      "name": "EmpirioLabs AI",
+      "assetFile": "empiriolabs.png",
+      "sourceUrl": "https://docs.empiriolabs.ai/api/fern-docs/favicon.ico",
+      "pageUrl": "https://docs.empiriolabs.ai/welcome",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "alibaba-token-plan": {
+      "name": "Alibaba Token Plan",
+      "assetFile": "alibaba-token-plan.svg",
+      "sourceUrl": "https://www.alibabacloud.com",
+      "pageUrl": "https://www.alibabacloud.com/help/en/model-studio",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "alibaba"
+    },
+    "meta": {
+      "name": "Meta",
+      "assetFile": "meta.png",
+      "sourceUrl": "https://avatars.githubusercontent.com/u/153379578?s=512&v=4",
+      "pageUrl": "https://github.com/meta-llama",
+      "sourceType": "official-provider-profile",
+      "officialColor": true
+    },
+    "azure-cognitive-services": {
+      "name": "Azure Cognitive Services",
+      "assetFile": "azure-cognitive-services.svg",
+      "sourceUrl": "https://learn.microsoft.com/azure/",
+      "pageUrl": "https://learn.microsoft.com/azure/",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "azure"
+    },
+    "wafer.ai": {
+      "name": "Wafer",
+      "assetFile": "wafer.ai.png",
+      "sourceUrl": "https://docs.wafer.ai/mintlify-assets/_mintlify/favicons/herdora/vx5rCJFGYp2r3fz0/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.wafer.ai/serverless/setup",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "clarifai": {
+      "name": "Clarifai",
+      "assetFile": "clarifai.svg",
+      "sourceUrl": "https://docs.clarifai.com/img/favicon.svg",
+      "pageUrl": "https://docs.clarifai.com/compute/inference/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "iflowcn": {
+      "name": "iFlow",
+      "assetFile": "iflowcn.png",
+      "sourceUrl": "https://platform.iflow.cn/en/img/favicon.ico",
+      "pageUrl": "https://platform.iflow.cn/en/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "gitlab": {
+      "name": "GitLab Duo",
+      "assetFile": "gitlab.png",
+      "sourceUrl": "https://docs.gitlab.com/apple-touch-icon.png",
+      "pageUrl": "https://docs.gitlab.com/user/duo_agent_platform/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "bailing": {
+      "name": "Bailing",
+      "assetFile": "bailing.png",
+      "sourceUrl": "https://mdn.alipayobjects.com/huamei_0prmtq/afts/img/A*f72ER6mn8REAAAAAAAAAAAAADvuFAQ/original",
+      "pageUrl": "https://alipaytbox.yuque.com/sxs0ba/ling/intro",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "venice": {
+      "name": "Venice AI",
+      "assetFile": "venice.png",
+      "sourceUrl": "https://docs.venice.ai/mintlify-assets/_mintlify/favicons/veniceai/bx2bxRtmLEf0wvnq/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.venice.ai/overview/about-venice",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "mixlayer": {
+      "name": "Mixlayer",
+      "assetFile": "mixlayer.svg",
+      "sourceUrl": "https://mixlayer.com",
+      "pageUrl": "https://docs.mixlayer.com/introduction",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "scaleway": {
+      "name": "Scaleway",
+      "assetFile": "scaleway.png",
+      "sourceUrl": "https://www.scaleway.com/favicon/website/512.png",
+      "pageUrl": "https://www.scaleway.com/en/docs/generative-apis/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "togetherai": {
+      "name": "Together AI",
+      "assetFile": "togetherai.png",
+      "sourceUrl": "https://docs.together.ai/mintlify-assets/_mintlify/favicons/togetherai-52386018/GkjET5UlJhhSwWhA/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.together.ai/docs/serverless/models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "digitalocean": {
+      "name": "DigitalOcean",
+      "assetFile": "digitalocean.svg",
+      "sourceUrl": "https://assets.digitalocean.com/logos/DO_Logo_icon_blue.svg",
+      "pageUrl": "https://docs.digitalocean.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "moonshotai-cn": {
+      "name": "Moonshot AI (China)",
+      "assetFile": "moonshotai-cn.svg",
+      "sourceUrl": "https://platform.kimi.ai",
+      "pageUrl": "https://platform.kimi.ai/docs/api/overview",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "moonshotai",
+      "officialColor": true
+    },
+    "model-oracle-ai": {
+      "name": "Model Oracle AI",
+      "assetFile": "model-oracle-ai.png",
+      "sourceUrl": "https://www.modeloracle.com/icon-192.png",
+      "pageUrl": "https://www.modeloracle.com/setup/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "drun": {
+      "name": "D.Run (China)",
+      "assetFile": "drun.svg",
+      "sourceUrl": "https://www.d.run/images/footer/logo.svg",
+      "pageUrl": "https://www.d.run/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "lmstudio": {
+      "name": "LMStudio",
+      "assetFile": "lmstudio.png",
+      "sourceUrl": "https://lmstudio.ai/assets/apple-touch-icon.png",
+      "pageUrl": "https://lmstudio.ai/models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "ovhcloud": {
+      "name": "OVHcloud AI Endpoints",
+      "assetFile": "ovhcloud.png",
+      "sourceUrl": "https://www.ovhcloud.com/android-icon-512x512.png",
+      "pageUrl": "https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog//",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "zeldoc": {
+      "name": "Zeldoc",
+      "assetFile": "zeldoc.svg",
+      "sourceUrl": "https://zeldoc.ai",
+      "pageUrl": "https://docs.zeldoc.ai/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "auriko": {
+      "name": "Auriko",
+      "assetFile": "auriko.svg",
+      "sourceUrl": "https://docs.auriko.ai/favicon.svg",
+      "pageUrl": "https://docs.auriko.ai/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "azure": {
+      "name": "Azure",
+      "assetFile": "azure.svg",
+      "sourceUrl": "https://learn.microsoft.com/azure/",
+      "pageUrl": "https://learn.microsoft.com/azure/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "kuae-cloud-coding-plan": {
+      "name": "KUAE Cloud Coding Plan",
+      "assetFile": "kuae-cloud-coding-plan.svg",
+      "sourceUrl": "https://mthreads.com",
+      "pageUrl": "https://docs.mthreads.com/kuaecloud/kuaecloud-doc-online/coding_plan/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "modal": {
+      "name": "Modal",
+      "assetFile": "modal.svg",
+      "sourceUrl": "https://modal.com/assets/favicon.svg",
+      "pageUrl": "https://modal.com/docs/guide/endpoints",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "qihang-ai": {
+      "name": "QiHang",
+      "assetFile": "qihang-ai.svg",
+      "sourceUrl": "https://www.qhaigc.net/favicon.svg",
+      "pageUrl": "https://www.qhaigc.net/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "berget": {
+      "name": "Berget.AI",
+      "assetFile": "berget.svg",
+      "sourceUrl": "https://berget.ai/logos/symbol-black.svg",
+      "pageUrl": "https://api.berget.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "google-vertex-anthropic": {
+      "name": "Vertex (Anthropic)",
+      "assetFile": "google-vertex-anthropic.png",
+      "sourceUrl": "https://docs.cloud.google.com/_pwa/clouddocs/icons/icon-512x512.png",
+      "pageUrl": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "moark": {
+      "name": "Moark",
+      "assetFile": "moark.svg",
+      "sourceUrl": "https://ai-assets.moark.com/docs/img/logo/claw.svg",
+      "pageUrl": "https://moark.com/docs/openapi/v1",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "nova": {
+      "name": "Nova",
+      "assetFile": "nova.png",
+      "sourceUrl": "https://nova.amazon.com/website/logo-512x512.png",
+      "pageUrl": "https://nova.amazon.com/dev/documentation",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "vultr": {
+      "name": "Vultr",
+      "assetFile": "vultr.png",
+      "sourceUrl": "https://api.vultrinference.com/favicon.ico",
+      "pageUrl": "https://api.vultrinference.com/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "io-net": {
+      "name": "IO.NET",
+      "assetFile": "io-net.svg",
+      "sourceUrl": "https://io.net/icons/favicon-source.svg",
+      "pageUrl": "https://io.net/docs/guides/intelligence/io-intelligence",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "neuralwatt": {
+      "name": "Neuralwatt",
+      "assetFile": "neuralwatt.svg",
+      "sourceUrl": "https://portal.neuralwatt.com",
+      "pageUrl": "https://portal.neuralwatt.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "aki-io": {
+      "name": "AKI.IO",
+      "assetFile": "aki-io.png",
+      "sourceUrl": "https://aki.io/static/favicon/apple-touch-icon.png",
+      "pageUrl": "https://aki.io/docs/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "xai": {
+      "name": "xAI",
+      "assetFile": "xai.png",
+      "sourceUrl": "https://x.ai/icon.png?icon.1_9qbalr4uao5.png?dpl=923bfce49b0af45c818ab876c104b2f9594cebee",
+      "pageUrl": "https://x.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": false
+    },
+    "hetzner": {
+      "name": "Hetzner",
+      "assetFile": "hetzner.svg",
+      "sourceUrl": "https://www.hetzner.com",
+      "pageUrl": "https://experiments.hetzner.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "zenifra": {
+      "name": "Zenifra",
+      "assetFile": "zenifra.png",
+      "sourceUrl": "https://docs.zenifra.com/favicon-512.png",
+      "pageUrl": "https://docs.zenifra.com/en",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "aihubmix": {
+      "name": "AIHubMix",
+      "assetFile": "aihubmix.png",
+      "sourceUrl": "https://docs.aihubmix.com/mintlify-assets/_mintlify/favicons/aihubmix/oVt_FUKZRfRFWFpr/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.aihubmix.com/cn",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "morph": {
+      "name": "Morph",
+      "assetFile": "morph.svg",
+      "sourceUrl": "https://morph.so",
+      "pageUrl": "https://docs.morph.so",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "umans-ai-coding-plan": {
+      "name": "Umans AI Coding Plan",
+      "assetFile": "umans-ai-coding-plan.svg",
+      "sourceUrl": "https://app.umans.ai",
+      "pageUrl": "https://app.umans.ai",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "umans-ai"
+    },
+    "mistral": {
+      "name": "Mistral",
+      "assetFile": "mistral.svg",
+      "sourceUrl": "https://mistral.ai/favicon.svg",
+      "pageUrl": "https://mistral.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "umans-ai": {
+      "name": "Umans AI",
+      "assetFile": "umans-ai.svg",
+      "sourceUrl": "https://app.umans.ai",
+      "pageUrl": "https://app.umans.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "ofox": {
+      "name": "Ofox",
+      "assetFile": "ofox.png",
+      "sourceUrl": "https://ofox.ai/apple-icon.png",
+      "pageUrl": "https://ofox.ai/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "orcarouter": {
+      "name": "OrcaRouter",
+      "assetFile": "orcarouter.png",
+      "sourceUrl": "https://docs.orcarouter.ai/mintlify-assets/_mintlify/favicons/orcarouter/JdlMFxkwwPyXobUc/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.orcarouter.ai/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "xiaomi-token-plan-cn": {
+      "name": "Xiaomi Token Plan (China)",
+      "assetFile": "xiaomi-token-plan-cn.svg",
+      "sourceUrl": "https://www.mi.com",
+      "pageUrl": "https://api.ai.mi.com",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "xiaomi",
+      "officialColor": true
+    },
+    "v0": {
+      "name": "v0",
+      "assetFile": "v0.svg",
+      "sourceUrl": "https://k2mkucxia43oc7fa.public.blob.vercel-storage.com/front/press/v0-assets.zip",
+      "pageUrl": "https://vercel.com/geist/brands#v0",
+      "sourceType": "official-brand-kit",
+      "officialColor": false
+    },
+    "poolside": {
+      "name": "Poolside",
+      "assetFile": "poolside.png",
+      "sourceUrl": "https://platform.poolside.ai/icon-180.png",
+      "pageUrl": "https://platform.poolside.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "routing-run": {
+      "name": "routing.run",
+      "assetFile": "routing-run.png",
+      "sourceUrl": "https://app.routing.run/logo_trans_black.png",
+      "pageUrl": "https://app.routing.run/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "google-vertex": {
+      "name": "Vertex",
+      "assetFile": "google-vertex.png",
+      "sourceUrl": "https://docs.cloud.google.com/_pwa/clouddocs/icons/icon-512x512.png",
+      "pageUrl": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/google-models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "tencent-token-plan": {
+      "name": "Tencent Token Plan",
+      "assetFile": "tencent-token-plan.png",
+      "sourceUrl": "https://cloudcache.tencent-cloud.com/open_proj/proj_qcloud_v2/gateway/shareicons/cloud.png",
+      "pageUrl": "https://cloud.tencent.com",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "tencent-tokenhub"
+    },
+    "synthetic": {
+      "name": "Synthetic",
+      "assetFile": "synthetic.png",
+      "sourceUrl": "https://dev.synthetic.new/web-app-manifest-512x512.png",
+      "pageUrl": "https://dev.synthetic.new/docs/openai/chat-completions",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "zai-coding-plan": {
+      "name": "Z.AI Coding Plan",
+      "assetFile": "zai-coding-plan.svg",
+      "sourceUrl": "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+      "pageUrl": "https://docs.z.ai",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "zai"
+    },
+    "gmicloud": {
+      "name": "GMI Cloud",
+      "assetFile": "gmicloud.svg",
+      "sourceUrl": "https://gmicloud.ai",
+      "pageUrl": "https://gmicloud.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "freemodel": {
+      "name": "FreeModel",
+      "assetFile": "freemodel.svg",
+      "sourceUrl": "https://freemodel.ai",
+      "pageUrl": "https://freemodel.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "amazon-bedrock": {
+      "name": "Amazon Bedrock",
+      "assetFile": "amazon-bedrock.svg",
+      "sourceUrl": "https://aws.amazon.com/bedrock/",
+      "pageUrl": "https://docs.aws.amazon.com/bedrock/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "xiaomi-token-plan-ams": {
+      "name": "Xiaomi Token Plan (Europe)",
+      "assetFile": "xiaomi-token-plan-ams.svg",
+      "sourceUrl": "https://www.mi.com",
+      "pageUrl": "https://api.ai.mi.com",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "xiaomi",
+      "officialColor": true
+    },
+    "minimax": {
+      "name": "MiniMax (minimax.io)",
+      "assetFile": "minimax.png",
+      "sourceUrl": "https://platform.minimaxi.com/docs/_mintlify/favicons/minimax-zh/DMz0Zpj7JInghPSs/_generated/favicon/android-chrome-192x192.png",
+      "pageUrl": "https://platform.minimaxi.com",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "groq": {
+      "name": "Groq",
+      "assetFile": "groq.png",
+      "sourceUrl": "https://groq.com/icon-512x512.png",
+      "pageUrl": "https://console.groq.com/docs/api-reference",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "deepseek": {
+      "name": "DeepSeek",
+      "assetFile": "deepseek.svg",
+      "sourceUrl": "https://api-docs.deepseek.com/img/favicon.svg",
+      "pageUrl": "https://api-docs.deepseek.com/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "kimi-for-coding": {
+      "name": "Kimi For Coding",
+      "assetFile": "kimi-for-coding.svg",
+      "sourceUrl": "https://platform.kimi.ai",
+      "pageUrl": "https://platform.kimi.ai/docs/api/overview",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "moonshotai",
+      "officialColor": true
+    },
+    "requesty": {
+      "name": "Requesty",
+      "assetFile": "requesty.svg",
+      "sourceUrl": "https://www.requesty.ai",
+      "pageUrl": "https://www.requesty.ai/models",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "tensorx": {
+      "name": "TensorX",
+      "assetFile": "tensorx.avif",
+      "sourceUrl": "https://docs.tensorx.ai/~gitbook/image?url=https%3A%2F%2F3215652320-files.gitbook.io%2F%7E%2Ffiles%2Fv0%2Fb%2Fgitbook-x-prod.appspot.com%2Fo%2Forganizations%252FEoABXDdT2pD6ZHNh9o3M%252Fsites%252Fsite_6TBZl%252Ficon%252F2OzFdVVxsbcJZMwcuUHA%252Ftsx-icon.png%3Falt%3Dmedia%26token%3D7b7480c3-2755-48a3-bb18-6b3462d2b4a5&width=180&height=180&sign=c4d27436&sv=2",
+      "pageUrl": "https://docs.tensorx.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "llama": {
+      "name": "Llama",
+      "assetFile": "llama.png",
+      "sourceUrl": "https://avatars.githubusercontent.com/u/153379578?s=512&v=4",
+      "pageUrl": "https://github.com/meta-llama",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "meta",
+      "officialColor": true
+    },
+    "kilo": {
+      "name": "Kilo Gateway",
+      "assetFile": "kilo.svg",
+      "sourceUrl": "https://kilo.ai",
+      "pageUrl": "https://kilo.ai/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "merge-gateway": {
+      "name": "Merge Gateway",
+      "assetFile": "merge-gateway.svg",
+      "sourceUrl": "https://docs.merge.dev/api/fern-docs/favicon.ico",
+      "pageUrl": "https://docs.merge.dev/merge-gateway/get-started",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "cloudferro-sherlock": {
+      "name": "CloudFerro Sherlock",
+      "assetFile": "cloudferro-sherlock.svg",
+      "sourceUrl": "https://cloudferro.com",
+      "pageUrl": "https://docs.sherlock.cloudferro.com/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "modelis": {
+      "name": "Modelis",
+      "assetFile": "modelis.png",
+      "sourceUrl": "https://modelishub.com/modelis-favicon.png",
+      "pageUrl": "https://modelishub.com/pricing",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "subconscious": {
+      "name": "Subconscious",
+      "assetFile": "subconscious.png",
+      "sourceUrl": "https://docs.subconscious.dev/mintlify-assets/_mintlify/favicons/subconscious/2hHL8oGE6IJvPCYk/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.subconscious.dev/overview",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "tencent-coding-plan": {
+      "name": "Tencent Coding Plan (China)",
+      "assetFile": "tencent-coding-plan.png",
+      "sourceUrl": "https://cloudcache.tencent-cloud.com/open_proj/proj_qcloud_v2/gateway/shareicons/cloud.png",
+      "pageUrl": "https://cloud.tencent.com",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "tencent-tokenhub"
+    },
+    "hyper": {
+      "name": "Charm Hyper",
+      "assetFile": "hyper.svg",
+      "sourceUrl": "https://hyper.charm.land",
+      "pageUrl": "https://hyper.charm.land/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "alibaba": {
+      "name": "Alibaba",
+      "assetFile": "alibaba.svg",
+      "sourceUrl": "https://www.alibabacloud.com",
+      "pageUrl": "https://www.alibabacloud.com/help/en/model-studio",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "github-models": {
+      "name": "GitHub Models",
+      "assetFile": "github-models.png",
+      "sourceUrl": "https://docs.github.com/assets/cb-345/images/site/favicon.png",
+      "pageUrl": "https://docs.github.com/en/github-models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "vercel": {
+      "name": "Vercel AI Gateway",
+      "assetFile": "vercel.svg",
+      "sourceUrl": "https://k2mkucxia43oc7fa.public.blob.vercel-storage.com/front/press/vercel-assets.zip",
+      "pageUrl": "https://vercel.com/geist/brands",
+      "sourceType": "official-brand-kit",
+      "officialColor": false
+    },
+    "alibaba-cn": {
+      "name": "Alibaba (China)",
+      "assetFile": "alibaba-cn.svg",
+      "sourceUrl": "https://www.alibabacloud.com",
+      "pageUrl": "https://www.alibabacloud.com/help/en/model-studio",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "alibaba"
+    },
+    "novita-ai": {
+      "name": "NovitaAI",
+      "assetFile": "novita-ai.png",
+      "sourceUrl": "https://novita.ai/icon-512x512.png",
+      "pageUrl": "https://novita.ai/docs/guides/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "assetFile": "openrouter.png",
+      "sourceUrl": "https://openrouter.ai/icon-pwa.png",
+      "pageUrl": "https://openrouter.ai/docs/quickstart",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "huggingface": {
+      "name": "Hugging Face",
+      "assetFile": "huggingface.svg",
+      "sourceUrl": "https://huggingface.co/front/assets/huggingface_logo-noborder.svg",
+      "pageUrl": "https://huggingface.co",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "minimax-coding-plan": {
+      "name": "MiniMax Token Plan (minimax.io)",
+      "assetFile": "minimax-coding-plan.png",
+      "sourceUrl": "https://platform.minimaxi.com/docs/_mintlify/favicons/minimax-zh/DMz0Zpj7JInghPSs/_generated/favicon/android-chrome-192x192.png",
+      "pageUrl": "https://platform.minimaxi.com",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "minimax"
+    },
+    "siliconflow-cn": {
+      "name": "SiliconFlow (China)",
+      "assetFile": "siliconflow-cn.svg",
+      "sourceUrl": "https://docs.siliconflow.cn",
+      "pageUrl": "https://docs.siliconflow.cn",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "siliconflow"
+    },
+    "tinfoil": {
+      "name": "Tinfoil",
+      "assetFile": "tinfoil.png",
+      "sourceUrl": "https://docs.tinfoil.sh/mintlify-assets/_mintlify/favicons/tinfoil/sNwaCdz1QwwGxW8p/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://docs.tinfoil.sh/introduction",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "xiaomi": {
+      "name": "Xiaomi",
+      "assetFile": "xiaomi.svg",
+      "sourceUrl": "https://www.mi.com",
+      "pageUrl": "https://api.ai.mi.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "stackit": {
+      "name": "STACKIT",
+      "assetFile": "stackit.svg",
+      "sourceUrl": "https://docs.stackit.cloud/favicon.svg",
+      "pageUrl": "https://docs.stackit.cloud/products/data-and-ai/ai-model-serving/basics/available-shared-models/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "deepinfra": {
+      "name": "Deep Infra",
+      "assetFile": "deepinfra.png",
+      "sourceUrl": "https://deepinfra.com/fav-192.png",
+      "pageUrl": "https://deepinfra.com/models",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "anthropic": {
+      "name": "Anthropic",
+      "assetFile": "anthropic.png",
+      "sourceUrl": "https://platform.claude.com/apple-touch-icon.png",
+      "pageUrl": "https://platform.claude.com/docs/en/api/overview",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "cloudflare-ai-gateway": {
+      "name": "Cloudflare AI Gateway",
+      "assetFile": "cloudflare-ai-gateway.png",
+      "sourceUrl": "https://developers.cloudflare.com/favicon.png",
+      "pageUrl": "https://developers.cloudflare.com/ai-gateway/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "lynkr": {
+      "name": "Lynkr",
+      "assetFile": "lynkr.svg",
+      "sourceUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "pageUrl": "https://github.com/Fast-Editor/Lynkr",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "alibaba-token-plan-cn": {
+      "name": "Alibaba Token Plan (China)",
+      "assetFile": "alibaba-token-plan-cn.svg",
+      "sourceUrl": "https://www.alibabacloud.com",
+      "pageUrl": "https://www.alibabacloud.com/help/en/model-studio",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "alibaba"
+    },
+    "stepfun-ai": {
+      "name": "StepFun (Global)",
+      "assetFile": "stepfun-ai.png",
+      "sourceUrl": "https://platform.stepfun.ai/docs/_mintlify/favicons/stepfun2/WXEGJc9dAmit0J0n/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://platform.stepfun.ai/docs/en/guides/basic-concepts",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "chutes": {
+      "name": "Chutes",
+      "assetFile": "chutes.png",
+      "sourceUrl": "https://chutes.ai/favicon.png",
+      "pageUrl": "https://chutes.ai/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "cerebras": {
+      "name": "Cerebras",
+      "assetFile": "cerebras.png",
+      "sourceUrl": "https://inference-docs.cerebras.ai/mintlify-assets/_mintlify/favicons/cerebras-inference/FcAuEx9Fi3BOAJGk/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://inference-docs.cerebras.ai/models/overview",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "qiniu-ai": {
+      "name": "Qiniu",
+      "assetFile": "qiniu-ai.svg",
+      "sourceUrl": "https://www.qiniu.com",
+      "pageUrl": "https://developer.qiniu.com/aitokenapi",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "longcat": {
+      "name": "LongCat",
+      "assetFile": "longcat.svg",
+      "sourceUrl": "https://s3plus.meituan.net/aigc-media-resources/longcat/yeqian-logo.svg",
+      "pageUrl": "https://longcat.chat/platform/docs/",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "ollama-cloud": {
+      "name": "Ollama Cloud",
+      "assetFile": "ollama-cloud.png",
+      "sourceUrl": "https://ollama.com/public/apple-touch-icon.png",
+      "pageUrl": "https://ollama.com/",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "ollama",
+      "officialColor": false
+    },
+    "jiekou": {
+      "name": "Jiekou.AI",
+      "assetFile": "jiekou.svg",
+      "sourceUrl": "https://jiekou.ai/logo/jiekou-logo.svg",
+      "pageUrl": "https://jiekou.ai/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "perplexity": {
+      "name": "Perplexity",
+      "assetFile": "perplexity.svg",
+      "sourceUrl": "https://docs.perplexity.ai",
+      "pageUrl": "https://docs.perplexity.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "perplexity-agent": {
+      "name": "Perplexity Agent",
+      "assetFile": "perplexity-agent.svg",
+      "sourceUrl": "https://docs.perplexity.ai",
+      "pageUrl": "https://docs.perplexity.ai",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "perplexity",
+      "officialColor": true
+    },
+    "moonshotai": {
+      "name": "Moonshot AI",
+      "assetFile": "moonshotai.svg",
+      "sourceUrl": "https://platform.kimi.ai",
+      "pageUrl": "https://platform.kimi.ai/docs/api/overview",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "openai": {
+      "name": "OpenAI",
+      "assetFile": "openai.svg",
+      "sourceUrl": "https://openai.com/brand",
+      "pageUrl": "https://developers.openai.com/",
+      "sourceType": "official-brand-asset",
+      "officialColor": true
+    },
+    "xpersona": {
+      "name": "Xpersona",
+      "assetFile": "xpersona.png",
+      "sourceUrl": "https://www.xpersona.co/icon.png",
+      "pageUrl": "https://www.xpersona.co/docs",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "sarvam": {
+      "name": "Sarvam AI",
+      "assetFile": "sarvam.svg",
+      "sourceUrl": "https://fdr-prod-docs-files-public.s3.us-east-1.amazonaws.com/sarvam-api-docs.docs.buildwithfern.com/fcd4e81fc0f57d6181d9a3c0ad7557ab3acc8ae8112b5017672f914c1036a47b/logo/lightlogo.svg",
+      "pageUrl": "https://docs.sarvam.ai/api/getting-started/models",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "zai": {
+      "name": "Z.AI",
+      "assetFile": "zai.svg",
+      "sourceUrl": "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+      "pageUrl": "https://docs.z.ai",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "inferx": {
+      "name": "InferX",
+      "assetFile": "inferx.svg",
+      "sourceUrl": "https://model.inferx.net/static/favicon.svg",
+      "pageUrl": "https://model.inferx.net/help",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "meganova": {
+      "name": "Meganova",
+      "assetFile": "meganova.avif",
+      "sourceUrl": "https://docs.meganova.ai/~gitbook/image?url=https%3A%2F%2F1802503214-files.gitbook.io%2F%7E%2Ffiles%2Fv0%2Fb%2Fgitbook-x-prod.appspot.com%2Fo%2Forganizations%252FKtYsaIDdD6T0NymLM4XW%252Fsites%252Fsite_wosez%252Ficon%252F46JdP2oieKsTcTErXyJd%252FMegaNova_Logo_Blue_NoText.png%3Falt%3Dmedia%26token%3D48e1a45a-b1c2-4d53-aeac-5cb3cd8950ca&width=180&height=180&sign=aabeb4ea&sv=2",
+      "pageUrl": "https://docs.meganova.ai/inference-models/text-generation",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "stepfun": {
+      "name": "StepFun (China)",
+      "assetFile": "stepfun.png",
+      "sourceUrl": "https://platform.stepfun.com/docs/_mintlify/favicons/stepfun/0Eq87sNRtH7IQj3X/_generated/favicon/apple-touch-icon.png",
+      "pageUrl": "https://platform.stepfun.com/docs/zh/guides/basic-concepts",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "cortecs": {
+      "name": "Cortecs",
+      "assetFile": "cortecs.svg",
+      "sourceUrl": "https://cortecs.ai",
+      "pageUrl": "https://cortecs.ai/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "xiaomi-token-plan-sgp": {
+      "name": "Xiaomi Token Plan (Singapore)",
+      "assetFile": "xiaomi-token-plan-sgp.svg",
+      "sourceUrl": "https://www.mi.com",
+      "pageUrl": "https://api.ai.mi.com",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "xiaomi",
+      "officialColor": true
+    },
+    "hpc-ai": {
+      "name": "HPC-AI",
+      "assetFile": "hpc-ai.svg",
+      "sourceUrl": "https://www.hpc-ai.com",
+      "pageUrl": "https://www.hpc-ai.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "minimax-cn": {
+      "name": "MiniMax (minimaxi.com)",
+      "assetFile": "minimax-cn.png",
+      "sourceUrl": "https://platform.minimaxi.com/docs/_mintlify/favicons/minimax-zh/DMz0Zpj7JInghPSs/_generated/favicon/android-chrome-192x192.png",
+      "pageUrl": "https://platform.minimaxi.com",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "minimax"
+    },
+    "ebcloud": {
+      "name": "EBCloud",
+      "assetFile": "ebcloud.png",
+      "sourceUrl": "https://assets.ebtech.com/cloud-document/20260817155353331/favicon.ico",
+      "pageUrl": "https://docs.ebtech.com/ai/model-api.html",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "databricks": {
+      "name": "Databricks",
+      "assetFile": "databricks.svg",
+      "sourceUrl": "https://www.databricks.com",
+      "pageUrl": "https://docs.databricks.com",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    },
+    "minimax-cn-coding-plan": {
+      "name": "MiniMax Token Plan (minimaxi.com)",
+      "assetFile": "minimax-cn-coding-plan.png",
+      "sourceUrl": "https://platform.minimaxi.com/docs/_mintlify/favicons/minimax-zh/DMz0Zpj7JInghPSs/_generated/favicon/android-chrome-192x192.png",
+      "pageUrl": "https://platform.minimaxi.com",
+      "sourceType": "official-parent-alias",
+      "officialColor": true,
+      "parentProviderId": "minimax"
+    },
+    "volcengine": {
+      "name": "Volcengine Ark",
+      "assetFile": "volcengine.png",
+      "sourceUrl": "https://portal.volccdn.com/obj/volcfe/misc/favicon.png",
+      "pageUrl": "https://www.volcengine.com/product/ark",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "volcengine-agent-plan": {
+      "name": "Volcengine Ark Agent Plan",
+      "assetFile": "volcengine-agent-plan.png",
+      "sourceUrl": "https://portal.volccdn.com/obj/volcfe/misc/favicon.png",
+      "pageUrl": "https://www.volcengine.com/docs/82379/2556054?lang=zh",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "volcengine",
+      "officialColor": true
+    },
+    "volcengine-coding-plan": {
+      "name": "Volcengine Ark Coding Plan",
+      "assetFile": "volcengine-coding-plan.png",
+      "sourceUrl": "https://portal.volccdn.com/obj/volcfe/misc/favicon.png",
+      "pageUrl": "https://www.volcengine.com/docs/82379/2556056?lang=zh",
+      "sourceType": "official-parent-alias",
+      "parentProviderId": "volcengine",
+      "officialColor": true
+    },
+    "iflytek-astron-coding-plan": {
+      "name": "iFLYTEK Astron Coding Plan",
+      "assetFile": "iflytek-astron-coding-plan.ico",
+      "sourceUrl": "https://www.xfyun.cn/static/favicon.ico",
+      "pageUrl": "https://www.xfyun.cn/doc/spark/CodingPlan.html",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "jdcloud-joybuilder-coding-plan": {
+      "name": "JD Cloud JoyBuilder Coding Plan",
+      "assetFile": "jdcloud-joybuilder-coding-plan.png",
+      "sourceUrl": "https://img1.jcloudcs.com/portal/jdy-touch-icon.png",
+      "pageUrl": "https://docs.jdcloud.com/cn/jdaip/Quickstart",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "streamlake-kwaikat-coding-plan": {
+      "name": "StreamLake KwaiKAT Coding Plan",
+      "assetFile": "streamlake-kwaikat-coding-plan.ico",
+      "sourceUrl": "https://p4-sl.streamlake.com/kos/nlav11935/streamlake-website/public/favicon.ico",
+      "pageUrl": "https://www.streamlake.com/document/WANQING/me6ymdjrqv8lp4iq0o9",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "compshare-coding-plan": {
+      "name": "Compshare Coding Plan",
+      "assetFile": "compshare-coding-plan.ico",
+      "sourceUrl": "https://www.compshare.cn/favicon.ico",
+      "pageUrl": "https://www.compshare.cn/coding-plan",
+      "sourceType": "official-site-icon",
+      "officialColor": true
+    },
+    "ollama": {
+      "name": "Ollama",
+      "assetFile": "ollama.png",
+      "sourceUrl": "https://ollama.com/public/apple-touch-icon.png",
+      "pageUrl": "https://ollama.com/",
+      "sourceType": "official-site-icon",
+      "officialColor": false
+    }
+  }
+}

@@ -1,0 +1,853 @@
+.presentation-icon-button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: inherit;
+}
+
+.presentation-toolbar {
+  container-type: inline-size;
+}
+
+.presentation-icon-button:hover:not(:disabled) {
+  background: rgb(0 0 0 / 7%);
+}
+
+.dark .presentation-icon-button:hover:not(:disabled),
+.presentation-viewer--presenting .presentation-icon-button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 11%);
+}
+
+.presentation-icon-button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.presentation-icon-button > svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+}
+
+.presentation-toolbar-separator {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: rgb(0 0 0 / 12%);
+}
+
+.dark .presentation-toolbar-separator,
+.presentation-viewer--presenting .presentation-toolbar-separator {
+  background: rgb(255 255 255 / 16%);
+}
+
+.presentation-command-button {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 4px;
+  background: #fff;
+  padding: 0 7px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.presentation-command-button > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.presentation-split-command {
+  display: inline-flex;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.presentation-split-command-main {
+  min-height: 26px;
+  border-radius: 4px 0 0 4px;
+}
+
+.presentation-split-command-arrow {
+  display: inline-flex;
+  width: 21px;
+  flex: 0 0 21px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-left: 0;
+  border-radius: 0 4px 4px 0;
+  background: #fff;
+}
+
+.presentation-split-command-arrow > svg {
+  width: 13px;
+  height: 13px;
+}
+
+.presentation-split-command-arrow:hover:not(:disabled) {
+  background: #fff7f4;
+  color: #b83b20;
+}
+
+.presentation-split-command-arrow:disabled {
+  opacity: 0.45;
+}
+
+.dark .presentation-split-command-arrow {
+  border-color: rgb(255 255 255 / 14%);
+  background: #2b2d30;
+}
+
+.dark .presentation-split-command-arrow:hover:not(:disabled) {
+  background: #382824;
+}
+
+.presentation-command-button:hover:not(:disabled) {
+  border-color: rgb(210 71 38 / 55%);
+  background: #fff7f4;
+}
+
+.dark .presentation-command-button {
+  border-color: rgb(255 255 255 / 14%);
+  background: #2b2d30;
+}
+
+.dark .presentation-command-button:hover:not(:disabled) {
+  border-color: rgb(236 112 78 / 70%);
+  background: #382824;
+}
+
+.presentation-command-button:disabled {
+  opacity: 0.45;
+}
+
+.presentation-zoom-value {
+  width: 46px;
+  height: 26px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.presentation-zoom-value:hover {
+  background: rgb(0 0 0 / 7%);
+}
+
+.dark .presentation-zoom-value:hover {
+  background: rgb(255 255 255 / 9%);
+}
+
+.presentation-stage {
+  overscroll-behavior: contain;
+  scrollbar-color: rgb(120 120 120 / 65%) transparent;
+}
+
+.presentation-slide-host {
+  color-scheme: light;
+  contain: layout paint style;
+}
+
+.presentation-preserved-spaces {
+  display: inline-block;
+  white-space: pre;
+}
+
+.presentation-slide-host--changing > div {
+  animation: presentation-slide-enter var(--presentation-slide-transition-ms, 340ms) ease-out both;
+}
+
+.presentation-slide-host--changing[data-slide-transition='push'][data-slide-direction='next'] > div,
+.presentation-slide-host--changing[data-slide-transition='cover'][data-slide-direction='next'] > div {
+  animation-name: presentation-slide-enter-next;
+}
+
+.presentation-slide-host--changing[data-slide-transition='push'][data-slide-direction='previous'] > div,
+.presentation-slide-host--changing[data-slide-transition='uncover'][data-slide-direction='previous'] > div {
+  animation-name: presentation-slide-enter-previous;
+}
+
+.presentation-slide-host--changing[data-slide-transition='wipe'][data-slide-direction='next'] > div {
+  animation-name: presentation-slide-wipe-next;
+}
+
+.presentation-slide-host--changing[data-slide-transition='wipe'][data-slide-direction='previous'] > div {
+  animation-name: presentation-slide-wipe-previous;
+}
+
+.presentation-slide-host--changing[data-slide-transition='split'] > div {
+  animation-name: presentation-slide-split;
+}
+
+.presentation-animation-target--pending {
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+.presentation-animation-target--entrance {
+  visibility: visible !important;
+  animation: presentation-object-entrance 360ms ease-out both;
+}
+
+.presentation-animation-target--emphasis {
+  animation: presentation-object-emphasis 420ms ease-in-out both;
+}
+
+.presentation-animation-target--exit {
+  animation: presentation-object-exit 320ms ease-in both;
+  pointer-events: none;
+}
+
+.presentation-operation-error {
+  position: absolute;
+  z-index: 45;
+  top: 48px;
+  right: 12px;
+  max-width: min(520px, calc(100% - 24px));
+  border: 1px solid rgb(185 28 28 / 32%);
+  border-radius: 4px;
+  background: #fff4f3;
+  padding: 7px 10px;
+  color: #a5261e;
+  font-size: 12px;
+  line-height: 18px;
+  box-shadow: 0 5px 16px rgb(0 0 0 / 14%);
+}
+
+.dark .presentation-operation-error {
+  border-color: rgb(255 130 110 / 35%);
+  background: #442521;
+  color: #ffd4ca;
+}
+
+.presentation-edit-dialog-overlay {
+  position: absolute;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 32%);
+  padding: 18px;
+}
+
+.presentation-edit-dialog {
+  width: min(520px, 100%);
+  max-height: calc(100% - 20px);
+  overflow: hidden;
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 6px;
+  background: #f7f7f7;
+  color: #202020;
+  box-shadow: 0 16px 42px rgb(0 0 0 / 28%);
+}
+
+.presentation-edit-dialog-header {
+  display: flex;
+  height: 42px;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid rgb(0 0 0 / 10%);
+  padding: 0 8px 0 12px;
+}
+
+.presentation-edit-dialog-header h2 {
+  min-width: 0;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.presentation-edit-dialog-title-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #d24726;
+  color: #fff;
+}
+
+.presentation-edit-dialog-title-icon > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.presentation-edit-dialog-body {
+  display: flex;
+  max-height: calc(100vh - 190px);
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+  padding: 14px;
+}
+
+.presentation-edit-dialog-body label {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #4b4b4b;
+}
+
+.presentation-edit-dialog-body input,
+.presentation-edit-dialog-body textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid rgb(0 0 0 / 20%);
+  border-radius: 4px;
+  background: #fff;
+  padding: 7px 8px;
+  color: #202020;
+  font-size: 13px;
+  line-height: 20px;
+  outline: none;
+}
+
+.presentation-edit-dialog-body input:focus,
+.presentation-edit-dialog-body textarea:focus {
+  border-color: #d24726;
+  box-shadow: 0 0 0 1px rgb(210 71 38 / 18%);
+}
+
+.presentation-edit-dialog-error {
+  margin-top: 4px;
+  color: #b42318;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.presentation-edit-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid rgb(0 0 0 / 10%);
+  padding: 10px 14px;
+}
+
+.presentation-dialog-button {
+  min-width: 76px;
+  height: 30px;
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 4px;
+  background: #fff;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.presentation-dialog-button--primary {
+  border-color: #c64225;
+  background: #d24726;
+  color: #fff;
+}
+
+.presentation-dialog-button:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.presentation-dialog-button:disabled {
+  opacity: 0.48;
+}
+
+.dark .presentation-edit-dialog {
+  border-color: rgb(255 255 255 / 16%);
+  background: #252729;
+  color: #f4f4f4;
+}
+
+.dark .presentation-edit-dialog-header,
+.dark .presentation-edit-dialog-footer {
+  border-color: rgb(255 255 255 / 11%);
+}
+
+.dark .presentation-edit-dialog-body label {
+  color: #c7c7c7;
+}
+
+.dark .presentation-edit-dialog-body input,
+.dark .presentation-edit-dialog-body textarea,
+.dark .presentation-dialog-button {
+  border-color: rgb(255 255 255 / 17%);
+  background: #303235;
+  color: #fff;
+}
+
+.dark .presentation-dialog-button--primary {
+  border-color: #d85c3f;
+  background: #d24726;
+}
+
+.presentation-thumbnail-pane {
+  min-width: 168px;
+  max-width: 420px;
+}
+
+.presentation-sidebar-tabs {
+  display: flex;
+  height: 35px;
+  flex: 0 0 35px;
+  align-items: stretch;
+  border-bottom: 1px solid rgb(0 0 0 / 12%);
+  background: #fafafa;
+}
+
+.presentation-sidebar-tab {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0 7px;
+  color: #555;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presentation-sidebar-tab::after {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 2px;
+  content: '';
+  background: transparent;
+}
+
+.presentation-sidebar-tab:hover {
+  background: rgb(0 0 0 / 4%);
+  color: #222;
+}
+
+.presentation-sidebar-tab[aria-selected='true'] {
+  color: #b83b20;
+}
+
+.presentation-sidebar-tab[aria-selected='true']::after {
+  background: #d24726;
+}
+
+.presentation-sidebar-tab:focus-visible {
+  outline: 2px solid rgb(210 71 38 / 55%);
+  outline-offset: -2px;
+}
+
+.dark .presentation-sidebar-tabs {
+  border-color: rgb(255 255 255 / 12%);
+  background: #202224;
+}
+
+.dark .presentation-sidebar-tab {
+  color: #bfc1c4;
+}
+
+.dark .presentation-sidebar-tab:hover {
+  background: rgb(255 255 255 / 6%);
+  color: #fff;
+}
+
+.dark .presentation-sidebar-tab[aria-selected='true'] {
+  color: #f08a6f;
+}
+
+.presentation-sidebar-panel {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.presentation-sidebar-panel::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.presentation-sidebar-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.presentation-sidebar-panel::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: rgb(95 95 95 / 38%);
+}
+
+.presentation-sidebar-panel::-webkit-scrollbar-thumb:hover {
+  background: rgb(75 75 75 / 55%);
+}
+
+.dark .presentation-sidebar-panel::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 28%);
+}
+
+.dark .presentation-sidebar-panel::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 44%);
+}
+
+.presentation-outline-panel {
+  padding: 4px 0 8px;
+}
+
+.presentation-outline-item {
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid rgb(0 0 0 / 7%);
+  padding: 9px 9px 10px 5px;
+  color: #282828;
+}
+
+.presentation-outline-item:hover {
+  background: rgb(0 0 0 / 4%);
+}
+
+.presentation-outline-item--active {
+  border-left-color: #d24726;
+  background: rgb(210 71 38 / 7%);
+}
+
+.presentation-outline-number {
+  width: 22px;
+  flex: 0 0 22px;
+  padding-top: 1px;
+  color: #858585;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.presentation-outline-title {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+}
+
+.presentation-outline-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  color: #666;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.presentation-outline-body > span {
+  overflow-wrap: anywhere;
+}
+
+.dark .presentation-outline-item {
+  border-bottom-color: rgb(255 255 255 / 7%);
+  color: #f0f0f0;
+}
+
+.dark .presentation-outline-item:hover {
+  background: rgb(255 255 255 / 5%);
+}
+
+.dark .presentation-outline-item--active {
+  background: rgb(210 71 38 / 13%);
+}
+
+.dark .presentation-outline-number,
+.dark .presentation-outline-body {
+  color: #a9abad;
+}
+
+.presentation-thumbnail-frame {
+  contain: layout paint;
+}
+
+.presentation-thumbnail-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 372px;
+  transform: scale(var(--presentation-thumbnail-scale, 0.387));
+  transform-origin: top left;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.presentation-thumbnail-host [data-pptx-thumbnail='true'] {
+  max-width: none;
+  max-height: none;
+}
+
+.presentation-thumbnail-resizer {
+  position: relative;
+  z-index: 15;
+  width: 6px;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  background: rgb(0 0 0 / 8%);
+}
+
+.presentation-thumbnail-resizer::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0 -4px;
+  content: '';
+}
+
+.presentation-thumbnail-resizer::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  content: '';
+  transform: translateX(-50%);
+  background: rgb(0 0 0 / 16%);
+  transition: width 120ms ease-out, background-color 120ms ease-out;
+}
+
+.presentation-thumbnail-resizer-indicator {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  width: 24px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%) scale(0.92);
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 4px;
+  background: #fff;
+  color: #505050;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
+  opacity: 0;
+  transition: opacity 120ms ease-out, transform 120ms ease-out;
+}
+
+.presentation-thumbnail-resizer-indicator > svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.8;
+}
+
+.presentation-thumbnail-resizer:hover::after,
+.presentation-thumbnail-resizer:focus-visible::after,
+.presentation-viewer[data-thumbnail-resizing='true'] .presentation-thumbnail-resizer::after {
+  width: 2px;
+  background: #d24726;
+}
+
+.presentation-thumbnail-resizer:hover .presentation-thumbnail-resizer-indicator,
+.presentation-thumbnail-resizer:focus-visible .presentation-thumbnail-resizer-indicator,
+.presentation-viewer[data-thumbnail-resizing='true'] .presentation-thumbnail-resizer-indicator {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+.presentation-thumbnail-resizer:focus-visible .presentation-thumbnail-resizer-indicator {
+  outline: 2px solid rgb(210 71 38 / 55%);
+  outline-offset: 1px;
+}
+
+.dark .presentation-thumbnail-resizer {
+  background: rgb(255 255 255 / 8%);
+}
+
+.dark .presentation-thumbnail-resizer::after {
+  background: rgb(255 255 255 / 18%);
+}
+
+.dark .presentation-thumbnail-resizer-indicator {
+  border-color: rgb(255 255 255 / 18%);
+  background: #292b2e;
+  color: #f1f1f1;
+  box-shadow: 0 2px 9px rgb(0 0 0 / 42%);
+}
+
+.presentation-viewer--presenting .presentation-stage {
+  background: #000;
+  overflow: hidden;
+}
+
+.presentation-viewer--presenting .presentation-slide-host {
+  box-shadow: none;
+}
+
+.presentation-viewer--presenting .presentation-toolbar {
+  position: absolute;
+  z-index: 20;
+  bottom: 18px;
+  left: 50%;
+  width: min(520px, calc(100% - 24px));
+  height: 44px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 6px;
+  background: rgb(24 24 24 / 88%);
+  color: #fff;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 38%);
+  opacity: 1;
+  transition: opacity 140ms ease-out;
+}
+
+.presentation-viewer--presenting .presentation-toolbar input {
+  border-color: rgb(255 255 255 / 20%);
+  background: #2b2b2b;
+  color: #fff;
+}
+
+.presentation-viewer--controls-hidden {
+  cursor: none;
+}
+
+.presentation-viewer--controls-hidden .presentation-toolbar {
+  pointer-events: none;
+  opacity: 0;
+}
+
+@keyframes presentation-slide-enter {
+  from {
+    opacity: 0.78;
+    transform: scale(0.997);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes presentation-slide-enter-next {
+  from {
+    opacity: 0.72;
+    transform: translate3d(3.5%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes presentation-slide-enter-previous {
+  from {
+    opacity: 0.72;
+    transform: translate3d(-3.5%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes presentation-slide-wipe-next {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes presentation-slide-wipe-previous {
+  from { clip-path: inset(0 0 0 100%); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes presentation-slide-split {
+  from { clip-path: inset(0 48% 0 48%); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes presentation-object-entrance {
+  from { opacity: 0; filter: blur(2px); }
+  to { opacity: 1; filter: none; }
+}
+
+@keyframes presentation-object-emphasis {
+  0%, 100% { filter: none; }
+  50% { filter: brightness(1.28) saturate(1.25); }
+}
+
+@keyframes presentation-object-exit {
+  from { opacity: 1; }
+  to { visibility: hidden; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presentation-slide-host--changing > div,
+  .presentation-slide-host--changing[data-slide-direction] > div {
+    animation: none;
+  }
+
+  .presentation-viewer--presenting .presentation-toolbar {
+    transition: none;
+  }
+
+  .presentation-thumbnail-resizer::after,
+  .presentation-thumbnail-resizer-indicator {
+    transition: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .presentation-slideshow-button span,
+  .presentation-new-slide-command span {
+    display: none;
+  }
+
+  .presentation-slideshow-button .presentation-split-command-main,
+  .presentation-new-slide-command .presentation-split-command-main {
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+  }
+}
+
+@container (max-width: 760px) {
+  .presentation-new-slide-command span {
+    display: none;
+  }
+
+  .presentation-new-slide-command .presentation-split-command-main {
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+  }
+}
+
+@container (max-width: 420px) {
+  .presentation-zoom-controls {
+    display: none;
+  }
+}
+
+.presentation-inline-edit {
+  position: absolute;
+  z-index: 6;
+  box-sizing: border-box;
+  border: 2px solid rgb(210 71 38 / 85%);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(210 71 38 / 25%), 0 2px 8px rgb(0 0 0 / 18%);
+}
+
+.presentation-inline-edit textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: auto;
+  background: rgb(255 255 255 / 92%);
+  padding: 4px 6px;
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #1f2328;
+}
