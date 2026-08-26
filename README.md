@@ -86,7 +86,7 @@ npm run dist:linux  # Linux
       <sub>⚡ Agent 系统与集成</sub>
     </td>
     <td align="center" width="160px">
-      <a href="https://bytedance.com">
+      <a href="https://seed.bytedance.com/en/">
         <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/doubao-color.png" width="60px;" alt="ByteDance Seed"/><br />
         <sub><b>Seed (豆包)</b></sub>
       </a><br />
