@@ -54,3 +54,44 @@ npm run dist:linux  # Linux
 - SuperDoc、FortuneSheet、Monaco Editor、PDF.js
 - 可选 OnlyOffice Document Server
 - LangChain.js
+
+## 🤖 贡献者与 AI 协作者 (Contributors & AI Collaborators)
+
+本项目在架构设计、功能实现与重构演进过程中，深度协同了以下 AI 智能体共同参与构建：
+
+<table>
+  <tr>
+    <td align="center" width="160px">
+      <a href="https://anthropic.com/claude">
+        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/claude-color.png" width="60px;" alt="Claude"/><br />
+        <sub><b>Claude</b></sub>
+      </a><br />
+      <sub>(Anthropic)</sub><br />
+      <sub>💻 架构与重构</sub>
+    </td>
+    <td align="center" width="160px">
+      <a href="https://openai.com">
+        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/openai.png" width="60px;" alt="GPT"/><br />
+        <sub><b>GPT</b></sub>
+      </a><br />
+      <sub>(OpenAI)</sub><br />
+      <sub>🧠 核心功能与逻辑</sub>
+    </td>
+    <td align="center" width="160px">
+      <a href="https://deepmind.google/technologies/gemini/">
+        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/gemini-color.png" width="60px;" alt="Gemini"/><br />
+        <sub><b>Gemini</b></sub>
+      </a><br />
+      <sub>(Google DeepMind)</sub><br />
+      <sub>⚡ Agent 系统与集成</sub>
+    </td>
+    <td align="center" width="160px">
+      <a href="https://bytedance.com">
+        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/doubao-color.png" width="60px;" alt="ByteDance Seed"/><br />
+        <sub><b>Seed (豆包)</b></sub>
+      </a><br />
+      <sub>(ByteDance)</sub><br />
+      <sub>🛠️ 代码生成与工具生态</sub>
+    </td>
+  </tr>
+</table>

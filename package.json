@@ -1,9 +1,27 @@
 {
   "name": "wps-agent-editor",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "跨平台桌面文档编辑器 - OnlyOffice + 多 Agent 协作",
   "main": "./out/main/main.js",
   "author": "WPS Agent Editor",
+  "contributors": [
+    {
+      "name": "Claude (Anthropic)",
+      "url": "https://anthropic.com"
+    },
+    {
+      "name": "GPT (OpenAI)",
+      "url": "https://openai.com"
+    },
+    {
+      "name": "Gemini (Google DeepMind)",
+      "url": "https://deepmind.google"
+    },
+    {
+      "name": "ByteDance Seed (ByteDance)",
+      "url": "https://bytedance.com"
+    }
+  ],
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
