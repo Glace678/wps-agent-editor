@@ -66,32 +66,28 @@ npm run dist:linux  # Linux
         <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/claude-color.png" width="60px;" alt="Claude"/><br />
         <sub><b>Claude</b></sub>
       </a><br />
-      <sub>(Anthropic)</sub><br />
-      <sub>💻 架构与重构</sub>
+      <sub>(Anthropic)</sub>
     </td>
     <td align="center" width="160px">
       <a href="https://openai.com">
         <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/openai.png" width="60px;" alt="GPT"/><br />
         <sub><b>GPT</b></sub>
       </a><br />
-      <sub>(OpenAI)</sub><br />
-      <sub>🧠 核心功能与逻辑</sub>
+      <sub>(OpenAI)</sub>
     </td>
     <td align="center" width="160px">
       <a href="https://deepmind.google/technologies/gemini/">
         <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/gemini-color.png" width="60px;" alt="Gemini"/><br />
         <sub><b>Gemini</b></sub>
       </a><br />
-      <sub>(Google DeepMind)</sub><br />
-      <sub>⚡ Agent 系统与集成</sub>
+      <sub>(Google DeepMind)</sub>
     </td>
     <td align="center" width="160px">
       <a href="https://seed.bytedance.com/en/">
         <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/doubao-color.png" width="60px;" alt="ByteDance Seed"/><br />
         <sub><b>Seed (豆包)</b></sub>
       </a><br />
-      <sub>(ByteDance)</sub><br />
-      <sub>🛠️ 代码生成与工具生态</sub>
+      <sub>(ByteDance)</sub>
     </td>
   </tr>
 </table>
