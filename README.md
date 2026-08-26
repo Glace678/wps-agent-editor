@@ -16,6 +16,9 @@
 <!-- Language Navigation Bar -->
 [简体中文](./README.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [Français](./README_FR.md) | [Deutsch](./README_DE.md) | [Español](./README_ES.md) | [Português](./README_PT.md) | [Русский](./README_RU.md) | [العربية](./README_AR.md)
 
+<br />
+<sub>本文档及所有语言版本自述文件均由 Gemini 编写与维护</sub>
+
 </div>
 
 ---
@@ -120,7 +123,7 @@ npm run dist:linux
 │  └───────┬───────┘  └───────────────┘  └───────┬───────┘  └───────────────┘   │
 │         │ IPC Secure Channel                  │ IPC State Stream              │
 └─────────┼─────────────────────────────────────┼───────────────────────────────┘
-          │                                     │
+          │                                     │                                
 ┌─────────▼─────────────────────────────────────▼───────────────────────────────┐
 │                 Renderer Process (React + TypeScript + Vite)                  │
 │ ┌─────────────────────┐ ┌────────────────────────┐ ┌────────────────────────┐ │
