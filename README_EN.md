@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📝 WPS Agent Editor
+# WPS Agent Editor
 
 **Cross-platform Lightweight Desktop Document Editor · Local-First · Multi-Agent Collaboration**
 
@@ -14,13 +14,13 @@
 <br />
 
 <!-- Language Navigation Bar -->
-[简体中文](./README.md) &nbsp;|&nbsp; [🌐 English](./README_EN.md) &nbsp;|&nbsp; [日本語](./README_JA.md) &nbsp;|&nbsp; [Français](./README_FR.md) &nbsp;|&nbsp; [Deutsch](./README_DE.md) &nbsp;|&nbsp; [Español](./README_ES.md) &nbsp;|&nbsp; [Português](./README_PT.md) &nbsp;|&nbsp; [Русский](./README_RU.md) &nbsp;|&nbsp; [العربية](./README_AR.md)
+[简体中文](./README.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [Français](./README_FR.md) | [Deutsch](./README_DE.md) | [Español](./README_ES.md) | [Português](./README_PT.md) | [Русский](./README_RU.md) | [العربية](./README_AR.md)
 
 </div>
 
 ---
 
-## 📖 Overview
+## Overview
 
 **WPS Agent Editor** is a cross-platform desktop document editor designed for next-generation human-AI collaborative workflows.
 
@@ -28,36 +28,36 @@ It seamlessly combines a **local-first lightweight Office editing suite** with a
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 1. 📄 Local-First Multi-Format Document Suite
+### 1. Local-First Multi-Format Document Suite
 No heavyweight background server required — ready out of the box:
-* **📝 Word Processing (DOCX / DOC)**: Lightweight rich text formatting engine supporting headings, tables, styles, annotations, and hierarchical outlines.
-* **📊 Spreadsheets (Excel / XLSX / XLS / CSV)**: High-performance spreadsheet interface with mathematical & statistical formulas, cell styling, data filtering, and multi-sheet workbooks.
-* **📑 Presentations (PowerPoint / PPTX)**: Structural slide deck rendering, master layout parsing, and full-screen presentation mode.
-* **💻 Professional Code & Text Editor**: Powered by Monaco Editor (the core engine of VS Code) with syntax highlighting for 50+ languages, code folding, regex find/replace, and autocompletion.
-* **📕 PDF Viewer & Parser**: Multi-page continuous scrolling, table of contents navigation, responsive zooming, and password-protected document decryption.
-* **📋 Real-Time Markdown**: GFM tables, dynamic outline generation, and bidirectional rich text synchronization.
+* **Word Processing (DOCX / DOC)**: Lightweight rich text formatting engine supporting headings, tables, styles, annotations, and hierarchical outlines.
+* **Spreadsheets (Excel / XLSX / XLS / CSV)**: High-performance spreadsheet interface with mathematical & statistical formulas, cell styling, data filtering, and multi-sheet workbooks.
+* **Presentations (PowerPoint / PPTX)**: Structural slide deck rendering, master layout parsing, and full-screen presentation mode.
+* **Professional Code & Text Editor**: Powered by Monaco Editor (the core engine of VS Code) with syntax highlighting for 50+ languages, code folding, regex find/replace, and autocompletion.
+* **PDF Viewer & Parser**: Multi-page continuous scrolling, table of contents navigation, responsive zooming, and password-protected document decryption.
+* **Real-Time Markdown**: GFM tables, dynamic outline generation, and bidirectional rich text synchronization.
 
-### 2. 🤖 Multi-Agent Collaboration Network
+### 2. Multi-Agent Collaboration Network
 Moving beyond single chatbots to an orchestrated multi-role team:
 * **Unified Multi-Provider Support**: Native integrations for **OpenAI (GPT-4o/o3)**, **Anthropic (Claude 3.5/3.7)**, **Google (Gemini 2.0)**, **ByteDance (Seed / Doubao)**, **DeepSeek**, and **Ollama local models**.
 * **Specialized Agent Roles**: Document drafting & rewriting agent, spreadsheet data analysis agent, presentation planner, and code reviewer.
 * **Trustworthy Diff Review & Approval**: Every proposed modification is displayed in an interactive Git-style visual diff, requiring explicit user approval before execution.
 * **Intelligent Context Caching**: Optimized prompt cache handling for long documents, dramatically cutting token costs and latency.
 
-### 3. 🔒 Enterprise-Grade Local Security & Privacy
+### 3. Enterprise-Grade Local Security & Privacy
 * **System-Level Credential Encryption**: All API keys are securely encrypted using Electron native `safeStorage` (Windows DPAPI / macOS Keychain).
 * **Local Sensitive File Isolation**: Automatic file isolation and filtering to prevent private data leakage.
 * **Hardened Sandbox Architecture**: Strict IPC permission whitelist and sandboxed renderer preventing malicious script execution.
 
-### 4. 🌍 Global 9-Language Localization
+### 4. Global 9-Language Localization
 Seamless real-time switching between 9 major international languages:
 > Simplified Chinese · English · Japanese · French · German · Spanish · Portuguese · Russian · Arabic
 
 ---
 
-## 📥 Download & Installation
+## Download & Installation
 
 Visit the [GitHub Releases Page](https://github.com/Glace678/wps-agent-editor/releases) to download:
 
@@ -66,7 +66,7 @@ Visit the [GitHub Releases Page](https://github.com/Glace678/wps-agent-editor/re
 
 ---
 
-## 🚀 Developer Quick Start
+## Developer Quick Start
 
 ### Prerequisites
 * [Node.js](https://nodejs.org/) (>= 18.0.0)
@@ -89,7 +89,7 @@ After starting, configure your AI Provider API Keys or local Ollama URL in the r
 
 ---
 
-## 📦 Cross-Platform Build
+## Cross-Platform Build
 
 Generate standalone desktop installers with a single command:
 
@@ -106,7 +106,7 @@ npm run dist:linux
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -129,7 +129,7 @@ npm run dist:linux
 
 ---
 
-## 🤖 Contributors & AI Collaborators
+## Contributors & AI Collaborators
 
 This project was architected, developed, and refactored in deep synergy with the following AI models:
 
@@ -168,7 +168,7 @@ This project was architected, developed, and refactored in deep synergy with the
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under **[Creative Commons Attribution-NonCommercial 4.0 International (CC-BY-NC 4.0)](./LICENSE)**.
 

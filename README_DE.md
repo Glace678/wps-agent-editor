@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📝 WPS Agent Editor
+# WPS Agent Editor
 
 **Plattformübergreifender, leichtgewichtiger Desktop-Dokumenteneditor · Local-First · Multi-Agent-Kollaboration**
 
@@ -14,13 +14,13 @@
 <br />
 
 <!-- Language Navigation Bar -->
-[简体中文](./README.md) &nbsp;|&nbsp; [English](./README_EN.md) &nbsp;|&nbsp; [日本語](./README_JA.md) &nbsp;|&nbsp; [Français](./README_FR.md) &nbsp;|&nbsp; [🌐 Deutsch](./README_DE.md) &nbsp;|&nbsp; [Español](./README_ES.md) &nbsp;|&nbsp; [Português](./README_PT.md) &nbsp;|&nbsp; [Русский](./README_RU.md) &nbsp;|&nbsp; [العربية](./README_AR.md)
+[简体中文](./README.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [Français](./README_FR.md) | [Deutsch](./README_DE.md) | [Español](./README_ES.md) | [Português](./README_PT.md) | [Русский](./README_RU.md) | [العربية](./README_AR.md)
 
 </div>
 
 ---
 
-## 📖 Projektübersicht
+## Projektübersicht
 
 **WPS Agent Editor** ist ein moderner, plattformübergreifender Dokumenteneditor für die Mensch-KI-Kollaboration der nächsten Generation.
 
@@ -28,36 +28,36 @@ Er verbindet eine **Local-First-Office-Suite** mit einem **autonomen Multi-Agent
 
 ---
 
-## ✨ Hauptfunktionen
+## Hauptfunktionen
 
-### 1. 📄 Local-First Multi-Format-Dokumentensuite
+### 1. Local-First Multi-Format-Dokumentensuite
 Sofort einsatzbereit ohne schwere Hintergrundserver:
-* **📝 Textverarbeitung (DOCX / DOC)**: Schlanke Rendering-Engine mit Formatierungen, Überschriftenhierarchien, Tabellen und Anmerkungen.
-* **📊 Tabellenkalkulation (Excel / XLSX / XLS / CSV)**: Leistungsstarke Tabellen mit mathematischen & statistischen Formeln, Zellstilen und Multi-Sheet-Support.
-* **📑 Präsentationen (PowerPoint / PPTX)**: Strukturierte Folienanzeige, Master-Folien-Parsing und Vollbild-Präsentationsmodus.
-* **💻 Professioneller Code-Editor**: Integrierter Monaco Editor (VS Code Kern) mit Syntax-Highlighting für 50+ Sprachen, Code-Faltung und Regex-Suche.
-* **📕 PDF-Viewer**: Flüssiges Multi-Page-Scrolling, Inhaltsverzeichnisnavigation und passwortgeschützte Entschlüsselung.
-* **📋 Live-Markdown**: GFM-Tabellen, dynamisches Inhaltsverzeichnis und bidirektionale Synchronisierung.
+* **Textverarbeitung (DOCX / DOC)**: Schlanke Rendering-Engine mit Formatierungen, Überschriftenhierarchien, Tabellen und Anmerkungen.
+* **Tabellenkalkulation (Excel / XLSX / XLS / CSV)**: Leistungsstarke Tabellen mit mathematischen & statistischen Formeln, Zellstilen und Multi-Sheet-Support.
+* **Präsentationen (PowerPoint / PPTX)**: Strukturierte Folienanzeige, Master-Folien-Parsing und Vollbild-Präsentationsmodus.
+* **Professioneller Code-Editor**: Integrierter Monaco Editor (VS Code Kern) mit Syntax-Highlighting für 50+ Sprachen, Code-Faltung und Regex-Suche.
+* **PDF-Viewer**: Flüssiges Multi-Page-Scrolling, Inhaltsverzeichnisnavigation und passwortgeschützte Entschlüsselung.
+* **Live-Markdown**: GFM-Tabellen, dynamisches Inhaltsverzeichnis und bidirektionale Synchronisierung.
 
-### 2. 🤖 Multi-Agenten-Kollaborationsnetzwerk
+### 2. Multi-Agenten-Kollaborationsnetzwerk
 Mehr als nur ein Chatbot – ein koordiniertes KI-Team:
 * **Multi-Provider-Unterstützung**: Native Anbindung an **OpenAI (GPT-4o/o3)**, **Anthropic (Claude 3.5/3.7)**, **Google (Gemini 2.0)**, **ByteDance (Seed / Doubao)**, **DeepSeek** und **lokale Ollama-Modelle**.
 * **Spezialisierte Agenten-Rollen**: Dokumenten-Assistent, Datenanalyse-Assistent, Präsentationsplaner und Code-Reviewer.
 * **Sicherer Diff-Prüfungs-Workflow**: Alle vorgeschlagenen Änderungen werden als interaktiver Git-Diff visualisiert und erst nach Freigabe angewendet.
 * **Smart Context Caching**: Optimiertes Prompt-Caching für lange Dokumente minimiert Token-Kosten und Latenzen.
 
-### 3. 🔒 Höchste lokale Sicherheit & Datenschutz
+### 3. Höchste lokale Sicherheit & Datenschutz
 * **Systemverschlüsselung für API-Keys**: API-Schlüssel werden über Electrons `safeStorage` (Windows DPAPI / macOS Keychain) verschlüsselt gespeichert.
 * **Lokale Datenfilterung**: Automatische Isolation sensibler Systemdateien.
 * **Sandbox-Architektur**: Strikte IPC-Whitelist und isolierte Renderer-Prozesse.
 
-### 4. 🌍 Globale Unterstützung für 9 Sprachen
+### 4. Globale Unterstützung für 9 Sprachen
 Vollständig lokalisierte Oberfläche und Agenten in 9 Sprachen:
 > Vereinfachtes Chinesisch · Englisch · Japanisch · Französisch · Deutsch · Spanisch · Portugiesisch · Russisch · Arabisch
 
 ---
 
-## 📥 Download & Installation
+## Download & Installation
 
 Laden Sie die neueste Version auf der [GitHub Releases-Seite](https://github.com/Glace678/wps-agent-editor/releases) herunter:
 
@@ -66,7 +66,7 @@ Laden Sie die neueste Version auf der [GitHub Releases-Seite](https://github.com
 
 ---
 
-## 🚀 Entwickler-Schnellstart
+## Entwickler-Schnellstart
 
 ### Voraussetzungen
 * [Node.js](https://nodejs.org/) (>= 18.0.0)
@@ -88,7 +88,7 @@ npm run dev
 
 ---
 
-## 📦 Plattformübergreifender Build
+## Plattformübergreifender Build
 
 Erstellen Sie Desktop-Installer mit einem einzigen Befehl:
 
@@ -105,7 +105,7 @@ npm run dist:linux
 
 ---
 
-## 🏛️ Systemarchitektur
+## Systemarchitektur
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -128,7 +128,7 @@ npm run dist:linux
 
 ---
 
-## 🤖 Mitwirkende & KI-Kollaborateure
+## Mitwirkende & KI-Kollaborateure
 
 Dieses Projekt wurde in enger Zusammenarbeit mit folgenden KI-Modellen entwickelt und optimiert:
 
@@ -167,7 +167,7 @@ Dieses Projekt wurde in enger Zusammenarbeit mit folgenden KI-Modellen entwickel
 
 ---
 
-## 📄 Lizenz
+## Lizenz
 
 Lizenziert unter **[Creative Commons Namensnennung - Nicht-kommerziell 4.0 International (CC-BY-NC 4.0)](./LICENSE)**.
 

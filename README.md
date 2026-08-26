@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📝 WPS Agent Editor
+# WPS Agent Editor
 
 **跨平台轻量级桌面文档编辑器 · 本地优先 · 多 Agent 智能协作**
 
@@ -14,13 +14,13 @@
 <br />
 
 <!-- Language Navigation Bar -->
-[🌐 简体中文](./README.md) &nbsp;|&nbsp; [English](./README_EN.md) &nbsp;|&nbsp; [日本語](./README_JA.md) &nbsp;|&nbsp; [Français](./README_FR.md) &nbsp;|&nbsp; [Deutsch](./README_DE.md) &nbsp;|&nbsp; [Español](./README_ES.md) &nbsp;|&nbsp; [Português](./README_PT.md) &nbsp;|&nbsp; [Русский](./README_RU.md) &nbsp;|&nbsp; [العربية](./README_AR.md)
+[简体中文](./README.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [Français](./README_FR.md) | [Deutsch](./README_DE.md) | [Español](./README_ES.md) | [Português](./README_PT.md) | [Русский](./README_RU.md) | [العربية](./README_AR.md)
 
 </div>
 
 ---
 
-## 📖 项目简介
+## 项目简介
 
 **WPS Agent Editor** 是一款专为下一代人机协同办公设计的**跨平台桌面文档编辑器**。
 
@@ -28,36 +28,36 @@
 
 ---
 
-## ✨ 核心特性
+## 核心特性
 
-### 1. 📄 全格式本地优先文档套件
+### 1. 全格式本地优先文档套件
 无需依赖外部重型服务端，开箱即用：
-* **📝 文档编辑 (Word / DOCX / DOC)**：基于轻量排版引擎，支持富文本样式、段落排版、表格插入、批注与标题层级大纲。
-* **📊 表格计算 (Excel / XLSX / XLS / CSV)**：集成高性能电子表格，内置丰富数学/统计公式、单元格样式定制、数据筛选与多工作表管理。
-* **📑 幻灯片演示 (PowerPoint / PPTX)**：支持幻灯片结构化渲染、母版解析与全屏沉浸式放映预览模式。
-* **💻 专业代码与文本编辑**：内置 Monaco Editor（VS Code 核心编辑器），支持 50+ 种主流编程语言语法高亮、代码折叠、正则查找替换与智能提示。
-* **📕 PDF 阅读与解析**：支持多页平滑滚动、目录跳转、缩放自适应与加密文档解密。
-* **📋 Markdown 即时创作**：支持 GFM 扩展语法、实时目录大纲与富文本双向同步。
+* **文档编辑 (Word / DOCX / DOC)**：基于轻量排版引擎，支持富文本样式、段落排版、表格插入、批注与标题层级大纲。
+* **表格计算 (Excel / XLSX / XLS / CSV)**：集成高性能电子表格，内置丰富数学/统计公式、单元格样式定制、数据筛选与多工作表管理。
+* **幻灯片演示 (PowerPoint / PPTX)**：支持幻灯片结构化渲染、母版解析与全屏沉浸式放映预览模式。
+* **专业代码与文本编辑**：内置 Monaco Editor（VS Code 核心编辑器），支持 50+ 种主流编程语言语法高亮、代码折叠、正则查找替换与智能提示。
+* **PDF 阅读与解析**：支持多页平滑滚动、目录跳转、缩放自适应与加密文档解密。
+* **Markdown 即时创作**：支持 GFM 扩展语法、实时目录大纲与富文本双向同步。
 
-### 2. 🤖 多 Agent 智能协同创作网络
+### 2. 多 Agent 智能协同创作网络
 打破单一 AI 对话框的局限，构建多角色协同矩阵：
 * **多模型统一接入**：原生聚合 **OpenAI (GPT-4o/o3)**、**Anthropic (Claude 3.5/3.7)**、**Google (Gemini 2.0)**、**字节跳动 (ByteDance Seed / 豆包)**、**DeepSeek** 以及 **Ollama 本地私有化模型**。
 * **专业化分工协作**：内置文档改写助手、数据透视助手、演示文稿策划助手与代码审查助手。
 * **可信文档 Diff 审批流**：Agent 的每一次改动均以直观的 Git 风格 Diff 差异高亮呈现，需用户一键审查批准后方可生效，彻底避免内容被不可逆覆盖。
 * **智能上下文缓存**：针对长文档优化 Prompt 缓存机制，极大降低 Token 开销与响应延迟。
 
-### 3. 🔒 严谨的本地安全与隐私保护
+### 3. 严谨的本地安全与隐私保护
 * **系统级密钥加密**：所有 Provider API Key 均采用 Electron 原生 `safeStorage`（Windows DPAPI / macOS Keychain）底层加密存储。
 * **纯本地脱敏过滤**：敏感系统文件自动隔离与过滤，确保本地隐私数据零泄露。
 * **沙箱隔离架构**：严格的 IPC 权限白名单机制与 Sandbox Renderer，杜绝恶意脚本注入。
 
-### 4. 🌍 全球化 9 语言支持
+### 4. 全球化 9 语言支持
 UI 与 Agent 系统深度本地化，支持 **9 种国际主流语言**一键即时无缝切换：
 > 简体中文 · English · 日本語 · Français · Deutsch · Español · Português · Русский · العربية
 
 ---
 
-## 📥 下载安装
+## 下载安装
 
 前往 [GitHub Releases 发行版页面](https://github.com/Glace678/wps-agent-editor/releases) 获取最新安装包：
 
@@ -66,7 +66,7 @@ UI 与 Agent 系统深度本地化，支持 **9 种国际主流语言**一键即
 
 ---
 
-## 🚀 开发者快速开始
+## 开发者快速开始
 
 ### 运行环境准备
 * [Node.js](https://nodejs.org/) (>= 18.0.0)
@@ -92,48 +92,47 @@ npm run dev
 
 ---
 
-## 📦 跨平台打包构建
+## 跨平台打包构建
 
 本项目支持一键生成多平台桌面客户端二进制安装包：
 
 ```bash
-# 构建 Windows 安装包与免安装便携版 (.exe)
+# Windows (.exe)
 npm run dist:win
 
-# 构建 macOS 安装包 (.dmg / .zip)
+# macOS (.dmg / .zip)
 npm run dist:mac
 
-# 构建 Linux 软件包 (.AppImage / .deb)
+# Linux (.AppImage / .deb)
 npm run dist:linux
 ```
-构建产物将输出在根目录下的 `release/` 文件夹中。
 
 ---
 
-## 🏛️ 系统架构
+## 系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Electron 主进程 (Node.js)                           │
+│                         Electron Main Process (Node.js)                     │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐ │
 │  │ FileService  │  │ MenuManager  │  │ AgentOrchest │  │ SafeStorage     │ │
-│  │ (本地文件系统)│  │ (原生系统菜单)│  │ (LangChain.js)│ │ (系统密钥加密)   │ │
+│  │ (Local FS)   │  │ (Native Menu)│  │ (LangChain.js)│ │ (Key Encryption)│ │
 │  └──────┬───────┘  └──────────────┘  └──────┬───────┘  └─────────────────┘ │
-│         │ IPC 安全通信通道                   │ IPC 状态流                    │
+│         │ IPC Secure Channel                 │ IPC State Stream              │
 └─────────┼────────────────────────────────────┼─────────────────────────────┘
           │                                    │
 ┌─────────▼────────────────────────────────────▼─────────────────────────────┐
-│                      渲染进程 (React + TypeScript + Vite)                    │
+│                      Renderer Process (React + TypeScript + Vite)            │
 │  ┌────────────┐  ┌─────────────────────────┐  ┌──────────────────────────┐ │
 │  │ FileManager│  │ LightweightDocumentEditor│  │ AgentCollaborationWorkspace│
-│  │ 文件树/搜索 │  │ Word/Excel/PPT/PDF/Code │  │ 对话/任务流/Diff修改审批  │ │
+│  │ Tree/Search│  │ Word/Excel/PPT/PDF/Code │  │ Chat/Tasks/Diff Approval │ │
 │  └────────────┘  └─────────────────────────┘  └──────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🤖 贡献者与 AI 协作者 (Contributors & AI Collaborators)
+## 贡献者与 AI 协作者 (Contributors & AI Collaborators)
 
 本项目在架构设计、核心逻辑编写与代码重构演进过程中，深度协同了以下 AI 智能体共同参与构建：
 
@@ -172,7 +171,7 @@ npm run dist:linux
 
 ---
 
-## 📄 开源许可证 (License)
+## 开源许可证 (License)
 
 本项目采用 **[Creative Commons Attribution-NonCommercial 4.0 International (CC-BY-NC 4.0)](./LICENSE)** 许可协议。
 

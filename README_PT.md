@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📝 WPS Agent Editor
+# WPS Agent Editor
 
 **Editor de documentos desktop leve e multiplataforma · Local-First · Colaboração Multi-Agente**
 
@@ -14,13 +14,13 @@
 <br />
 
 <!-- Language Navigation Bar -->
-[简体中文](./README.md) &nbsp;|&nbsp; [English](./README_EN.md) &nbsp;|&nbsp; [日本語](./README_JA.md) &nbsp;|&nbsp; [Français](./README_FR.md) &nbsp;|&nbsp; [Deutsch](./README_DE.md) &nbsp;|&nbsp; [Español](./README_ES.md) &nbsp;|&nbsp; [🌐 Português](./README_PT.md) &nbsp;|&nbsp; [Русский](./README_RU.md) &nbsp;|&nbsp; [العربية](./README_AR.md)
+[简体中文](./README.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [Français](./README_FR.md) | [Deutsch](./README_DE.md) | [Español](./README_ES.md) | [Português](./README_PT.md) | [Русский](./README_RU.md) | [العربية](./README_AR.md)
 
 </div>
 
 ---
 
-## 📖 Visão Geral
+## Visão Geral
 
 **WPS Agent Editor** é um editor de documentos desktop inovador, projetado para fluxos de trabalho colaborativos entre humanos e IA.
 
@@ -28,31 +28,31 @@ Integra uma suíte Office **Local-First** com uma rede de **múltiplos agentes a
 
 ---
 
-## ✨ Recursos Principais
+## Recursos Principais
 
-### 1. 📄 Suíte de Documentos Multiformato Local-First
-* **📝 Processamento de Texto (DOCX / DOC)**: Formatação avançada, tabelas, anotações e sumários hierárquicos.
-* **📊 Planilhas (Excel / XLSX / XLS / CSV)**: Fórmulas matemáticas e estatísticas, estilos de células e abas múltiplas.
-* **📑 Apresentações (PowerPoint / PPTX)**: Renderização de slides e modo apresentação em tela cheia.
-* **💻 Editor de Código e Texto**: Monaco Editor integrado com suporte a mais de 50 linguagens.
-* **📕 Leitor PDF**: Rolagem suave, navegação por índice e descriptografia.
-* **📋 Markdown em Tempo Real**: Tabelas GFM e sincronização bidirecional.
+### 1. Suíte de Documentos Multiformato Local-First
+* **Processamento de Texto (DOCX / DOC)**: Formatação avançada, tabelas, anotações e sumários hierárquicos.
+* **Planilhas (Excel / XLSX / XLS / CSV)**: Fórmulas matemáticas e estatísticas, estilos de células e abas múltiplas.
+* **Apresentações (PowerPoint / PPTX)**: Renderização de slides e modo apresentação em tela cheia.
+* **Editor de Código e Texto**: Monaco Editor integrado com suporte a mais de 50 linguagens.
+* **Leitor PDF**: Rolagem suave, navegação por índice e descriptografia.
+* **Markdown em Tempo Real**: Tabelas GFM e sincronização bidirecional.
 
-### 2. 🤖 Rede de Colaboração Multi-Agente
+### 2. Rede de Colaboração Multi-Agente
 * **Integração Multi-Provedor**: **OpenAI (GPT-4o/o3)**, **Anthropic (Claude 3.5/3.7)**, **Google (Gemini 2.0)**, **ByteDance (Seed / Doubao)**, **DeepSeek** e **Ollama**.
 * **Fluxo de Aprovação Diff**: Alterações exibidas em Diff visual estilo Git com aprovação do usuário.
 * **Cache Inteligente**: Otimização de contexto e redução de latência.
 
-### 3. 🔒 Segurança e Privacidade Local
+### 3. Segurança e Privacidade Local
 * **Criptografia de Chaves**: Chaves de API salvas via `safeStorage` do Electron.
 * **Isolamento de Arquivos Sensíveis**: Filtragem segura de dados locais.
 
-### 4. 🌍 Suporte a 9 Idiomas Globais
+### 4. Suporte a 9 Idiomas Globais
 > Chinês Simplificado · Inglês · Japonês · Francês · Alemão · Espanhol · Português · Russo · Árabe
 
 ---
 
-## 📥 Download e Instalação
+## Download e Instalação
 
 Baixe em [GitHub Releases](https://github.com/Glace678/wps-agent-editor/releases):
 
@@ -60,7 +60,7 @@ Baixe em [GitHub Releases](https://github.com/Glace678/wps-agent-editor/releases
 
 ---
 
-## 🚀 Início Rápido
+## Início Rápido
 
 ### Pré-requisitos
 * [Node.js](https://nodejs.org/) (>= 18.0.0)
@@ -82,7 +82,7 @@ npm run dev
 
 ---
 
-## 📦 Build Multiplataforma
+## Build Multiplataforma
 
 Comandos para compilação:
 
@@ -99,7 +99,7 @@ npm run dist:linux
 
 ---
 
-## 🏛️ Arquitetura
+## Arquitetura
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -122,7 +122,7 @@ npm run dist:linux
 
 ---
 
-## 🤖 Contribuidores e Colaboradores IA
+## Contribuidores e Colaboradores IA
 
 Desenvolvido em colaboração com os seguintes modelos de IA:
 
@@ -161,7 +161,7 @@ Desenvolvido em colaboração com os seguintes modelos de IA:
 
 ---
 
-## 📄 Licença
+## Licença
 
 Licenciado sob **[Creative Commons Atribuição-NãoComercial 4.0 Internacional (CC-BY-NC 4.0)](./LICENSE)**.
 

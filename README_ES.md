@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📝 WPS Agent Editor
+# WPS Agent Editor
 
 **Editor de documentos de escritorio ligero y multiplataforma · Local-First · Colaboración Multi-Agente**
 
@@ -14,13 +14,13 @@
 <br />
 
 <!-- Language Navigation Bar -->
-[简体中文](./README.md) &nbsp;|&nbsp; [English](./README_EN.md) &nbsp;|&nbsp; [日本語](./README_JA.md) &nbsp;|&nbsp; [Français](./README_FR.md) &nbsp;|&nbsp; [Deutsch](./README_DE.md) &nbsp;|&nbsp; [🌐 Español](./README_ES.md) &nbsp;|&nbsp; [Português](./README_PT.md) &nbsp;|&nbsp; [Русский](./README_RU.md) &nbsp;|&nbsp; [العربية](./README_AR.md)
+[简体中文](./README.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [Français](./README_FR.md) | [Deutsch](./README_DE.md) | [Español](./README_ES.md) | [Português](./README_PT.md) | [Русский](./README_RU.md) | [العربية](./README_AR.md)
 
 </div>
 
 ---
 
-## 📖 Descripción General
+## Descripción General
 
 **WPS Agent Editor** es un editor de documentos de escritorio diseñado para la colaboración humano-IA de próxima generación.
 
@@ -28,36 +28,36 @@ Combina una suite ofimática ligera **Local-First** con una red autónoma de **m
 
 ---
 
-## ✨ Características Principales
+## Características Principales
 
-### 1. 📄 Suite Ofimática Local-First Multiformato
+### 1. Suite Ofimática Local-First Multiformato
 Listo para usar sin servidores pesados:
-* **📝 Procesador de Textos (DOCX / DOC)**: Formato enriquecido, tablas, estilos, anotaciones y esquemas jerárquicos.
-* **📊 Hojas de Cálculo (Excel / XLSX / XLS / CSV)**: Fórmulas matemáticas/estadísticas, estilos de celda, filtros y soporte multisección.
-* **📑 Diapositivas (PowerPoint / PPTX)**: Renderizado de diapositivas, estilos maestros y modo presentación a pantalla completa.
-* **💻 Editor de Código y Texto**: Motor Monaco Editor (el núcleo de VS Code) con resaltado para más de 50 lenguajes.
-* **📕 Lector PDF**: Desplazamiento fluido, índice de contenidos y descifrado seguro.
-* **📋 Markdown en Tiempo Real**: Tablas GFM, esquema dinámico y sincronización visual.
+* **Procesador de Textos (DOCX / DOC)**: Formato enriquecido, tablas, estilos, anotaciones y esquemas jerárquicos.
+* **Hojas de Cálculo (Excel / XLSX / XLS / CSV)**: Fórmulas matemáticas/estadísticas, estilos de celda, filtros y soporte multisección.
+* **Diapositivas (PowerPoint / PPTX)**: Renderizado de diapositivas, estilos maestros y modo presentación a pantalla completa.
+* **Editor de Código y Texto**: Motor Monaco Editor (el núcleo de VS Code) con resaltado para más de 50 lenguajes.
+* **Lector PDF**: Desplazamiento fluido, índice de contenidos y descifrado seguro.
+* **Markdown en Tiempo Real**: Tablas GFM, esquema dinámico y sincronización visual.
 
-### 2. 🤖 Ecosistema Colaborativo Multi-Agente
+### 2. Ecosistema Colaborativo Multi-Agente
 Un equipo de asistentes especializados:
 * **Soporte Multi-Proveedor**: **OpenAI (GPT-4o/o3)**, **Anthropic (Claude 3.5/3.7)**, **Google (Gemini 2.0)**, **ByteDance (Seed / Doubao)**, **DeepSeek** y **modelos locales Ollama**.
 * **Roles Especializados**: Asistente de redacción, análisis de datos, diseño de presentaciones y revisión de código.
 * **Flujo de Aprobación Diff Confiable**: Cada modificación se muestra en un Diff visual estilo Git y requiere confirmación del usuario.
 * **Caché Inteligente de Contexto**: Reduce costes de tokens y tiempos de respuesta.
 
-### 3. 🔒 Seguridad y Privacidad Local
+### 3. Seguridad y Privacidad Local
 * **Cifrado de Credenciales**: Las claves API se almacenan con `safeStorage` de Electron.
 * **Aislamiento de Archivos Sensibles**: Filtrado automático de archivos del sistema.
 * **Arquitectura Sandbox**: Permisos IPC estrictos y renderizado seguro.
 
-### 4. 🌍 Soporte Global para 9 Idiomas
+### 4. Soporte Global para 9 Idiomas
 Interfaz localizada en 9 idiomas principales:
 > Chino simplificado · Inglés · Japonés · Francés · Alemán · Español · Portugués · Ruso · Árabe
 
 ---
 
-## 📥 Descarga e Instalación
+## Descarga e Instalación
 
 Visite [GitHub Releases](https://github.com/Glace678/wps-agent-editor/releases) para descargar:
 
@@ -65,7 +65,7 @@ Visite [GitHub Releases](https://github.com/Glace678/wps-agent-editor/releases) 
 
 ---
 
-## 🚀 Inicio Rápido para Desarrolladores
+## Inicio Rápido para Desarrolladores
 
 ### Requisitos previos
 * [Node.js](https://nodejs.org/) (>= 18.0.0)
@@ -87,7 +87,7 @@ npm run dev
 
 ---
 
-## 📦 Construcción Multiplataforma
+## Construcción Multiplataforma
 
 Genere ejecutables con un solo comando:
 
@@ -104,7 +104,7 @@ npm run dist:linux
 
 ---
 
-## 🏛️ Arquitectura del Sistema
+## Arquitectura del Sistema
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -127,7 +127,7 @@ npm run dist:linux
 
 ---
 
-## 🤖 Contribuidores y Colaboradores IA
+## Contribuidores y Colaboradores IA
 
 Proyecto desarrollado y optimizado en colaboración con los siguientes modelos de IA:
 
@@ -166,7 +166,7 @@ Proyecto desarrollado y optimizado en colaboración con los siguientes modelos d
 
 ---
 
-## 📄 Licencia
+## Licencia
 
 Licenciado bajo **[Creative Commons Atribución-NoComercial 4.0 Internacional (CC-BY-NC 4.0)](./LICENSE)**.
 
