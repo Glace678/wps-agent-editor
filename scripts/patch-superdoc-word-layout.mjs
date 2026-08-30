@@ -64,6 +64,34 @@ function applyReplacement(source, replacement, file) {
 
 const replacements = [
   {
+    label: 'preserve exact formatting from imported heading style definitions',
+    from: `function resolveStyleDefinition(params, styleId) {
+	const styles = params.translatedLinkedStyles?.styles;
+	const styleDef = styles?.[styleId];
+	if (!styles || !styleDef) return;
+	const headingLevel = getBuiltInHeadingLevel(styleDef);
+	const canonicalHeadingStyleId = headingLevel ? \`Heading\${headingLevel}\` : null;
+	const canonicalHeadingStyleDef = canonicalHeadingStyleId ? styles[canonicalHeadingStyleId] : void 0;
+	if (canonicalHeadingStyleId && canonicalHeadingStyleId !== styleId && canonicalHeadingStyleDef && getBuiltInHeadingLevel(canonicalHeadingStyleDef) === headingLevel) return {
+		styleId: canonicalHeadingStyleId,
+		styleDef: canonicalHeadingStyleDef
+	};
+	return {
+		styleId,
+		styleDef
+	};
+}`,
+    to: `function resolveStyleDefinition(params, styleId) {
+	const styles = params.translatedLinkedStyles?.styles;
+	const styleDef = styles?.[styleId];
+	if (!styles || !styleDef) return;
+	return {
+		styleId,
+		styleDef
+	};
+}`,
+  },
+  {
     label: 'measure automatic line spacing against the active Word document grid',
     from: `const normalizeParagraphSpacing = (value, isList$2) => {`,
     to: `const normalizeParagraphSpacing = (value, isList$2, snapToGrid, documentGrid) => {`,
@@ -230,6 +258,52 @@ const layoutReplacements = [
     label: 'measure a kept table anchor from its Word row start height',
     from: `\t\t\t\tif (anchorBlock.kind === "table" && anchorMeasure.kind === "table" && anchorMeasure.rows.length > 0) {\n\t\t\t\t\tconst firstRowHeight = anchorMeasure.rows[0]?.height;\n\t\t\t\t\tif (typeof firstRowHeight === "number" && Number.isFinite(firstRowHeight) && firstRowHeight > 0) anchorHeight = firstRowHeight;\n\t\t\t\t}`,
     to: `\t\t\t\tif (anchorBlock.kind === "table" && anchorMeasure.kind === "table" && anchorMeasure.rows.length > 0) {\n\t\t\t\t\tconst firstRowHeight = anchorMeasure.rows[0]?.height;\n\t\t\t\t\tconst explicitRowStartHeight = getExplicitRowStartHeight(anchorBlock.rows[0]);\n\t\t\t\t\tif (explicitRowStartHeight != null) anchorHeight = explicitRowStartHeight;\n\t\t\t\t\telse if (typeof firstRowHeight === "number" && Number.isFinite(firstRowHeight) && firstRowHeight > 0) anchorHeight = firstRowHeight;\n\t\t\t\t}`,
+  },
+  {
+    label: 'keep paragraph-final spaces on the final visible Word line',
+    from: `	const trimTrailingWrapSpaces = (lineToTrim) => {`,
+    to: `	const lineHasNonSpaceContent = (line) => {
+		for (let runIndex = line.fromRun; runIndex <= line.toRun; runIndex++) {
+			const candidate = runsToProcess[runIndex];
+			if (!candidate) continue;
+			if (!isTextRun$2(candidate) || typeof candidate.text !== "string") return true;
+			const fromChar = runIndex === line.fromRun ? line.fromChar : 0;
+			const toChar = runIndex === line.toRun ? line.toChar : candidate.text.length;
+			if (/[^ ]/.test(candidate.text.slice(fromChar, toChar))) return true;
+		}
+		return false;
+	};
+	const hasOnlyTrailingWrapSpaces = (fromRun, fromChar) => {
+		for (let runIndex = fromRun; runIndex < runsToProcess.length; runIndex++) {
+			const candidate = runsToProcess[runIndex];
+			if (!isTextRun$2(candidate) || typeof candidate.text !== "string") return false;
+			const text = runIndex === fromRun ? candidate.text.slice(fromChar) : candidate.text;
+			if (/[^ ]/.test(text)) return false;
+		}
+		return true;
+	};
+	const trimTrailingWrapSpaces = (lineToTrim) => {`,
+  },
+  {
+    label: 'preserve whitespace-only paragraphs while trimming visible line tails',
+    from: `		if (trimCount === 0) return;
+		if (lineToTrim.fromRun === lineToTrim.toRun && sliceText.trim().length === 0) return;`,
+    to: `		if (trimCount === 0 || !lineHasNonSpaceContent(lineToTrim)) return;`,
+  },
+  {
+    label: 'do not wrap spaces that only trail the paragraph',
+    from: `						if (currentLine.width + boundarySpacing$1 + singleSpaceWidth > currentLine.maxWidth - WIDTH_FUDGE_PX$1 && currentLine.width > 0) {`,
+    to: `						if (!hasOnlyTrailingWrapSpaces(runIndex, spaceStartChar) && currentLine.width + boundarySpacing$1 + singleSpaceWidth > currentLine.maxWidth - WIDTH_FUDGE_PX$1 && currentLine.width > 0) {`,
+  },
+  {
+    label: 'remove paragraph-final space width before final line metrics',
+    from: `	if (currentLine) {
+		const metrics = finalizeLineMetrics(currentLine, spacing);
+		const finalLine = {`,
+    to: `	if (currentLine) {
+		trimTrailingWrapSpaces(currentLine);
+		const metrics = finalizeLineMetrics(currentLine, spacing);
+		const finalLine = {`,
   },
   {
     label: 'snap implicit line boxes to whole Word document-grid rows',
