@@ -9,10 +9,12 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use tauri::{
-    menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    Emitter, Manager, State, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
-};
+#[cfg(target_os = "macos")]
+use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+#[cfg(target_os = "macos")]
+use tauri::Wry;
+use tauri::{Emitter, Manager, State, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::UpdaterExt;
 use uuid::Uuid;
 
@@ -168,7 +170,11 @@ pub fn app_i18n_set_language(
 }
 
 #[tauri::command]
-pub fn app_menu_perform(action: String, window: WebviewWindow) -> AppResult<SuccessResult> {
+pub fn app_menu_perform(
+    action: String,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> AppResult<SuccessResult> {
     match action.as_str() {
         "quit" => window.app_handle().exit(0),
         "toggle-fullscreen" => {
@@ -179,10 +185,22 @@ pub fn app_menu_perform(action: String, window: WebviewWindow) -> AppResult<Succ
                 .set_fullscreen(!fullscreen)
                 .map_err(|error| AppError::internal(error.to_string()))?;
         }
+        "reload" | "force-reload" => {
+            window
+                .reload()
+                .map_err(|error| AppError::internal(error.to_string()))?;
+        }
+        "toggle-dev-tools" => {
+            if window.is_devtools_open() {
+                window.close_devtools();
+            } else {
+                window.open_devtools();
+            }
+        }
+        "show-about" => show_about_dialog(&window, &state.language.read()),
         "open-file" | "open-folder" | "save" | "print" | "undo" | "redo" | "cut" | "copy"
-        | "paste" | "select-all" | "reload" | "force-reload" | "toggle-dev-tools"
-        | "reset-zoom" | "zoom-in" | "zoom-out" | "new-agent" | "run-multi-agent"
-        | "show-about" => {
+        | "paste" | "select-all" | "reset-zoom" | "zoom-in" | "zoom-out" | "new-agent"
+        | "run-multi-agent" => {
             window
                 .emit(&format!("menu:{action}"), ())
                 .map_err(|error| AppError::internal(error.to_string()))?;
@@ -190,6 +208,29 @@ pub fn app_menu_perform(action: String, window: WebviewWindow) -> AppResult<Succ
         _ => return Err(AppError::invalid("Unsupported application menu action")),
     }
     Ok(success())
+}
+
+fn show_about_dialog(window: &WebviewWindow, language: &str) {
+    let version = env!("CARGO_PKG_VERSION");
+    let (title, version_label) = match language {
+        "zh-CN" => ("关于 WPS Agent Editor", format!("版本 {version}")),
+        "ja" => ("WPS Agent Editor について", format!("バージョン {version}")),
+        "es" => ("Acerca de WPS Agent Editor", format!("Versión {version}")),
+        "pt" => ("Sobre o WPS Agent Editor", format!("Versão {version}")),
+        "de" => ("Über WPS Agent Editor", format!("Version {version}")),
+        "fr" => ("À propos de WPS Agent Editor", format!("Version {version}")),
+        "ru" => ("О программе WPS Agent Editor", format!("Версия {version}")),
+        "ar" => ("حول WPS Agent Editor", format!("الإصدار {version}")),
+        _ => ("About WPS Agent Editor", format!("Version {version}")),
+    };
+    window
+        .app_handle()
+        .dialog()
+        .message(format!("WPS Agent Editor\n{version_label}"))
+        .title(title)
+        .buttons(MessageDialogButtons::Ok)
+        .parent(window)
+        .show(|_| {});
 }
 
 #[tauri::command]
@@ -298,6 +339,7 @@ pub(crate) fn focus_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn build_application_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<Wry>> {
     let open_file = MenuItemBuilder::with_id("open-file", "Open File…")
         .accelerator("CmdOrCtrl+O")
@@ -357,6 +399,7 @@ pub(crate) fn build_application_menu(app: &tauri::AppHandle) -> tauri::Result<Me
         .build()
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn handle_native_menu(app: &tauri::AppHandle, action: &str) {
     let window = app
         .webview_windows()

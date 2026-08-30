@@ -4,16 +4,50 @@ import { useEffect } from 'react'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { useFileStore } from '@/stores/file.store'
 import { useEditorStore } from '@/stores/editor.store'
+import { selectFileSession, useFileSessionStore } from '@/stores/file-session.store'
+import type { FileSessionState } from '@/types/desktop-api'
 import { useAgentBridge } from '@/lightweight-office'
 import { loadSystemFontFaces } from '@/lightweight-office/utils/system-fonts'
 import { isImageFile } from '@/lightweight-office/utils/file-io'
 import { useTranslation } from '@/lib/i18n/runtime'
-import { invokeOfficeAction } from '@/lib/office-shortcuts'
+import { invokeOfficeAction, type OfficeActionId } from '@/lib/office-shortcuts'
 import { AGENT_COLLABORATION_ENABLED } from '@/lib/agent-collaboration'
 import {
   APP_MENU_NEW_AGENT_EVENT,
   APP_MENU_RUN_MULTI_AGENT_EVENT,
 } from '@/lib/app-menu-events'
+
+type EditMenuAction = Extract<
+  OfficeActionId,
+  'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'
+>
+type ZoomMenuAction = Extract<OfficeActionId, 'zoomIn' | 'zoomOut' | 'zoomReset'>
+
+function runEditMenuAction(action: EditMenuAction, fallbackCommand: string): void {
+  if (!invokeOfficeAction(action)) {
+    // Binary editors intentionally defer these commands to the WebView. A menu
+    // selection needs an explicit command because no keyboard default follows.
+    document.execCommand(fallbackCommand)
+  }
+}
+
+function runZoomMenuAction(action: ZoomMenuAction): void {
+  if (invokeOfficeAction(action)) return
+
+  const shortcut = action === 'zoomIn'
+    ? { key: '+', code: 'Equal' }
+    : action === 'zoomOut'
+      ? { key: '-', code: 'Minus' }
+      : { key: '0', code: 'Digit0' }
+  const target = document.querySelector<HTMLElement>('[data-manages-document-zoom]') ?? window
+  target.dispatchEvent(new KeyboardEvent('keydown', {
+    ...shortcut,
+    bubbles: true,
+    cancelable: true,
+    ctrlKey: desktopApi.app.platform !== 'darwin',
+    metaKey: desktopApi.app.platform === 'darwin',
+  }))
+}
 
 export default function App() {
   const { setRecentFiles } = useFileStore()
@@ -34,6 +68,42 @@ export default function App() {
   }, [language])
 
   useEffect(() => {
+    let pending: FileSessionState | null = null
+    let saving = false
+    let scheduled = false
+
+    const flush = async () => {
+      if (saving) return
+      saving = true
+      try {
+        while (pending) {
+          const snapshot = pending
+          pending = null
+          try {
+            await desktopApi.files.saveSession(snapshot)
+          } catch (error) {
+            console.error('[file-session] Failed to persist the workspace session', error)
+          }
+        }
+      } finally {
+        saving = false
+      }
+    }
+
+    const unsubscribe = useFileSessionStore.subscribe((state) => {
+      if (!state.hydrated) return
+      pending = selectFileSession(state)
+      if (scheduled) return
+      scheduled = true
+      queueMicrotask(() => {
+        scheduled = false
+        void flush()
+      })
+    })
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
 
@@ -43,7 +113,7 @@ export default function App() {
         await desktopApi.files.openExternal(filePath)
         return
       }
-      void desktopApi.files.open(filePath)
+      await desktopApi.files.open(filePath)
       useEditorStore.getState().setCurrentFile(filePath)
     }
 
@@ -59,15 +129,43 @@ export default function App() {
       // Register first, then drain. A second-instance notification only signals
       // that this window's one-shot native queue has work; no absolute path is
       // exposed in a WebView URL or low-trust event payload.
-      unlisten = await desktopApi.app.listen('app:open-file', () => {
-        void drainStartupFiles()
-      })
+      try {
+        unlisten = await desktopApi.app.listen('app:open-file', () => {
+          void drainStartupFiles().catch((error) => {
+            console.error('[startup-files] Failed to consume additional files', error)
+          })
+        })
+      } catch (error) {
+        console.error('[startup-files] Failed to listen for additional files', error)
+      }
       if (disposed) {
-        unlisten()
+        unlisten?.()
         return
       }
+
+      let restoredSession: FileSessionState = {
+        mainDirectory: null,
+        currentDirectory: null,
+        recentDirectories: [],
+        openFiles: [],
+        activeFile: null,
+      }
+      try {
+        restoredSession = await desktopApi.files.loadSession()
+      } catch (error) {
+        console.error('[file-session] Failed to restore the workspace session', error)
+      }
+      const restoreDocuments = localStorage.getItem('notepad-startup-behavior') !== 'new'
+      useFileSessionStore.getState().hydrate(restoreDocuments
+        ? restoredSession
+        : { ...restoredSession, openFiles: [], activeFile: null })
+
       if (await drainStartupFiles()) return
-      if (localStorage.getItem('notepad-startup-behavior') === 'new') return
+      if (!restoreDocuments || useEditorStore.getState().currentFile) return
+      if (restoredSession.activeFile) {
+        useEditorStore.getState().setCurrentFile(restoredSession.activeFile)
+        return
+      }
 
       const lastFile = localStorage.getItem('notepad-last-file')
       if (!lastFile || useEditorStore.getState().currentFile) return
@@ -105,7 +203,7 @@ export default function App() {
         return
       }
       // 立即切换文件并渲染编辑器，最近文件/快照在后台记录
-      void desktopApi.files.open(filePath)
+      await desktopApi.files.open(filePath)
       useEditorStore.getState().setCurrentFile(filePath)
       const recent = await desktopApi.files.getRecent()
       setRecentFiles(recent)
@@ -118,6 +216,7 @@ export default function App() {
         const entries = await desktopApi.files.list(dir)
         useFileStore.getState().setCurrentDir(dir)
         useFileStore.getState().setEntries(entries)
+        useFileSessionStore.getState().visitDirectory(dir)
       }
     })
 
@@ -128,6 +227,7 @@ export default function App() {
         const entries = await desktopApi.files.list(folder)
         useFileStore.getState().setCurrentDir(folder)
         useFileStore.getState().setEntries(entries)
+        useFileSessionStore.getState().visitDirectory(folder)
       }
     })
 
@@ -140,6 +240,35 @@ export default function App() {
       if (!invokeOfficeAction('print')) {
         window.print()
       }
+    })
+
+    const disposeUndo = subscribeDesktopEvent('menu:undo', () => {
+      runEditMenuAction('undo', 'undo')
+    })
+    const disposeRedo = subscribeDesktopEvent('menu:redo', () => {
+      runEditMenuAction('redo', 'redo')
+    })
+    const disposeCut = subscribeDesktopEvent('menu:cut', () => {
+      runEditMenuAction('cut', 'cut')
+    })
+    const disposeCopy = subscribeDesktopEvent('menu:copy', () => {
+      runEditMenuAction('copy', 'copy')
+    })
+    const disposePaste = subscribeDesktopEvent('menu:paste', () => {
+      runEditMenuAction('paste', 'paste')
+    })
+    const disposeSelectAll = subscribeDesktopEvent('menu:select-all', () => {
+      runEditMenuAction('selectAll', 'selectAll')
+    })
+
+    const disposeZoomReset = subscribeDesktopEvent('menu:reset-zoom', () => {
+      runZoomMenuAction('zoomReset')
+    })
+    const disposeZoomIn = subscribeDesktopEvent('menu:zoom-in', () => {
+      runZoomMenuAction('zoomIn')
+    })
+    const disposeZoomOut = subscribeDesktopEvent('menu:zoom-out', () => {
+      runZoomMenuAction('zoomOut')
     })
 
     const disposeNewAgent = subscribeDesktopEvent('menu:new-agent', () => {
@@ -157,6 +286,15 @@ export default function App() {
       disposeOpenFolder()
       disposeSave()
       disposePrint()
+      disposeUndo()
+      disposeRedo()
+      disposeCut()
+      disposeCopy()
+      disposePaste()
+      disposeSelectAll()
+      disposeZoomReset()
+      disposeZoomIn()
+      disposeZoomOut()
       disposeNewAgent()
       disposeRunMultiAgent()
     }

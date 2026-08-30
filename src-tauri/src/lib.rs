@@ -25,12 +25,18 @@ pub fn run() {
         }
     }
 
-    tauri::Builder::default()
-        .plugin(security::navigation_guard())
+    let builder = tauri::Builder::default().plugin(security::navigation_guard());
+
+    // Windows and Linux render the localized application menu inside the WebView.
+    // Keep a native application menu only on macOS, where the in-app menu is hidden.
+    #[cfg(target_os = "macos")]
+    let builder = builder
         .menu(commands::app::build_application_menu)
         .on_menu_event(|app, event| {
             commands::app::handle_native_menu(app, event.id().as_ref());
-        })
+        });
+
+    builder
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 if let Some(state) = window.app_handle().try_state::<AppState>() {
@@ -87,6 +93,8 @@ pub fn run() {
             commands::files::files_search,
             commands::files::files_get_recent,
             commands::files::files_get_home,
+            commands::files::files_session_load,
+            commands::files::files_session_save,
             commands::files::files_stat,
             commands::files::files_rename,
             commands::files::files_delete,
@@ -185,7 +193,7 @@ fn handle_second_instance(
 ) {
     if let Some(state) = app.try_state::<AppState>() {
         let cwd = PathBuf::from(working_directory);
-        if let Some(path) = find_file_argument(arguments, Some(&cwd)) {
+        if let Some(path) = find_second_instance_file_argument(arguments, Some(&cwd)) {
             let target = app.get_webview_window("main");
             let Some(window) = target else {
                 log::warn!("Cannot deliver second-instance file: main window is unavailable");
@@ -206,6 +214,15 @@ fn handle_second_instance(
         }
     }
     commands::app::focus_main_window(app);
+}
+
+fn find_second_instance_file_argument(
+    arguments: Vec<String>,
+    cwd: Option<&Path>,
+) -> Option<PathBuf> {
+    // The single-instance plugin forwards argv including argv[0]. Treating that
+    // executable path as a document can make the renderer load the application binary.
+    find_file_argument(arguments.into_iter().skip(1), cwd)
 }
 
 fn find_file_argument<I, S>(arguments: I, cwd: Option<&Path>) -> Option<PathBuf>
@@ -230,5 +247,43 @@ where
 impl From<tauri::Error> for AppError {
     fn from(error: tauri::Error) -> Self {
         AppError::internal(error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_second_instance_file_argument;
+    use std::fs;
+
+    #[test]
+    fn second_instance_never_opens_argv_zero_as_a_document() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let executable = directory.path().join("wps-agent-editor.exe");
+        fs::write(&executable, b"binary").expect("write executable fixture");
+
+        let arguments = vec![executable.to_string_lossy().into_owned()];
+        assert_eq!(
+            find_second_instance_file_argument(arguments, Some(directory.path())),
+            None
+        );
+    }
+
+    #[test]
+    fn second_instance_finds_a_document_after_argv_zero() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let executable = directory.path().join("wps-agent-editor.exe");
+        let document = directory.path().join("notes.txt");
+        fs::write(&executable, b"binary").expect("write executable fixture");
+        fs::write(&document, b"notes").expect("write document fixture");
+
+        let arguments = vec![
+            executable.to_string_lossy().into_owned(),
+            "--ignored-option".to_owned(),
+            "notes.txt".to_owned(),
+        ];
+        assert_eq!(
+            find_second_instance_file_argument(arguments, Some(directory.path())),
+            Some(document)
+        );
     }
 }

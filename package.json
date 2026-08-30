@@ -40,6 +40,7 @@
     "test:agent-document-bridge": "tsx --tsconfig tsconfig.web.json scripts/test-agent-document-bridge.ts",
     "test:agent-reasoning": "tsx scripts/test-agent-reasoning.ts",
     "test:document-zoom-wheel": "tsx --tsconfig tsconfig.web.json scripts/test-document-zoom-wheel.ts",
+    "test:file-session": "tsx --tsconfig tsconfig.web.json scripts/test-file-session-persistence.ts",
     "test:desktop-channel": "tsx --tsconfig tsconfig.web.json scripts/test-desktop-channel-contract.ts",
     "test:provider-contract": "tsx --tsconfig tsconfig.web.json scripts/test-provider-desktop-contract.ts",
     "test:word-toolbar-i18n": "tsx --tsconfig tsconfig.web.json scripts/test-word-toolbar-i18n.ts",

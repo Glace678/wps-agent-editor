@@ -49,7 +49,6 @@ export const es = {
     shortcuts: 'Atajos',
     close: 'Cerrar',
     loadingSystemFonts: 'Cargando fuentes del sistema...',
-    legacyDocNotice: 'El archivo .doc heredado se convirtió a DOCX mediante una aplicación Office disponible en el sistema. El archivo original no se modificó; elige un archivo .docx nuevo al guardar.',
     pageProgress: '{rendered}/{total} páginas',
     browse: 'Explorar',
     clearFileSearch: 'Borrar búsqueda de archivos',

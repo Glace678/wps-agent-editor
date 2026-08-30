@@ -49,7 +49,6 @@ export const de = {
     shortcuts: 'Tastenkürzel',
     close: 'Schließen',
     loadingSystemFonts: 'Systemschriftarten werden geladen...',
-    legacyDocNotice: 'Die ältere .doc-Datei wurde mit einer verfügbaren Office-Anwendung des Systems in DOCX konvertiert. Die Originaldatei bleibt unverändert; wählen Sie beim Speichern eine neue .docx-Datei.',
     pageProgress: '{rendered}/{total} Seiten',
     browse: 'Durchsuchen',
     clearFileSearch: 'Dateisuche löschen',

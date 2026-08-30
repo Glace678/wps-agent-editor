@@ -47,7 +47,6 @@ export const en = {
     shortcuts: 'Shortcuts',
     close: 'Close',
     loadingSystemFonts: 'Loading system fonts...',
-    legacyDocNotice: 'The legacy .doc was converted to DOCX by an available system Office application. The original file is unchanged; choose a new .docx file when saving.',
     pageProgress: '{rendered}/{total} pages',
     browse: 'Browse',
     clearFileSearch: 'Clear file search',

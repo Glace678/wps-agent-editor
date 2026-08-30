@@ -49,7 +49,6 @@ export const fr = {
     shortcuts: 'Raccourcis',
     close: 'Fermer',
     loadingSystemFonts: 'Chargement des polices système...',
-    legacyDocNotice: 'L’ancien fichier .doc a été converti en DOCX par une application Office disponible sur le système. Le fichier d’origine reste inchangé ; choisissez un nouveau fichier .docx lors de l’enregistrement.',
     pageProgress: '{rendered}/{total} pages',
     browse: 'Parcourir',
     clearFileSearch: 'Effacer la recherche de fichiers',

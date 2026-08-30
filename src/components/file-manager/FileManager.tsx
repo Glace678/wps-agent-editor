@@ -9,50 +9,16 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useFileStore } from '@/stores/file.store'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { useEditorStore } from '@/stores/editor.store'
+import { useFileSessionStore } from '@/stores/file-session.store'
 import { FileTree } from './FileTree'
 import { RecentFiles } from './RecentFiles'
 import { FileSearch } from './FileSearch'
 import { isImageFile } from '@/lightweight-office/utils/file-io'
 
-const MAIN_DIRECTORY_KEY = 'wps-main-directory'
-const RECENT_DIRECTORIES_KEY = 'wps-recent-directories'
-const RECENT_DIRECTORIES_MAX = 10
 const DIRECTORY_BACK_HISTORY_MAX = 100
 
 // 鼠标侧键中的「后退」键（X1）。X2（前进）为 4。
 const MOUSE_BACK_BUTTON = 3
-
-function loadMainDirectory(): string | null {
-  try {
-    const directory = localStorage.getItem(MAIN_DIRECTORY_KEY)
-    return directory && desktopApi.files.getGrantId(directory) ? directory : null
-  } catch {
-    return null
-  }
-}
-
-function loadRecentDirectories(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_DIRECTORIES_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => (
-          typeof item === 'string' && Boolean(desktopApi.files.getGrantId(item))
-        ))
-      : []
-  } catch {
-    return []
-  }
-}
-
-function saveRecentDirectories(directories: string[]): void {
-  try {
-    localStorage.setItem(RECENT_DIRECTORIES_KEY, JSON.stringify(directories))
-  } catch {
-    // ignore
-  }
-}
 
 function sameDirectoryPath(left: string, right: string): boolean {
   return desktopApi.app.platform === 'win32'
@@ -78,13 +44,16 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     setCurrentDir, setEntries, setRecentFiles, setSearchQuery, setSearchResults, setIsSearching,
   } = useFileStore()
   const { setCurrentFile } = useEditorStore()
+  const sessionHydrated = useFileSessionStore((state) => state.hydrated)
+  const mainDirectory = useFileSessionStore((state) => state.mainDirectory)
+  const recentDirectories = useFileSessionStore((state) => state.recentDirectories)
+  const setSessionMainDirectory = useFileSessionStore((state) => state.setMainDirectory)
+  const visitSessionDirectory = useFileSessionStore((state) => state.visitDirectory)
   const loadRequestRef = useRef(0)
   const dirBackStackRef = useRef<string[]>([])
   const lastBackInputRef = useRef<{ source: 'native' | 'dom'; at: number } | null>(null)
   const [activeTab, setActiveTab] = useState<'browse' | 'recent'>('browse')
   const [systemHome, setSystemHome] = useState<string | null>(null)
-  const [mainDirectory, setMainDirectory] = useState<string | null>(loadMainDirectory)
-  const [recentDirectories, setRecentDirectories] = useState<string[]>(loadRecentDirectories)
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
 
   useEffect(() => {
@@ -95,15 +64,6 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     return () => {
       cancelled = true
     }
-  }, [])
-
-  const recordRecentDirectory = useCallback((dir: string) => {
-    setRecentDirectories((previous) => {
-      const next = [dir, ...previous.filter((item) => !sameDirectoryPath(item, dir))]
-        .slice(0, RECENT_DIRECTORIES_MAX)
-      saveRecentDirectories(next)
-      return next
-    })
   }, [])
 
   const loadDir = useCallback(async (dir: string, options?: { recordHistory?: boolean }) => {
@@ -123,8 +83,8 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     }
     setEntries(list)
     setCurrentDir(dir)
-    recordRecentDirectory(dir)
-  }, [recordRecentDirectory, setCurrentDir, setEntries])
+    visitSessionDirectory(dir)
+  }, [setCurrentDir, setEntries, visitSessionDirectory])
 
   const openFile = useCallback(async (filePath: string) => {
     console.log('[FileManager] 打开文件:', filePath)
@@ -137,13 +97,14 @@ export function FileManager({ onCollapse }: FileManagerProps) {
       return
     }
     // 立即切换文件渲染编辑器，最近文件/快照在后台记录
-    void desktopApi.files.open(filePath)
+    await desktopApi.files.open(filePath)
     setCurrentFile(filePath)
     const recent = await desktopApi.files.getRecent()
     setRecentFiles(recent)
   }, [setCurrentFile, setRecentFiles])
 
   useEffect(() => {
+    if (!sessionHydrated) return
     let cancelled = false
     const initialRequestId = loadRequestRef.current
 
@@ -156,26 +117,18 @@ export function FileManager({ onCollapse }: FileManagerProps) {
         loadRequestRef.current !== initialRequestId
         || useFileStore.getState().currentDir
       ) return
-      const savedDir = localStorage.getItem('last-browse-dir')
-      const targetDir = savedDir && desktopApi.files.getGrantId(savedDir)
-        ? savedDir
-        : home.path
-      if (savedDir && targetDir !== savedDir) {
-        localStorage.removeItem('last-browse-dir')
-      }
-      await loadDir(targetDir)
+      const session = useFileSessionStore.getState()
+      const targetDir = [session.currentDirectory, session.mainDirectory, home.path]
+        .find((directory): directory is string => (
+          Boolean(directory && desktopApi.files.getGrantId(directory))
+        )) ?? home.path
+      await loadDir(targetDir, { recordHistory: false })
     }
     void init()
     return () => {
       cancelled = true
     }
-  }, [loadDir, setRecentFiles])
-
-  useEffect(() => {
-    if (currentDir) {
-      localStorage.setItem('last-browse-dir', currentDir)
-    }
-  }, [currentDir])
+  }, [loadDir, sessionHydrated, setRecentFiles])
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -234,15 +187,10 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   const effectiveMainDirectory = mainDirectory ?? systemHome
 
   const applyMainDirectory = useCallback((dir: string) => {
-    setMainDirectory(dir)
-    try {
-      localStorage.setItem(MAIN_DIRECTORY_KEY, dir)
-    } catch {
-      // ignore
-    }
+    setSessionMainDirectory(dir)
     setHomeMenuOpen(false)
     void loadDir(dir)
-  }, [loadDir])
+  }, [loadDir, setSessionMainDirectory])
 
   const handleHomeClick = useCallback(() => {
     setHomeMenuOpen(false)

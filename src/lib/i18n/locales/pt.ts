@@ -49,7 +49,6 @@ export const pt = {
     shortcuts: 'Atalhos',
     close: 'Fechar',
     loadingSystemFonts: 'Carregando fontes do sistema...',
-    legacyDocNotice: 'O arquivo .doc legado foi convertido em DOCX por um aplicativo Office disponível no sistema. O arquivo original não foi alterado; escolha um novo arquivo .docx ao salvar.',
     pageProgress: '{rendered}/{total} páginas',
     browse: 'Navegar',
     clearFileSearch: 'Limpar pesquisa de arquivos',

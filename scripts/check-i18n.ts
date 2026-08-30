@@ -214,7 +214,7 @@ for (const code of languageCodes) {
 
 const english = flatten(translations.en)
 const englishKeys = [...english.keys()].sort()
-assert(englishKeys.length === 713, `Expected 713 translation keys, received ${englishKeys.length}.`)
+assert(englishKeys.length === 712, `Expected 712 translation keys, received ${englishKeys.length}.`)
 
 for (const [code, translation] of localeEntries) {
   const current = flatten(translation)

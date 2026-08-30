@@ -49,7 +49,6 @@ export const ar = {
     shortcuts: 'الاختصارات',
     close: 'إغلاق',
     loadingSystemFonts: 'جارٍ تحميل خطوط النظام...',
-    legacyDocNotice: 'تم تحويل ملف .doc القديم إلى DOCX بواسطة تطبيق Office متاح على النظام. لم يتم تعديل الملف الأصلي؛ اختر ملف .docx جديدًا عند الحفظ.',
     pageProgress: '{rendered}/{total} صفحة',
     browse: 'تصفح',
     clearFileSearch: 'مسح بحث الملفات',

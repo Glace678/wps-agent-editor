@@ -21,6 +21,7 @@ pub enum GrantSource {
     Home,
     SaveDialog,
     CurrentDocument,
+    Session,
 }
 
 #[derive(Debug, Clone)]
@@ -332,7 +333,8 @@ fn source_expiry(source: GrantSource) -> Option<Duration> {
         | GrantSource::Recent
         | GrantSource::Child
         | GrantSource::Home
-        | GrantSource::CurrentDocument => None,
+        | GrantSource::CurrentDocument
+        | GrantSource::Session => None,
     }
 }
 
@@ -431,6 +433,12 @@ mod tests {
         let grant = access
             .grant_existing("main", &file, true, GrantSource::Dialog)
             .unwrap();
+
+        #[cfg(windows)]
+        assert!(
+            !grant.path.starts_with(r"\\?\"),
+            "safe Windows paths exposed to the renderer should not use verbatim syntax"
+        );
 
         assert_eq!(
             access

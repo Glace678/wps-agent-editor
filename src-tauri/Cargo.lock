@@ -6181,6 +6181,7 @@ dependencies = [
  "arboard",
  "bytes",
  "dirs",
+ "dunce",
  "encoding_rs",
  "eventsource-stream",
  "fontdb",

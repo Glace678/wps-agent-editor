@@ -1,6 +1,12 @@
 import { desktopApi } from '@/platform'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { useEffect, useRef, useState } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { TranslationKey } from '@/lib/i18n/types'
 import { cn } from '@/lib/utils'
@@ -40,9 +46,12 @@ const itemClass = 'flex h-7 cursor-default select-none items-center gap-3 rounde
 const triggerClass = 'flex h-7 min-w-10 shrink-0 items-center justify-center rounded-md px-2.5 text-[13px] leading-none outline-none hover:bg-accent focus-visible:bg-accent data-[state=open]:bg-accent text-foreground'
 
 export function AppMenuBar({ className }: { className?: string }) {
-  const { t } = useTranslation()
+  const { language, t } = useTranslation()
+  const direction = language === 'ar' ? 'rtl' : 'ltr'
   const [openMenu, setOpenMenu] = useState<AppMenuTop | null>(null)
   const openMenuRef = useRef<AppMenuTop | null>(null)
+  const hoverOpenedMenuRef = useRef<AppMenuTop | null>(null)
+  const triggerPointerDownRef = useRef<{ top: AppMenuTop; wasOpen: boolean } | null>(null)
   const closeTimerRef = useRef<number | null>(null)
 
   const clearCloseTimer = () => {
@@ -52,6 +61,7 @@ export function AppMenuBar({ className }: { className?: string }) {
   }
   const setMenu = (top: AppMenuTop | null) => {
     clearCloseTimer()
+    if (top === null) hoverOpenedMenuRef.current = null
     openMenuRef.current = top
     setOpenMenu(top)
   }
@@ -69,7 +79,40 @@ export function AppMenuBar({ className }: { className?: string }) {
     }, 0)
   }
   const handlePointerEnter = (top: AppMenuTop) => {
-    if (openMenuRef.current !== null && openMenuRef.current !== top) setMenu(top)
+    if (openMenuRef.current !== null && openMenuRef.current !== top) {
+      hoverOpenedMenuRef.current = top
+      setMenu(top)
+    }
+  }
+  const handleTriggerPointerDown = (
+    top: AppMenuTop,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button === 0 && !event.ctrlKey) {
+      triggerPointerDownRef.current = {
+        top,
+        // Moving across an open menubar opens the sibling on hover. The first
+        // click on that sibling must keep it open instead of toggling it shut.
+        wasOpen: event.currentTarget.dataset.state === 'open'
+          && hoverOpenedMenuRef.current !== top,
+      }
+      // Radix toggles on pointerdown. WebView2 can drop that internal toggle while
+      // still delivering click, so keep click as the single cross-runtime path.
+      event.preventDefault()
+    }
+  }
+  const handleTriggerClick = (
+    top: AppMenuTop,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0 || event.ctrlKey) return
+    const pointerDown = triggerPointerDownRef.current
+    triggerPointerDownRef.current = null
+    const wasOpen = pointerDown?.top === top
+      ? pointerDown.wasOpen
+      : openMenuRef.current === top
+    hoverOpenedMenuRef.current = null
+    setMenu(wasOpen ? null : top)
   }
   const handleAction = (action: AppMenuAction) => {
     setMenu(null)
@@ -82,6 +125,7 @@ export function AppMenuBar({ className }: { className?: string }) {
         <DropdownMenu.Root
           key={menu.top}
           modal={false}
+          dir={direction}
           open={openMenu === menu.top}
           onOpenChange={(open) => handleOpenChange(menu.top, open)}
         >
@@ -90,6 +134,8 @@ export function AppMenuBar({ className }: { className?: string }) {
               type='button'
               className={triggerClass}
               data-testid={'app-menu-' + menu.top}
+              onPointerDown={(event) => handleTriggerPointerDown(menu.top, event)}
+              onClick={(event) => handleTriggerClick(menu.top, event)}
               onPointerEnter={() => handlePointerEnter(menu.top)}
             >
               {t(menu.label)}
@@ -103,7 +149,6 @@ export function AppMenuBar({ className }: { className?: string }) {
               data-testid={'app-menu-content-' + menu.top}
               onCloseAutoFocus={(event) => event.preventDefault()}
               onEscapeKeyDown={() => setMenu(null)}
-              onPointerDownOutside={() => setMenu(null)}
             >
               {menu.items.map((item, index) => item === 'separator' ? (
                 <DropdownMenu.Separator

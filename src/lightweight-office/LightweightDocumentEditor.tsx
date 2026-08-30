@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { FileText, Keyboard } from 'lucide-react'
 import { useEditorStore } from '@/stores/editor.store'
+import { useFileSessionStore } from '@/stores/file-session.store'
 import {
   useGlobalOfficeShortcutListener,
   useOfficeShortcuts,
@@ -23,8 +24,6 @@ import { MODULE_ID, MODULE_VERSION } from './config'
 import {
   getDocKind,
   isImageFile,
-  SUPPORTED_FILE_EXTENSIONS,
-  SUPPORTED_SPECIAL_FILE_NAMES,
 } from './utils/file-io'
 import { tabIndexByOffset } from './document-tabs'
 import { DocumentTabBar } from './components/DocumentTabBar'
@@ -60,11 +59,6 @@ const PresentationViewer = lazy(async () => {
   return { default: module.PresentationViewer }
 })
 
-const SUPPORTED_FILE_TYPE_LABELS = [
-  ...SUPPORTED_FILE_EXTENSIONS.map((extension) => `.${extension}`),
-  ...SUPPORTED_SPECIAL_FILE_NAMES,
-].join(' / ')
-
 interface TabItem {
   id: string
   path: string
@@ -75,6 +69,22 @@ interface TabItem {
 
 function createTabId(): string {
   return `doc-tab-${crypto.randomUUID()}`
+}
+
+function sameDocumentPath(left: string, right: string): boolean {
+  return desktopApi.app.platform === 'win32'
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right
+}
+
+function createTab(path: string): TabItem {
+  return {
+    id: createTabId(),
+    path,
+    name: path.split(/[/\\]/).pop() || path,
+    kind: getDocKind(path),
+    dirty: false,
+  }
 }
 
 /**
@@ -202,12 +212,18 @@ export function LightweightDocumentEditor() {
   const setEditorReady = useEditorStore((s) => s.setEditorReady)
   const setIsDirty = useEditorStore((s) => s.setIsDirty)
   const setCurrentFile = useEditorStore((s) => s.setCurrentFile)
+  const sessionHydrated = useFileSessionStore((state) => state.hydrated)
+  const restoredOpenFiles = useFileSessionStore((state) => state.openFiles)
+  const restoredActiveFile = useFileSessionStore((state) => state.activeFile)
+  const setSessionDocuments = useFileSessionStore((state) => state.setDocuments)
   const saveRef = useRef<(() => Promise<void>) | null>(null)
   const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false)
 
   const [tabs, setTabs] = useState<TabItem[]>([])
   const [activeTabId, setActiveTabId] = useState<string>('')
   const tabsRef = useRef<TabItem[]>([])
+  const sessionRestoreAppliedRef = useRef(false)
+  const [sessionReadyToPersist, setSessionReadyToPersist] = useState(false)
 
   const switchTab = useCallback(
     (tabId: string) => {
@@ -362,18 +378,44 @@ export function LightweightDocumentEditor() {
   }, [activeTabId, setIsDirty])
 
   useEffect(() => {
+    if (!sessionHydrated || sessionRestoreAppliedRef.current) return
+    sessionRestoreAppliedRef.current = true
+
+    const currentPath = useEditorStore.getState().currentFile
+    const paths = [...restoredOpenFiles]
+    if (currentPath && !paths.some((path) => sameDocumentPath(path, currentPath))) {
+      paths.push(currentPath)
+    }
+    const restoredTabs = paths.map(createTab)
+    tabsRef.current = restoredTabs
+    setTabs(restoredTabs)
+
+    const targetPath = currentPath
+      ?? restoredTabs.find((tab) => (
+        restoredActiveFile && sameDocumentPath(tab.path, restoredActiveFile)
+      ))?.path
+      ?? restoredTabs.at(-1)?.path
+      ?? null
+    const targetTab = targetPath
+      ? restoredTabs.find((tab) => sameDocumentPath(tab.path, targetPath))
+      : undefined
+    setActiveTabId(targetTab?.id ?? '')
+    if (targetTab && (!currentPath || !sameDocumentPath(currentPath, targetTab.path))) {
+      setCurrentFile(targetTab.path, targetTab.name)
+    }
+    setSessionReadyToPersist(true)
+  }, [
+    restoredActiveFile,
+    restoredOpenFiles,
+    sessionHydrated,
+    setCurrentFile,
+  ])
+
+  useEffect(() => {
     if (currentFile) {
-      const existing = tabsRef.current.find((t) => t.path === currentFile)
+      const existing = tabsRef.current.find((tab) => sameDocumentPath(tab.path, currentFile))
       if (!existing) {
-        const name = currentFile.split(/[/\\]/).pop() || currentFile
-        const kind = getDocKind(currentFile)
-        const newTab: TabItem = {
-          id: `tab-${Date.now()}`,
-          path: currentFile,
-          name,
-          kind,
-          dirty: false,
-        }
+        const newTab = createTab(currentFile)
         const nextTabs = [...tabsRef.current, newTab]
         tabsRef.current = nextTabs
         setTabs(nextTabs)
@@ -383,6 +425,21 @@ export function LightweightDocumentEditor() {
       }
     }
   }, [currentFile, activeTabId, setCurrentFile])
+
+  useEffect(() => {
+    if (!sessionReadyToPersist) return
+    const activeFile = tabs.find((tab) => tab.id === activeTabId)?.path
+      ?? (currentFile && tabs.some((tab) => sameDocumentPath(tab.path, currentFile))
+        ? currentFile
+        : null)
+    setSessionDocuments(tabs.map((tab) => tab.path), activeFile)
+  }, [
+    activeTabId,
+    currentFile,
+    sessionReadyToPersist,
+    setSessionDocuments,
+    tabs,
+  ])
 
   const handleRegisterSave = useCallback((fn: (() => Promise<void>) | null) => {
     saveRef.current = fn
@@ -463,10 +520,6 @@ export function LightweightDocumentEditor() {
           <FileText className="h-16 w-16 opacity-20" />
           <div className="text-center">
             <p className="text-lg font-medium">{t('lightweightOffice.selectFileStart')}</p>
-            <p className="mx-auto mt-1 w-full max-w-[960px] px-6 text-sm leading-5">
-              {t('lightweightOffice.formatSupport')}{' '}
-              <span dir="ltr">{SUPPORTED_FILE_TYPE_LABELS}</span>
-            </p>
             <p className="mt-2 text-xs text-green-600">
               {t('lightweightOffice.lightweightModule')} {MODULE_ID} ·{' '}
               {t('lightweightOffice.version', { version: MODULE_VERSION })} ·{' '}

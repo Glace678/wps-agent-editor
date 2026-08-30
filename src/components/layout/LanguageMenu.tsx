@@ -1,5 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, Globe } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { languages, type LanguageCode } from '@/lib/i18n'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -7,10 +8,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 export function LanguageMenu() {
   const { language, setLanguage, t } = useTranslation()
   const direction = language === 'ar' ? 'rtl' : 'ltr'
+  const [open, setOpen] = useState(false)
+  const triggerWasOpenRef = useRef<boolean | null>(null)
 
   return (
     <TooltipProvider delayDuration={450}>
-      <DropdownMenu.Root modal={false} dir={direction}>
+      <DropdownMenu.Root modal={false} dir={direction} open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenu.Trigger asChild>
@@ -19,6 +22,19 @@ export function LanguageMenu() {
                 className="flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-secondary/60 hover:bg-accent hover:border-border transition-colors"
                 aria-label={t('appShell.changeLanguage')}
                 data-testid="language-menu-trigger"
+                onPointerDown={(event) => {
+                  if (event.button === 0 && !event.ctrlKey) {
+                    triggerWasOpenRef.current = event.currentTarget.dataset.state === 'open'
+                    event.preventDefault()
+                  }
+                }}
+                onClick={(event) => {
+                  if (event.button === 0 && !event.ctrlKey) {
+                    const wasOpen = triggerWasOpenRef.current ?? open
+                    triggerWasOpenRef.current = null
+                    setOpen(!wasOpen)
+                  }
+                }}
               >
                 <Globe className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
@@ -42,7 +58,10 @@ export function LanguageMenu() {
           </div>
           <DropdownMenu.RadioGroup
             value={language}
-            onValueChange={(value) => setLanguage(value as LanguageCode)}
+            onValueChange={(value) => {
+              setLanguage(value as LanguageCode)
+              setOpen(false)
+            }}
           >
             {languages.map((option) => (
               <DropdownMenu.RadioItem

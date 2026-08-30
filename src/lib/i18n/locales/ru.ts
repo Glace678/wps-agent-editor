@@ -49,7 +49,6 @@ export const ru = {
     shortcuts: 'Сочетания клавиш',
     close: 'Закрыть',
     loadingSystemFonts: 'Загрузка системных шрифтов...',
-    legacyDocNotice: 'Устаревший файл .doc преобразован в DOCX доступным системным Office-приложением. Исходный файл не изменён; при сохранении выберите новый файл .docx.',
     pageProgress: '{rendered}/{total} стр.',
     browse: 'Обзор',
     clearFileSearch: 'Очистить поиск файлов',

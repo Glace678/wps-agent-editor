@@ -1166,7 +1166,7 @@ fn normalize_vml_images(
         let XmlNode::Element(element) = node else {
             continue;
         };
-        if element.is("w:pict") {
+        if matches!(element.name(), b"w:pict" | b"w:object") {
             if let Some(candidate) = simple_vml_image(element, image_relationship_ids) {
                 let replacement = drawing_element(candidate, *next_document_property_id)?;
                 *next_document_property_id =
@@ -1195,14 +1195,37 @@ struct VmlImage<'a> {
 }
 
 fn simple_vml_image<'a>(
-    pict: &'a XmlElement,
+    container: &'a XmlElement,
     image_relationship_ids: &HashSet<String>,
 ) -> Option<VmlImage<'a>> {
-    if !only_element_and_whitespace(&pict.children, "v:shape") {
+    if container.is("w:pict") {
+        if !only_element_and_whitespace(&container.children, "v:shape") {
+            return None;
+        }
+    } else if container.is("w:object") {
+        if !object_children_are_safe(container) {
+            return None;
+        }
+    } else {
         return None;
     }
-    let shape = pict.direct_element("v:shape")?;
-    if !attributes_allowed(shape, &["id", "o:spid", "type", "style", "alt", "stroked"]) {
+    let shape = container.direct_element("v:shape")?;
+    if !attributes_allowed(
+        shape,
+        &[
+            "id",
+            "o:spid",
+            "o:spt",
+            "type",
+            "style",
+            "alt",
+            "stroked",
+            "filled",
+            "o:ole",
+            "o:preferrelative",
+            "coordsize",
+        ],
+    ) {
         return None;
     }
     if shape.attribute("type") != Some("#_x0000_t75") {
@@ -1219,7 +1242,9 @@ fn simple_vml_image<'a>(
         return None;
     }
     let image_data = shape.direct_element("v:imagedata")?;
-    if !image_data.is_empty_element() || !attributes_allowed(image_data, &["r:id", "o:title"]) {
+    if !image_data.is_empty_element()
+        || !attributes_allowed(image_data, &["r:id", "o:title", "embosscolor"])
+    {
         return None;
     }
     let relationship_id = image_data.attribute("r:id")?;
@@ -1250,7 +1275,10 @@ fn shape_children_are_safe(shape: &XmlElement) -> bool {
             XmlNode::Element(element) if element.is("o:lock") => {
                 lock_count += 1;
                 if !element.is_empty_element()
-                    || !attributes_allowed(element, &["v:ext", "aspectratio"])
+                    || !attributes_allowed(
+                        element,
+                        &["v:ext", "aspectratio", "grouping", "rotation", "text"],
+                    )
                     || element
                         .attribute("aspectratio")
                         .is_some_and(|value| !matches!(value, "t" | "true" | "1"))
@@ -1258,12 +1286,90 @@ fn shape_children_are_safe(shape: &XmlElement) -> bool {
                     return false;
                 }
             }
+            XmlNode::Element(element)
+                if element.is("v:path")
+                    && element.is_empty_element()
+                    && attributes_allowed(element, &["v:ext", "limo", "textboxrect"]) => {}
+            XmlNode::Element(element)
+                if element.is("v:fill")
+                    && element.is_empty_element()
+                    && attributes_allowed(
+                        element,
+                        &["on", "color", "color2", "focussize", "opacity"],
+                    ) => {}
+            XmlNode::Element(element)
+                if element.is("v:stroke")
+                    && element.is_empty_element()
+                    && attributes_allowed(element, &["on", "color", "weight", "opacity"]) => {}
+            XmlNode::Element(element)
+                if element.is("w10:wrap")
+                    && element.is_empty_element()
+                    && attributes_allowed(element, &["type", "side", "anchorx", "anchory"])
+                    && matches!(element.attribute("type"), None | Some("none")) => {}
+            XmlNode::Element(element)
+                if element.is("w10:anchorlock")
+                    && element.is_empty_element()
+                    && attributes_allowed(element, &[]) => {}
             XmlNode::Element(_) => return false,
             XmlNode::Raw(event) if raw_event_is_whitespace(event) => {}
             XmlNode::Raw(_) => return false,
         }
     }
     image_count == 1 && lock_count <= 1
+}
+
+fn object_children_are_safe(object: &XmlElement) -> bool {
+    let mut shape_count = 0_usize;
+    let mut ole_count = 0_usize;
+    for child in &object.children {
+        match child {
+            XmlNode::Element(element) if element.is("v:shape") => shape_count += 1,
+            XmlNode::Element(element) if element.is("o:OLEObject") => {
+                ole_count += 1;
+                if !ole_object_is_safe(element) {
+                    return false;
+                }
+            }
+            XmlNode::Raw(event) if raw_event_is_whitespace(event) => {}
+            XmlNode::Element(_) | XmlNode::Raw(_) => return false,
+        }
+    }
+    shape_count == 1 && ole_count <= 1
+}
+
+fn ole_object_is_safe(object: &XmlElement) -> bool {
+    if !attributes_allowed(
+        object,
+        &[
+            "Type",
+            "ProgID",
+            "ShapeID",
+            "DrawAspect",
+            "ObjectID",
+            "r:id",
+        ],
+    ) {
+        return false;
+    }
+    if object
+        .attribute("Type")
+        .is_some_and(|value| value != "Embed")
+        || object
+            .attribute("DrawAspect")
+            .is_some_and(|value| value != "Content")
+    {
+        return false;
+    }
+    object.children.iter().all(|child| match child {
+        XmlNode::Element(element) if element.is("o:LockedField") => {
+            if !attributes_allowed(element, &[]) {
+                return false;
+            }
+            element_text(element).is_some_and(|value| matches!(value.as_str(), "true" | "false"))
+        }
+        XmlNode::Raw(event) if raw_event_is_whitespace(event) => true,
+        _ => false,
+    })
 }
 
 fn parse_simple_image_style(style: &str) -> Option<(u64, u64)> {

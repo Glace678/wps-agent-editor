@@ -49,7 +49,6 @@ export const zhCN = {
     shortcuts: '快捷键',
     close: '关闭',
     loadingSystemFonts: '正在加载系统字体...',
-    legacyDocNotice: '已通过可用的系统 Office 应用将旧版 .doc 转换为 DOCX。原文件未被修改，保存时请选择新的 .docx 文件。',
     pageProgress: '{rendered}/{total} 页',
     browse: '浏览',
     clearFileSearch: '清除文件搜索',

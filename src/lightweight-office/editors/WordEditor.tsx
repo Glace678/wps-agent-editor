@@ -86,7 +86,6 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
   const [document, setDocument] = useState<File | null>(null)
   const [error, setError] = useState<'document' | 'legacy' | null>(null)
   const [errorDetail, setErrorDetail] = useState('')
-  const [showLegacyNotice, setShowLegacyNotice] = useState(false)
   const [loadingMode, setLoadingMode] = useState<'word' | 'legacy'>('word')
   const [wordEditorModules, setWordEditorModules] = useState<ReturnType<typeof createFullWordEditorModules> | null>(null)
   const [wordFontFaces, setWordFontFaces] = useState<SystemFontFace[]>([])
@@ -201,7 +200,6 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     setDocument(null)
     setError(null)
     setErrorDetail('')
-    setShowLegacyNotice(false)
     instanceRef.current = null
     setSuperdocInstance(null)
     setEditorInstance(null)
@@ -233,8 +231,6 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
         if (cancelled) return
 
         savePathRef.current = resolveSavePathForWord(filePath)
-        setShowLegacyNotice(prepared.fromLegacyDoc)
-
         const fileBytes = new Uint8Array(prepared.bytes.byteLength)
         fileBytes.set(prepared.bytes)
         setDocument(
@@ -363,11 +359,6 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       data-word-eye-care={eyeCare ? 'true' : 'false'}
       data-word-zooming={isZooming ? 'true' : 'false'}
     >
-      {showLegacyNotice && (
-        <div className="word-editor-chrome shrink-0 border-b bg-amber-500/10 px-3 py-1.5 text-xs text-amber-800 dark:text-amber-200">
-          {t('appShell.legacyDocNotice')}
-        </div>
-      )}
       <WordDocumentLayout superdoc={superdocInstance} totalPages={totalPages}>
         <SuperDocEditor
           key={`${filePath}:${document.name}:${document.size}`}

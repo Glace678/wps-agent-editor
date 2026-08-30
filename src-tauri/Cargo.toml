@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 arboard = { version = "3.6", default-features = false, features = ["image-data"] }
 bytes = "1"
 dirs = "6"
+dunce = "1"
 encoding_rs = "0.8"
 eventsource-stream = "0.2"
 fontdb = "0.23"

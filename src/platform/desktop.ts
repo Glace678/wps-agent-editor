@@ -7,6 +7,7 @@ import type {
   DesktopPlatform,
   DocumentsApi,
   FileMutationResult,
+  FileSessionState,
   FilesApi,
   GrantedPath,
   InvokeBody,
@@ -99,6 +100,37 @@ function openedFile(value: unknown, capability: string): OpenedFile {
   const recent = isRecord(value) && Array.isArray(value.recent) ? value.recent : []
   captureFileGrants(recent)
   return { ...grant, recent: recent as OpenedFile['recent'] }
+}
+
+function sessionState(value: unknown): FileSessionState {
+  if (!isRecord(value)) {
+    throw new AppError({ code: 'invalid-response', message: 'files.loadSession returned invalid data' })
+  }
+  const optionalPath = (candidate: unknown, capability: string): string | null => (
+    candidate === null || candidate === undefined
+      ? null
+      : grantedPath(candidate, capability).path
+  )
+  const grantedPaths = (candidate: unknown, capability: string): string[] => {
+    if (!Array.isArray(candidate)) {
+      throw new AppError({ code: 'invalid-response', message: `${capability} returned invalid data` })
+    }
+    return candidate.map((entry) => grantedPath(entry, capability).path)
+  }
+  const activeFile = value.activeFile
+  if (activeFile !== null && activeFile !== undefined && typeof activeFile !== 'string') {
+    throw new AppError({ code: 'invalid-response', message: 'files.loadSession returned an invalid active file' })
+  }
+  return {
+    mainDirectory: optionalPath(value.mainDirectory, 'files.loadSession.mainDirectory'),
+    currentDirectory: optionalPath(value.currentDirectory, 'files.loadSession.currentDirectory'),
+    recentDirectories: grantedPaths(
+      value.recentDirectories,
+      'files.loadSession.recentDirectories',
+    ),
+    openFiles: grantedPaths(value.openFiles, 'files.loadSession.openFiles'),
+    activeFile: typeof activeFile === 'string' ? activeFile : null,
+  }
 }
 
 function successResult(value: unknown): { success: boolean } {
@@ -205,6 +237,25 @@ const files: FilesApi = {
       undefined,
     )
     return grantedPath(value, 'files.getHome')
+  },
+  async loadSession() {
+    const value = await invokeDesktop<unknown>(
+      DESKTOP_COMMANDS.files.loadSession,
+      undefined,
+    )
+    return sessionState(value)
+  },
+  async saveSession(session) {
+    const optionalAccessArgs = (path: string | null) => path ? accessArgs(path) : null
+    await invokeDesktop<void>(DESKTOP_COMMANDS.files.saveSession, {
+      session: {
+        mainDirectory: optionalAccessArgs(session.mainDirectory),
+        currentDirectory: optionalAccessArgs(session.currentDirectory),
+        recentDirectories: session.recentDirectories.map(accessArgs),
+        openFiles: session.openFiles.map(accessArgs),
+        activeFile: session.activeFile,
+      },
+    })
   },
   async selectFolder() {
     const value = await invokeDesktop<unknown>(

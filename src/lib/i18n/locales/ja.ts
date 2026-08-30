@@ -49,7 +49,6 @@ export const ja = {
     shortcuts: 'ショートカット',
     close: '閉じる',
     loadingSystemFonts: 'システムフォントを読み込んでいます...',
-    legacyDocNotice: '利用可能なシステムの Office アプリで旧形式の .doc を DOCX に変換しました。元のファイルは変更されていません。保存時は新しい .docx ファイルを選択してください。',
     pageProgress: '{rendered}/{total} ページ',
     browse: '参照',
     clearFileSearch: 'ファイル検索をクリア',

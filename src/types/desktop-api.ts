@@ -95,6 +95,14 @@ export interface OpenedFile extends GrantedPath {
   recent: GrantedRecentFile[]
 }
 
+export interface FileSessionState {
+  mainDirectory: string | null
+  currentDirectory: string | null
+  recentDirectories: string[]
+  openFiles: string[]
+  activeFile: string | null
+}
+
 export type FileOperationErrorCode =
   | 'failed'
   | 'invalid-name'
@@ -126,6 +134,8 @@ export interface FilesApi {
   search: (rootPath: string, query: string) => Promise<GrantedFileEntry[]>
   getRecent: () => Promise<GrantedRecentFile[]>
   getHome: () => Promise<GrantedPath>
+  loadSession: () => Promise<FileSessionState>
+  saveSession: (session: FileSessionState) => Promise<void>
   selectFolder: () => Promise<GrantedPath | null>
   selectFile: (kind?: 'all' | 'text' | 'presentation') => Promise<GrantedPath | null>
   selectAttachments: () => Promise<GrantedPath[]>

@@ -6,6 +6,8 @@ export const DESKTOP_COMMANDS = {
     search: 'files_search',
     getRecent: 'files_get_recent',
     getHome: 'files_get_home',
+    loadSession: 'files_session_load',
+    saveSession: 'files_session_save',
     selectFolder: 'files_select_folder',
     selectFile: 'files_select_file',
     selectAttachments: 'files_select_attachments',

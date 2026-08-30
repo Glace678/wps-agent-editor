@@ -145,3 +145,29 @@ pub struct PathAccessRequest {
     pub path: String,
     pub grant_id: String,
 }
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct FileSessionSaveRequest {
+    pub main_directory: Option<PathAccessRequest>,
+    pub current_directory: Option<PathAccessRequest>,
+    #[serde(default)]
+    pub recent_directories: Vec<PathAccessRequest>,
+    #[serde(default)]
+    pub open_files: Vec<PathAccessRequest>,
+    pub active_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct FileSessionSnapshot {
+    pub main_directory: Option<GrantedPath>,
+    pub current_directory: Option<GrantedPath>,
+    pub recent_directories: Vec<GrantedPath>,
+    pub open_files: Vec<GrantedPath>,
+    pub active_file: Option<String>,
+}

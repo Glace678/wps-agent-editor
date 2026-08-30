@@ -1182,11 +1182,114 @@ fn office_component_path(vendor: OfficeVendor, kind: DocumentKind) -> Option<Pat
         (OfficeVendor::Microsoft, DocumentKind::Presentation) => "POWERPNT.EXE",
         (OfficeVendor::Microsoft, DocumentKind::Spreadsheet) => "EXCEL.EXE",
     };
-    resolve_executable(executable).or_else(|| {
-        office_search_roots(vendor)
-            .into_iter()
-            .find_map(|root| find_descendant(&root, OsStr::new(executable), 4, 512))
-    })
+    resolve_executable(executable)
+        .or_else(|| registered_app_path(executable))
+        .or_else(|| {
+            office_search_roots(vendor)
+                .into_iter()
+                .find_map(|root| find_descendant(&root, OsStr::new(executable), 4, 512))
+        })
+}
+
+#[cfg(windows)]
+fn registered_app_path(executable: &str) -> Option<PathBuf> {
+    use std::{
+        os::windows::ffi::{OsStrExt, OsStringExt},
+        ptr,
+    };
+
+    type Hkey = *mut std::ffi::c_void;
+    const ERROR_SUCCESS: i32 = 0;
+    const HKEY_CURRENT_USER: Hkey = 0x8000_0001_usize as Hkey;
+    const HKEY_LOCAL_MACHINE: Hkey = 0x8000_0002_usize as Hkey;
+    const KEY_QUERY_VALUE: u32 = 0x0001;
+    const KEY_WOW64_64KEY: u32 = 0x0100;
+    const KEY_WOW64_32KEY: u32 = 0x0200;
+    const REG_SZ: u32 = 1;
+    #[link(name = "Advapi32")]
+    extern "system" {
+        fn RegOpenKeyExW(
+            key: Hkey,
+            sub_key: *const u16,
+            options: u32,
+            desired: u32,
+            result: *mut Hkey,
+        ) -> i32;
+        fn RegQueryValueExW(
+            key: Hkey,
+            value_name: *const u16,
+            reserved: *mut u32,
+            value_type: *mut u32,
+            data: *mut u8,
+            data_size: *mut u32,
+        ) -> i32;
+        fn RegCloseKey(key: Hkey) -> i32;
+    }
+
+    let sub_key = OsStr::new(&format!(
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{executable}"
+    ))
+    .encode_wide()
+    .chain(Some(0))
+    .collect::<Vec<_>>();
+
+    for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        for view in [0, KEY_WOW64_64KEY, KEY_WOW64_32KEY] {
+            let mut key = ptr::null_mut();
+            let opened = unsafe {
+                RegOpenKeyExW(hive, sub_key.as_ptr(), 0, KEY_QUERY_VALUE | view, &mut key)
+            };
+            if opened != ERROR_SUCCESS {
+                continue;
+            }
+
+            let value = (|| {
+                let mut value_type = 0_u32;
+                let mut byte_count = 0_u32;
+                let queried = unsafe {
+                    RegQueryValueExW(
+                        key,
+                        ptr::null(),
+                        ptr::null_mut(),
+                        &mut value_type,
+                        ptr::null_mut(),
+                        &mut byte_count,
+                    )
+                };
+                if queried != ERROR_SUCCESS || value_type != REG_SZ || byte_count < 2 {
+                    return None;
+                }
+
+                let mut value = vec![0_u16; (byte_count as usize).div_ceil(2)];
+                let queried = unsafe {
+                    RegQueryValueExW(
+                        key,
+                        ptr::null(),
+                        ptr::null_mut(),
+                        &mut value_type,
+                        value.as_mut_ptr().cast(),
+                        &mut byte_count,
+                    )
+                };
+                if queried != ERROR_SUCCESS || value_type != REG_SZ {
+                    return None;
+                }
+                let length = value
+                    .iter()
+                    .position(|unit| *unit == 0)
+                    .unwrap_or(value.len());
+                let path = PathBuf::from(OsString::from_wide(&value[..length]));
+                path.is_file().then_some(path)
+            })();
+            unsafe {
+                RegCloseKey(key);
+            }
+            if value.is_some() {
+                return value;
+            }
+        }
+    }
+    None
 }
 
 #[cfg(windows)]
@@ -1741,6 +1844,35 @@ mod tests {
                 assert!(!version.trim().is_empty());
                 assert!(version.chars().count() <= 240);
             }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn registered_office_components_are_discovered() {
+        for (vendor, kind, executable) in [
+            (OfficeVendor::Wps, DocumentKind::Word, "wps.exe"),
+            (OfficeVendor::Wps, DocumentKind::Presentation, "wpp.exe"),
+            (OfficeVendor::Wps, DocumentKind::Spreadsheet, "et.exe"),
+            (OfficeVendor::Microsoft, DocumentKind::Word, "WINWORD.EXE"),
+            (
+                OfficeVendor::Microsoft,
+                DocumentKind::Presentation,
+                "POWERPNT.EXE",
+            ),
+            (
+                OfficeVendor::Microsoft,
+                DocumentKind::Spreadsheet,
+                "EXCEL.EXE",
+            ),
+        ] {
+            let Some(registered) = registered_app_path(executable) else {
+                continue;
+            };
+            if resolve_executable(executable).is_some() {
+                continue;
+            }
+            assert_eq!(office_component_path(vendor, kind), Some(registered));
         }
     }
 }

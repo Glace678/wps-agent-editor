@@ -10,10 +10,15 @@ use crate::{
         access::GrantSource,
         dialogs,
         models::{
-            FileDialogKind, FileEntry, FileOperationResult, FileStatInfo, FileVersion, GrantedPath,
-            OpenedFile, PathAccessRequest, RecentFile,
+            FileDialogKind, FileEntry, FileOperationResult, FileSessionSaveRequest,
+            FileSessionSnapshot, FileStatInfo, FileVersion, GrantedPath, OpenedFile,
+            PathAccessRequest, RecentFile,
         },
-        operations, path_key, path_string, FileServices,
+        operations, path_key, path_string,
+        session::{
+            StoredFileSession, StoredSessionPath, MAX_SESSION_DIRECTORIES, MAX_SESSION_FILES,
+        },
+        FileServices,
     },
     state::AppState,
 };
@@ -219,6 +224,210 @@ pub fn files_get_home(window: WebviewWindow, state: State<'_, AppState>) -> AppR
         true,
         GrantSource::Home,
     )
+}
+
+#[tauri::command]
+pub fn files_session_load(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> AppResult<FileSessionSnapshot> {
+    // Auxiliary document windows are intentionally ephemeral. Only the stable
+    // main window owns the workspace session restored on the next app launch.
+    if window.label() != "main" {
+        return Ok(FileSessionSnapshot::default());
+    }
+
+    let owner = window.label();
+    let stored = state.files.session.load()?;
+    let (main_directory, stored_main_directory) =
+        restore_session_path(owner, &state.files, stored.main_directory.as_ref(), true);
+    let (current_directory, stored_current_directory) =
+        restore_session_path(owner, &state.files, stored.current_directory.as_ref(), true);
+
+    let mut recent_directories = Vec::new();
+    let mut stored_recent_directories = Vec::new();
+    let mut seen_directories = HashSet::new();
+    for entry in stored
+        .recent_directories
+        .iter()
+        .take(MAX_SESSION_DIRECTORIES)
+    {
+        let (Some(grant), Some(restored)) =
+            restore_session_path(owner, &state.files, Some(entry), true)
+        else {
+            continue;
+        };
+        if seen_directories.insert(path_key(Path::new(&restored.path))) {
+            recent_directories.push(grant);
+            stored_recent_directories.push(restored);
+        }
+    }
+
+    let active_key = stored
+        .active_file
+        .as_ref()
+        .map(|path| path_key(Path::new(path)));
+    let mut active_file = None;
+    let mut open_files = Vec::new();
+    let mut stored_open_files = Vec::new();
+    let mut seen_files = HashSet::new();
+    for entry in stored.open_files.iter().take(MAX_SESSION_FILES) {
+        let original_key = path_key(Path::new(&entry.path));
+        let (Some(grant), Some(restored)) =
+            restore_session_path(owner, &state.files, Some(entry), false)
+        else {
+            continue;
+        };
+        if !seen_files.insert(path_key(Path::new(&restored.path))) {
+            continue;
+        }
+        if active_key.as_ref().is_some_and(|key| key == &original_key) {
+            active_file = Some(grant.path.clone());
+        }
+        open_files.push(grant);
+        stored_open_files.push(restored);
+    }
+    if active_file.is_none() {
+        active_file = open_files.last().map(|entry| entry.path.clone());
+    }
+
+    let sanitized = StoredFileSession {
+        main_directory: stored_main_directory,
+        current_directory: stored_current_directory,
+        recent_directories: stored_recent_directories,
+        open_files: stored_open_files,
+        active_file: active_file.clone(),
+    };
+    if sanitized != stored {
+        state.files.session.save(&sanitized)?;
+    }
+
+    Ok(FileSessionSnapshot {
+        main_directory,
+        current_directory,
+        recent_directories,
+        open_files,
+        active_file,
+    })
+}
+
+#[tauri::command]
+pub fn files_session_save(
+    session: FileSessionSaveRequest,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if window.label() != "main" {
+        return Ok(());
+    }
+    if session.recent_directories.len() > MAX_SESSION_DIRECTORIES {
+        return Err(AppError::invalid("Too many session directories"));
+    }
+    if session.open_files.len() > MAX_SESSION_FILES {
+        return Err(AppError::invalid("Too many open session files"));
+    }
+
+    let owner = window.label();
+    let main_directory = session
+        .main_directory
+        .map(|request| resolve_session_path(owner, &state.files, request, true))
+        .transpose()?;
+    let current_directory = session
+        .current_directory
+        .map(|request| resolve_session_path(owner, &state.files, request, true))
+        .transpose()?;
+    let recent_directories =
+        resolve_session_paths(owner, &state.files, session.recent_directories, true)?;
+    let open_files = resolve_session_paths(owner, &state.files, session.open_files, false)?;
+
+    let active_file = match session.active_file {
+        Some(active) => {
+            let key = path_key(Path::new(&active));
+            Some(
+                open_files
+                    .iter()
+                    .find(|entry| path_key(Path::new(&entry.path)) == key)
+                    .ok_or_else(|| AppError::invalid("The active file must be an open file"))?
+                    .path
+                    .clone(),
+            )
+        }
+        None => None,
+    };
+
+    state.files.session.save(&StoredFileSession {
+        main_directory,
+        current_directory,
+        recent_directories,
+        open_files,
+        active_file,
+    })
+}
+
+fn restore_session_path(
+    owner: &str,
+    files: &FileServices,
+    stored: Option<&StoredSessionPath>,
+    expect_directory: bool,
+) -> (Option<GrantedPath>, Option<StoredSessionPath>) {
+    let Some(stored) = stored else {
+        return (None, None);
+    };
+    let source = Path::new(&stored.path);
+    let Ok(metadata) = std::fs::metadata(source) else {
+        return (None, None);
+    };
+    if metadata.is_dir() != expect_directory {
+        return (None, None);
+    }
+    let Ok(grant) =
+        files
+            .access
+            .grant_existing(owner, source, stored.writable, GrantSource::Session)
+    else {
+        return (None, None);
+    };
+    let restored = StoredSessionPath {
+        path: grant.path.clone(),
+        writable: stored.writable,
+    };
+    (Some(grant), Some(restored))
+}
+
+fn resolve_session_path(
+    owner: &str,
+    files: &FileServices,
+    request: PathAccessRequest,
+    expect_directory: bool,
+) -> AppResult<StoredSessionPath> {
+    let (path, writable) = files.access.resolve_with_permissions(
+        owner,
+        &request.path,
+        &request.grant_id,
+        false,
+        Some(expect_directory),
+    )?;
+    Ok(StoredSessionPath {
+        path: path_string(&path)?,
+        writable,
+    })
+}
+
+fn resolve_session_paths(
+    owner: &str,
+    files: &FileServices,
+    requests: Vec<PathAccessRequest>,
+    expect_directory: bool,
+) -> AppResult<Vec<StoredSessionPath>> {
+    let mut seen = HashSet::new();
+    let mut resolved = Vec::with_capacity(requests.len());
+    for request in requests {
+        let entry = resolve_session_path(owner, files, request, expect_directory)?;
+        if seen.insert(path_key(Path::new(&entry.path))) {
+            resolved.push(entry);
+        }
+    }
+    Ok(resolved)
 }
 
 #[tauri::command]
@@ -578,6 +787,81 @@ fn grant_recent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_paths_require_a_live_grant_with_the_expected_kind() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let directory = temp.path().join("workspace");
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = directory.join("document.txt");
+        std::fs::write(&file, "content").unwrap();
+        let services = FileServices::new(data, temp.path().to_path_buf()).unwrap();
+
+        let directory_grant = services
+            .access
+            .grant_existing("main", &directory, true, GrantSource::Dialog)
+            .unwrap();
+        let stored = resolve_session_path(
+            "main",
+            &services,
+            PathAccessRequest {
+                path: directory_grant.path,
+                grant_id: directory_grant.grant_id,
+            },
+            true,
+        )
+        .unwrap();
+        assert!(stored.writable);
+
+        let file_grant = services
+            .access
+            .grant_existing("main", &file, true, GrantSource::Dialog)
+            .unwrap();
+        let wrong_kind = resolve_session_path(
+            "main",
+            &services,
+            PathAccessRequest {
+                path: file_grant.path.clone(),
+                grant_id: file_grant.grant_id.clone(),
+            },
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(wrong_kind.code, "invalid-path");
+
+        services.access.revoke("main", &file_grant.grant_id);
+        let revoked = resolve_session_path(
+            "main",
+            &services,
+            PathAccessRequest {
+                path: file_grant.path,
+                grant_id: file_grant.grant_id,
+            },
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(revoked.code, "access-denied");
+    }
+
+    #[test]
+    fn session_restore_skips_paths_that_no_longer_exist() {
+        let temp = tempfile::tempdir().unwrap();
+        let services =
+            FileServices::new(temp.path().join("data"), temp.path().to_path_buf()).unwrap();
+        let missing = StoredSessionPath {
+            path: temp
+                .path()
+                .join("missing.txt")
+                .to_string_lossy()
+                .into_owned(),
+            writable: true,
+        };
+
+        let restored = restore_session_path("main", &services, Some(&missing), false);
+        assert!(restored.0.is_none());
+        assert!(restored.1.is_none());
+    }
 
     #[test]
     fn binary_ipc_limit_accepts_exact_size_and_rejects_larger_payloads() {
