@@ -11,7 +11,6 @@ if (!repository || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repository)) {
 }
 
 const supportedTargets = new Set([
-  'i686-pc-windows-msvc',
   'x86_64-pc-windows-msvc',
   'aarch64-pc-windows-msvc',
   'x86_64-apple-darwin',

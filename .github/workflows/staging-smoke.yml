@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           test -n "$TAURI_UPDATER_PUBLIC_KEY" || { echo 'Missing TAURI_UPDATER_PUBLIC_KEY secret' >&2; exit 1; }
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'release_tag must be a SemVer tag' >&2; exit 1; }
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'release_tag must be a stable SemVer tag without a prerelease suffix' >&2; exit 1; }
           release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease)"
           [[ "$(jq -r .isDraft <<<"$release_json")" == false ]] || { echo 'release_tag must be published' >&2; exit 1; }
           [[ "$(jq -r .isPrerelease <<<"$release_json")" == true ]] || { echo 'release_tag must remain a prerelease until staging acceptance passes' >&2; exit 1; }
@@ -55,7 +55,7 @@ jobs:
             exit 1
           fi
           if [[ -n "$PREVIOUS_TAG" ]]; then
-            [[ "$PREVIOUS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'previous_tag must be a SemVer tag' >&2; exit 1; }
+            [[ "$PREVIOUS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'previous_tag must be a stable SemVer tag' >&2; exit 1; }
             previous_json="$(gh release view "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease)"
             [[ "$(jq -r .isDraft <<<"$previous_json")" == false ]] || { echo 'previous_tag must be published' >&2; exit 1; }
             [[ "$(jq -r .isPrerelease <<<"$previous_json")" == false ]] || { echo 'previous_tag must be a stable release' >&2; exit 1; }
@@ -67,7 +67,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-2022, platform: windows, arch: x86, primary_suffix: '-setup.exe' }
           - { runner: windows-2022, platform: windows, arch: x86_64, primary_suffix: '-setup.exe' }
           - { runner: windows-11-arm, platform: windows, arch: aarch64, primary_suffix: '-setup.exe' }
           - { runner: macos-15-intel, platform: macos, arch: x86_64, primary_suffix: '.dmg' }
@@ -151,7 +150,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-2022, platform: windows, arch: x86 }
           - { runner: windows-2022, platform: windows, arch: x86_64 }
           - { runner: windows-11-arm, platform: windows, arch: aarch64 }
           - { runner: macos-15-intel, platform: macos, arch: x86_64 }

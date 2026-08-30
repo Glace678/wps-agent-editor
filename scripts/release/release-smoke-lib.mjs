@@ -1,11 +1,6 @@
 import { resolve } from 'node:path'
 
 const PLATFORM_SPECS = {
-  'windows-x86': {
-    platformKey: 'windows-i686',
-    primarySuffix: '-setup.exe',
-    updaterSuffix: '-setup.exe',
-  },
   'windows-x86_64': {
     platformKey: 'windows-x86_64',
     primarySuffix: '-setup.exe',

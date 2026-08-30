@@ -1,6 +1,6 @@
 {
   "name": "wps-agent-editor",
-  "version": "2.0.0",
+  "version": "2.0.0-rc.1",
   "description": "基于 Tauri 的跨平台轻量文档编辑器与多 Agent 工作台",
   "author": "WPS Agent Editor",
   "license": "AGPL-3.0-only",
@@ -13,7 +13,6 @@
     "tauri": "tauri",
     "prepare:sidecar": "node scripts/prepare-esbuild-sidecar.mjs",
     "dist": "npm run prepare:sidecar && tauri build",
-    "dist:windows-x86": "npm run prepare:sidecar -- --target i686-pc-windows-msvc && tauri build --target i686-pc-windows-msvc",
     "dist:windows-x86_64": "npm run prepare:sidecar -- --target x86_64-pc-windows-msvc && tauri build --target x86_64-pc-windows-msvc",
     "dist:windows-aarch64": "npm run prepare:sidecar -- --target aarch64-pc-windows-msvc && tauri build --target aarch64-pc-windows-msvc",
     "dist:macos-x86_64": "npm run prepare:sidecar -- --target x86_64-apple-darwin && tauri build --target x86_64-apple-darwin",
@@ -44,7 +43,7 @@
     "test:desktop-channel": "tsx --tsconfig tsconfig.web.json scripts/test-desktop-channel-contract.ts",
     "test:provider-contract": "tsx --tsconfig tsconfig.web.json scripts/test-provider-desktop-contract.ts",
     "test:word-toolbar-i18n": "tsx --tsconfig tsconfig.web.json scripts/test-word-toolbar-i18n.ts",
-    "test:web-canaries": "node scripts/test-office-shortcuts-structural.mjs && npm run test:agent-document-bridge && npm run test:agent-reasoning && npm run test:document-zoom-wheel && npm run test:desktop-channel && npm run test:provider-contract && npm run test:word-toolbar-i18n",
+    "test:web-canaries": "node scripts/test-office-shortcuts-structural.mjs && npm run test:agent-document-bridge && npm run test:agent-reasoning && npm run test:document-zoom-wheel && npm run test:file-session && npm run test:desktop-channel && npm run test:provider-contract && npm run test:word-toolbar-i18n",
     "postinstall": "node scripts/patch-pptx-renderer.mjs && node scripts/patch-superdoc-font-size.mjs"
   },
   "dependencies": {

@@ -10,7 +10,7 @@ const maxBytes = Number.isFinite(configuredMaxBytes) && configuredMaxBytes > 0
   ? Math.min(configuredMaxBytes, hardMaxBytes)
   : hardMaxBytes
 const requireMatrix = process.env.REQUIRE_RELEASE_MATRIX === '1'
-const primaryPattern = /^(windows-(?:x86|x86_64|aarch64)-setup\.exe|macos-(?:x86_64|aarch64)\.dmg|linux-(?:x86_64|aarch64)\.AppImage)$/
+const primaryPattern = /^(windows-(?:x86_64|aarch64)-setup\.exe|macos-(?:x86_64|aarch64)\.dmg|linux-(?:x86_64|aarch64)\.AppImage)$/
 const updaterPattern = /^(macos-(?:x86_64|aarch64)\.app\.tar\.gz)$/
 const forbiddenPattern = /(^|[\\/])(?:electron|chromium|node_modules|onlyoffice|documentserver|document-server|app\.asar|node(?:\.exe)?|libnode(?:\.so|\.dylib|\.dll)|[^\\/]+\.dSYM)(?=[\\/]|$|[-_.])|(^|[\\/])(?:icudtl\.dat|v8_context_snapshot\.bin|snapshot_blob\.bin|resources\.pak|chrome_[^\\/]*\.pak)$|\.(?:map|pdb|ilk|debug)$/i
 
@@ -37,8 +37,8 @@ const forbidden = files.filter((path) => forbiddenPattern.test(path.slice(direct
 if (forbidden.length) throw new Error(`Forbidden packaged content:\n${forbidden.join('\n')}`)
 
 const primary = files.filter((path) => primaryPattern.test(path.slice(directory.length + 1)))
-if (requireMatrix && primary.length !== 7) {
-  throw new Error(`Expected seven primary release artifacts, found ${primary.length}`)
+if (requireMatrix && primary.length !== 6) {
+  throw new Error(`Expected six primary release artifacts, found ${primary.length}`)
 }
 if (!primary.length) throw new Error(`No primary release artifacts found in ${directory}`)
 for (const path of primary) {

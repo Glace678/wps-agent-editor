@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WPS Agent Editor",
-  "version": "2.0.0",
+  "version": "2.0.0-rc.1",
   "identifier": "com.wpsagent.editor",
   "build": {
     "beforeDevCommand": "npm run dev:web",

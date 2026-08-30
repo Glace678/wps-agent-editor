@@ -69,7 +69,6 @@ const signatureName = `${updaterName}.sig`
 await cp(signatureSource, join(outputDir, signatureName))
 
 const updaterKey = {
-  'windows-x86': 'windows-i686',
   'windows-x86_64': 'windows-x86_64',
   'windows-aarch64': 'windows-aarch64',
   'macos-x86_64': 'darwin-x86_64',

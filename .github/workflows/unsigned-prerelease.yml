@@ -1,0 +1,187 @@
+name: Unsigned release candidate
+
+on:
+  push:
+    tags:
+      - 'v*.*.*-rc.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unsigned-prerelease-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify annotated RC tag and release ancestry
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.(0|[1-9][0-9]*)$ ]] || { echo 'Unsigned release tag must match vMAJOR.MINOR.PATCH-rc.N' >&2; exit 1; }
+          [[ "$(git cat-file -t "$GITHUB_REF_NAME")" == tag ]] || { echo 'Release candidate tags must be annotated tags' >&2; exit 1; }
+          node scripts/check-version.mjs --tag "$GITHUB_REF_NAME"
+          git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH" || { echo 'Release candidate tag must point to the default branch' >&2; exit 1; }
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: windows, arch: x86_64, target: x86_64-pc-windows-msvc, bundles: nsis }
+          - { runner: windows-11-arm, platform: windows, arch: aarch64, target: aarch64-pc-windows-msvc, bundles: nsis }
+          - { runner: macos-15-intel, platform: macos, arch: x86_64, target: x86_64-apple-darwin, bundles: dmg, deployment_target: '10.15' }
+          - { runner: macos-15, platform: macos, arch: aarch64, target: aarch64-apple-darwin, bundles: dmg, deployment_target: '11.0' }
+          - { runner: ubuntu-22.04, platform: linux, arch: x86_64, target: x86_64-unknown-linux-gnu, bundles: appimage }
+          - { runner: ubuntu-22.04-arm, platform: linux, arch: aarch64, target: aarch64-unknown-linux-gnu, bundles: appimage }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      WAE_BUILD_TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux build and smoke dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file libssl-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+            libxdo-dev patchelf xvfb dbus-x11 xdg-utils
+      - run: npm ci
+      - name: Prepare target esbuild sidecar
+        run: npm run prepare:sidecar -- --target ${{ matrix.target }}
+      - name: Audit renderer and package inputs
+        run: |
+          npm run build:web
+          node scripts/release/check-bundle-inputs.mjs --target ${{ matrix.target }}
+      - name: Generate unsigned bundle config
+        shell: bash
+        run: node scripts/release/tauri-unsigned-config.mjs "$RUNNER_TEMP/tauri-unsigned.json"
+      - name: Build unsigned release candidate
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.temp }}/tauri-unsigned.json"
+      - name: Collect and enforce primary package size
+        run: |
+          node scripts/release/collect-unsigned-artifact.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle candidate-artifact
+          node scripts/release/check-artifacts.mjs candidate-artifact
+      - name: Windows unsigned install/start/uninstall smoke
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: >-
+          ./scripts/release/windows-install-smoke.ps1
+          -Artifact "candidate-artifact/windows-${{ matrix.arch }}-setup.exe"
+          -Arch "${{ matrix.arch }}"
+          -LogDirectory smoke-logs
+          -AllowUnsigned
+      - name: macOS unsigned install/start/remove smoke
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: >-
+          bash scripts/release/macos-install-smoke.sh
+          "candidate-artifact/macos-${{ matrix.arch }}.dmg"
+          "${{ matrix.arch }}"
+          smoke-logs
+          --allow-unsigned
+      - name: Linux install/start/remove smoke
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: >-
+          bash scripts/release/linux-install-smoke.sh
+          "candidate-artifact/linux-${{ matrix.arch }}.AppImage"
+          "${{ matrix.arch }}"
+          smoke-logs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unsigned-rc-smoke-${{ matrix.platform }}-${{ matrix.arch }}
+          path: smoke-logs
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-${{ matrix.platform }}-${{ matrix.arch }}
+          path: candidate-artifact/*
+          if-no-files-found: error
+          retention-days: 7
+
+  finalize:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: candidate-*
+          path: artifacts
+          merge-multiple: true
+      - run: npm ci
+      - name: Build SBOMs and corresponding-source archive
+        shell: bash
+        run: |
+          npm sbom --sbom-format cyclonedx > artifacts/sbom-npm.cdx.json
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust
+          mv src-tauri/sbom-rust.json artifacts/sbom-rust.cdx.json
+          git archive --format=zip --output="artifacts/WPS-Agent-Editor-${GITHUB_REF_NAME}-source.zip" HEAD
+      - name: Validate six targets and generate checksums
+        env:
+          REQUIRE_RELEASE_MATRIX: '1'
+        run: |
+          node scripts/release/check-artifacts.mjs artifacts
+          node scripts/release/finalize-unsigned-prerelease.mjs artifacts
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: artifacts/*
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: WPS Agent Editor ${{ github.ref_name }} (Unsigned Preview)
+          draft: false
+          prerelease: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## Unsigned preview / 未签名预览
+
+            This release candidate is for testing only. It is not code-signed and is not published to the automatic update channel.
+
+            此候选版本仅用于测试，未进行代码签名，也不会进入自动更新渠道。
+
+            - Windows may display Microsoft Defender SmartScreen warnings.
+            - macOS Gatekeeper will block normal launch unless the tester explicitly approves this unsigned build.
+            - Windows 可能显示 Microsoft Defender SmartScreen 警告。
+            - macOS Gatekeeper 默认会阻止启动，测试者必须明确允许此未签名构建。
+          files: artifacts/*

@@ -44,17 +44,17 @@ npm run test:rust
 
 ## 发布目标
 
-正式 Release 构建以下签名产物：
+Release 构建以下桌面产物：
 
-- Windows 10+：x86、x86_64、ARM64 NSIS 安装程序
+- Windows 10+：x86_64 与 ARM64 NSIS 安装程序
 - macOS：Intel 与 Apple Silicon DMG
 - Linux：x86_64 与 ARM64 AppImage
 
 每个主要下载包的 CI 上限为 100 MiB。Tag 必须与 `package.json`、Cargo 和 `tauri.conf.json` 的版本一致；稳定版还要求 Windows Authenticode、macOS Developer ID/公证及 Tauri updater Ed25519 密钥。
 
-Pull Request 会在七个原生目标上生成短期保留的未签名测试包。正式 tag 构建必须通过对应平台的签名、文件关联、核心文档、Agent 流式响应、安装、启动、内容检查和卸载冒烟后才能进入单一 finalize 任务；finalize 统一生成 updater 元数据、拒绝安装夹具、校验和、SBOM、源码归档与构建证明，并先发布为 prerelease。
+Pull Request 会在六个原生目标上生成短期保留的未签名测试包。`v*-rc.*` tag 构建公开的未签名候选包，并生成校验和、SBOM、AGPL 对应源码归档与 GitHub 构建证明，但不生成 updater 元数据，也不进入自动更新渠道。正式 tag 构建必须通过对应平台的签名、文件关联、核心文档、Agent 流式响应、安装、启动、内容检查和卸载冒烟后才能进入单一 finalize 任务；finalize 统一生成 updater 元数据、拒绝安装夹具、校验和、SBOM、源码归档与构建证明，并先发布为 prerelease。
 
-`Signed staging release smoke` 使用精确 tag 在七个平台验证签名篡改拒绝、无效安装保持原程序、真实升级、重启、启动健康检查、失败回滚和外部版本/哈希。每个目标还会重新安装旧版，注入一次更新后启动失败，并从进程外确认旧载荷已恢复和重启。工作流默认只验收；显式选择 `promote` 且全部矩阵通过时，只有独立的最小权限 job 可以将 prerelease 提升为稳定版。`v2.0.0` 之后必须提供较旧的已发布 tag，不能跳过升级验收。
+`Signed staging release smoke` 使用精确 tag 在六个平台验证签名篡改拒绝、无效安装保持原程序、真实升级、重启、启动健康检查、失败回滚和外部版本/哈希。每个目标还会重新安装旧版，注入一次更新后启动失败，并从进程外确认旧载荷已恢复和重启。工作流默认只验收；显式选择 `promote` 且全部矩阵通过时，只有独立的最小权限 job 可以将 prerelease 提升为稳定版。`v2.0.0` 之后必须提供较旧的已发布 tag，不能跳过升级验收。完整的 RC、签名凭据和稳定版流程见 [RELEASING.md](./RELEASING.md)。
 
 ## v2 数据策略
 

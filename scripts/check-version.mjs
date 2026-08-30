@@ -48,7 +48,8 @@ if (Object.values(licenses).some((license) => license !== 'AGPL-3.0-only')) {
 
 const tagFlagIndex = process.argv.indexOf('--tag')
 const suppliedTag = tagFlagIndex >= 0 ? process.argv[tagFlagIndex + 1] : undefined
-const tag = suppliedTag || process.env.GITHUB_REF_NAME
+const environmentTag = process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : undefined
+const tag = suppliedTag || environmentTag
 const [version] = distinct
 if (tag && tag !== `v${version}`) {
   throw new Error(`Release tag ${tag} does not match v${version}`)

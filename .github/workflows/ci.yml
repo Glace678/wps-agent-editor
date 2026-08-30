@@ -53,7 +53,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-2022, platform: windows, arch: x86, target: i686-pc-windows-msvc, bundles: nsis }
           - { runner: windows-2022, platform: windows, arch: x86_64, target: x86_64-pc-windows-msvc, bundles: nsis }
           - { runner: windows-11-arm, platform: windows, arch: aarch64, target: aarch64-pc-windows-msvc, bundles: nsis }
           - { runner: macos-15-intel, platform: macos, arch: x86_64, target: x86_64-apple-darwin, bundles: dmg, deployment_target: '10.15' }
@@ -89,14 +88,14 @@ jobs:
         run: |
           npm run build:web
           node scripts/release/check-bundle-inputs.mjs --target ${{ matrix.target }}
-      - name: Generate unsigned PR-only bundle config
+      - name: Generate unsigned bundle config
         shell: bash
-        run: node scripts/release/tauri-pr-config.mjs "$RUNNER_TEMP/tauri-pr.json"
+        run: node scripts/release/tauri-unsigned-config.mjs "$RUNNER_TEMP/tauri-unsigned.json"
       - name: Build unsigned test bundle
-        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.temp }}/tauri-pr.json"
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.temp }}/tauri-unsigned.json"
       - name: Collect and enforce primary package size
         run: |
-          node scripts/release/collect-pr-artifact.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle pr-artifact
+          node scripts/release/collect-unsigned-artifact.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle pr-artifact
           node scripts/release/check-artifacts.mjs pr-artifact
       - uses: actions/upload-artifact@v4
         with:

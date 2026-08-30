@@ -71,20 +71,53 @@ async function createReleaseFixture(name) {
   return directory
 }
 
+async function createUnsignedFixture(name, tag) {
+  const directory = join(temporaryRoot, name)
+  await mkdir(directory, { recursive: true })
+  for (const target of supportedReleaseTargets) {
+    const separator = target.indexOf('-')
+    const platform = target.slice(0, separator)
+    const arch = target.slice(separator + 1)
+    const spec = releaseArtifactSpec(tag, platform, arch, directory)
+    await writeFile(spec.primaryPath, `unsigned primary ${target}\n`)
+  }
+  await writeFile(join(directory, 'sbom-npm.cdx.json'), '{"bomFormat":"CycloneDX"}\n')
+  await writeFile(join(directory, 'sbom-rust.cdx.json'), '{"bomFormat":"CycloneDX"}\n')
+  await writeFile(join(directory, `WPS-Agent-Editor-${tag}-source.zip`), Buffer.from('504b0304', 'hex'))
+  return directory
+}
+
 try {
+  const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+  runScript('../check-version.mjs', [], {
+    GITHUB_REF_NAME: 'main',
+    GITHUB_REF_TYPE: 'branch',
+  })
+  runScript('../check-version.mjs', [], {
+    GITHUB_REF_NAME: `v${packageJson.version}`,
+    GITHUB_REF_TYPE: 'tag',
+  })
+
+  const unsigned = await createUnsignedFixture('unsigned', `v${packageJson.version}`)
+  runScript('finalize-unsigned-prerelease.mjs', [unsigned], {
+    GITHUB_REF_NAME: `v${packageJson.version}`,
+  })
+  assert.match(await readFile(join(unsigned, 'SHA256SUMS'), 'utf8'), /linux-aarch64\.AppImage/)
+  await assert.rejects(readFile(join(unsigned, 'latest.json')), /ENOENT/)
+
   const valid = await createReleaseFixture('valid')
   runScript('finalize-release.mjs', [valid], {
     GITHUB_REPOSITORY: 'owner/repository',
     GITHUB_REF_NAME: 'v2.0.0',
   })
   const latest = JSON.parse(await readFile(join(valid, 'latest.json'), 'utf8'))
-  assert.equal(Object.keys(latest.platforms).length, 7)
+  assert.equal(Object.keys(latest.platforms).length, 6)
   assert.match(await readFile(join(valid, 'SHA256SUMS'), 'utf8'), /sbom-rust\.cdx\.json/)
 
   const mismatched = await createReleaseFixture('mismatched')
-  const mismatchedManifest = join(mismatched, 'release-part-windows-x86.json')
+  const mismatchedManifest = join(mismatched, 'release-part-windows-x86_64.json')
   const manifest = JSON.parse(await readFile(mismatchedManifest, 'utf8'))
-  manifest.updater = 'windows-x86_64-setup.exe'
+  manifest.updater = 'windows-aarch64-setup.exe'
   await writeFile(mismatchedManifest, `${JSON.stringify(manifest)}\n`)
   const mismatchResult = runScript('finalize-release.mjs', [mismatched], {
     GITHUB_REPOSITORY: 'owner/repository',
@@ -137,7 +170,11 @@ try {
 
   const updaterSmoke = await readFile(join(root, 'scripts/release/updater-smoke.mjs'), 'utf8')
   const updaterHook = await readFile(join(root, 'scripts/release/run-updater-smoke.mjs'), 'utf8')
+  const ciWorkflow = await readFile(join(root, '.github/workflows/ci.yml'), 'utf8')
+  const signedWorkflow = await readFile(join(root, '.github/workflows/release.yml'), 'utf8')
   const stagingWorkflow = await readFile(join(root, '.github/workflows/staging-smoke.yml'), 'utf8')
+  const unsignedWorkflow = await readFile(join(root, '.github/workflows/unsigned-prerelease.yml'), 'utf8')
+  const unsignedConfig = await readFile(join(root, 'scripts/release/tauri-unsigned-config.mjs'), 'utf8')
   const healthGuardian = await readFile(join(root, 'src-tauri/src/update_health.rs'), 'utf8')
   assert.match(updaterSmoke, /runHook\(rollbackReportPath, true\)/)
   assert.match(updaterSmoke, /healthRollbackVerified: true/)
@@ -148,6 +185,15 @@ try {
   assert.match(stagingWorkflow, /startup health rollback/)
   assert.match(healthGuardian, /--wae-update-health-guardian/)
   assert.match(healthGuardian, /startup-health-failed/)
+  for (const publicContract of [ciWorkflow, signedWorkflow, stagingWorkflow, unsignedWorkflow]) {
+    assert.doesNotMatch(publicContract, /\bi686\b|\barch:\s*x86(?:\s*[,}])/)
+  }
+  assert.match(signedWorkflow, /!v\*\.\*\.\*-\*/)
+  assert.match(unsignedWorkflow, /v\*\.\*\.\*-rc\.\*/)
+  assert.match(unsignedWorkflow, /Unsigned Preview/)
+  assert.doesNotMatch(unsignedWorkflow, /TAURI_SIGNING_PRIVATE_KEY|WINDOWS_CERTIFICATE|APPLE_CERTIFICATE|latest\.json/)
+  assert.match(unsignedConfig, /createUpdaterArtifacts:\s*false/)
+  assert.match(unsignedConfig, /endpoints:\s*\[\]/)
 
   console.log('Release contract tests passed')
 } finally {
