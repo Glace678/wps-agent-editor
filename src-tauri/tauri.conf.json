@@ -44,6 +44,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "linux": {
+      "appimage": {
+        "files": {
+          "/usr/share/applications/WPS Agent Editor.desktop": "linux/wps-agent-editor.desktop"
+        }
+      }
+    },
     "category": "Productivity",
     "license": "AGPL-3.0-only",
     "licenseFile": "../LICENSE",

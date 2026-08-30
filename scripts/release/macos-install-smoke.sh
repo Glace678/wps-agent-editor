@@ -52,7 +52,7 @@ hdiutil verify "$dmg"
 mkdir -p "$mount_dir" "$install_dir"
 attach_log="$log_dir/macos-$arch-hdiutil-attach.log"
 for attempt in 1 2 3; do
-  if hdiutil attach "$dmg" -readonly -nobrowse -noautoopen -noverify -mountpoint "$mount_dir" >"$attach_log" 2>&1; then
+  if printf 'Y\n' | hdiutil attach "$dmg" -readonly -nobrowse -noautoopen -noverify -mountpoint "$mount_dir" >"$attach_log" 2>&1; then
     mounted=1
     break
   fi
