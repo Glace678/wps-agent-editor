@@ -48,6 +48,7 @@ export type AppErrorCode =
   | 'cancelled'
   | 'dependency-missing'
   | 'desktop-api-unavailable'
+  | 'executable-file-blocked'
   | 'internal'
   | 'invalid-argument'
   | 'invalid-binary'

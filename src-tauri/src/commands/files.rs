@@ -8,7 +8,7 @@ use crate::{
     error::{AppError, AppResult},
     files::{
         access::GrantSource,
-        dialogs,
+        dialogs, ensure_file_can_be_opened,
         models::{
             FileDialogKind, FileEntry, FileOperationResult, FileSessionSaveRequest,
             FileSessionSnapshot, FileStatInfo, FileVersion, GrantedPath, OpenedFile,
@@ -61,6 +61,7 @@ pub async fn files_open(
         false,
         Some(false),
     )?;
+    ensure_file_can_be_opened(&file)?;
     let recent = if writable {
         state.files.recent.add(&file, writable).await?
     } else {
@@ -88,6 +89,7 @@ pub async fn files_open_external(
         false,
         Some(false),
     )?;
+    ensure_file_can_be_opened(&file)?;
     let mut command = if cfg!(target_os = "windows") {
         let mut command = Command::new("explorer.exe");
         command.arg(&file);
@@ -140,6 +142,7 @@ pub fn files_read_binary(
 }
 
 fn read_binary_limited(path: &Path) -> AppResult<Vec<u8>> {
+    ensure_file_can_be_opened(path)?;
     let file = File::open(path)?;
     let metadata = file.metadata()?;
     validate_binary_ipc_size(metadata.len())?;
@@ -380,6 +383,9 @@ fn restore_session_path(
     if metadata.is_dir() != expect_directory {
         return (None, None);
     }
+    if !expect_directory && ensure_file_can_be_opened(source).is_err() {
+        return (None, None);
+    }
     let Ok(grant) =
         files
             .access
@@ -387,6 +393,10 @@ fn restore_session_path(
     else {
         return (None, None);
     };
+    if !expect_directory && ensure_file_can_be_opened(Path::new(&grant.path)).is_err() {
+        files.access.revoke(owner, &grant.grant_id);
+        return (None, None);
+    }
     let restored = StoredSessionPath {
         path: grant.path.clone(),
         writable: stored.writable,
@@ -407,6 +417,9 @@ fn resolve_session_path(
         false,
         Some(expect_directory),
     )?;
+    if !expect_directory {
+        ensure_file_can_be_opened(&path)?;
+    }
     Ok(StoredSessionPath {
         path: path_string(&path)?,
         writable,
@@ -709,6 +722,7 @@ pub async fn files_select_file(
     .map_err(|error| AppError::internal(format!("File dialog failed: {error}")))??;
     selected
         .map(|path| {
+            ensure_file_can_be_opened(&path)?;
             state
                 .files
                 .access
@@ -725,11 +739,17 @@ pub async fn files_select_attachments(
     let owner = window.label().to_owned();
     let app = window.app_handle().clone();
     let mut seen = HashSet::new();
-    tauri::async_runtime::spawn_blocking(move || dialogs::select_attachments(&app))
+    let selected = tauri::async_runtime::spawn_blocking(move || dialogs::select_attachments(&app))
         .await
         .map_err(|error| AppError::internal(format!("Attachment dialog failed: {error}")))??
         .into_iter()
         .filter(|path| seen.insert(path_key(path)))
+        .collect::<Vec<_>>();
+    for path in &selected {
+        ensure_file_can_be_opened(path)?;
+    }
+    selected
+        .into_iter()
         .map(|path| {
             state
                 .files
@@ -765,6 +785,7 @@ fn grant_recent(
     entries
         .into_iter()
         .filter_map(|entry| {
+            ensure_file_can_be_opened(Path::new(&entry.path)).ok()?;
             let grant = files
                 .access
                 .grant_existing(
@@ -864,6 +885,23 @@ mod tests {
     }
 
     #[test]
+    fn session_restore_skips_executable_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let services =
+            FileServices::new(temp.path().join("data"), temp.path().to_path_buf()).unwrap();
+        let executable = temp.path().join("payload.EXE");
+        std::fs::write(&executable, b"payload").unwrap();
+        let stored = StoredSessionPath {
+            path: executable.to_string_lossy().into_owned(),
+            writable: true,
+        };
+
+        let restored = restore_session_path("main", &services, Some(&stored), false);
+        assert!(restored.0.is_none());
+        assert!(restored.1.is_none());
+    }
+
+    #[test]
     fn binary_ipc_limit_accepts_exact_size_and_rejects_larger_payloads() {
         assert!(validate_binary_ipc_size(MAX_BINARY_IPC_BYTES).is_ok());
         let error = validate_binary_ipc_size(MAX_BINARY_IPC_BYTES + 1).unwrap_err();
@@ -895,5 +933,15 @@ mod tests {
         std::fs::write(&path, expected).unwrap();
 
         assert_eq!(read_binary_limited(&path).unwrap(), expected);
+    }
+
+    #[test]
+    fn binary_reader_rejects_executable_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tool.exe");
+        std::fs::write(&path, b"MZ").unwrap();
+
+        let error = read_binary_limited(&path).unwrap_err();
+        assert_eq!(error.code, "executable-file-blocked");
     }
 }

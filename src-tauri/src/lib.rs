@@ -11,7 +11,11 @@ pub mod state;
 mod update_health;
 mod updater_smoke;
 
-use crate::{error::AppError, files::access::GrantSource, state::AppState};
+use crate::{
+    error::AppError,
+    files::{access::GrantSource, is_executable_file},
+    state::AppState,
+};
 use std::path::{Path, PathBuf};
 use tauri::{Emitter, Manager};
 
@@ -240,7 +244,7 @@ where
         } else {
             cwd?.join(argument)
         };
-        candidate.is_file().then_some(candidate)
+        (candidate.is_file() && !is_executable_file(&candidate)).then_some(candidate)
     })
 }
 
@@ -280,6 +284,27 @@ mod tests {
             executable.to_string_lossy().into_owned(),
             "--ignored-option".to_owned(),
             "notes.txt".to_owned(),
+        ];
+        assert_eq!(
+            find_second_instance_file_argument(arguments, Some(directory.path())),
+            Some(document)
+        );
+    }
+
+    #[test]
+    fn second_instance_skips_executable_file_arguments() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let application = directory.path().join("wps-agent-editor.exe");
+        let executable = directory.path().join("payload.EXE");
+        let document = directory.path().join("notes.txt");
+        fs::write(&application, b"application").expect("write application fixture");
+        fs::write(&executable, b"payload").expect("write executable fixture");
+        fs::write(&document, b"notes").expect("write document fixture");
+
+        let arguments = vec![
+            application.to_string_lossy().into_owned(),
+            executable.to_string_lossy().into_owned(),
+            document.to_string_lossy().into_owned(),
         ];
         assert_eq!(
             find_second_instance_file_argument(arguments, Some(directory.path())),

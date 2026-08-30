@@ -1,5 +1,6 @@
 use crate::{
     error::AppResult,
+    files::ensure_file_can_be_opened,
     process::{
         debugger::{DebugBreakpoint, DebugCommand, DebugStartResult},
         dependencies::DependencyStatus,
@@ -107,6 +108,7 @@ pub async fn process_run_code(
         .files
         .access
         .resolve(window.label(), &path, &grant_id, false, Some(false))?;
+    ensure_file_can_be_opened(&path)?;
     crate::process::runner::run_file(&path).await
 }
 
@@ -124,6 +126,7 @@ pub async fn process_debug_start(
         false,
         Some(false),
     )?;
+    ensure_file_can_be_opened(&path)?;
     crate::process::debugger::start(window, on_event, path, request.breakpoints)
 }
 

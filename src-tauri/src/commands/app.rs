@@ -1,6 +1,6 @@
 use crate::{
     error::{AppError, AppResult},
-    files::{access::GrantSource, models::GrantedPath},
+    files::{access::GrantSource, ensure_file_can_be_opened, models::GrantedPath},
     state::AppState,
     update_health::UpdateHealthTransaction,
 };
@@ -109,6 +109,7 @@ pub fn app_window_new(
 ) -> AppResult<SuccessResult> {
     let label = format!("document-{}", Uuid::new_v4());
     if let Some(path) = path {
+        ensure_file_can_be_opened(std::path::Path::new(&path))?;
         let grant_id = grant_id.ok_or_else(|| AppError::denied("A file grant is required"))?;
         let child_grant = state.files.access.derive_for_owner(
             window.label(),

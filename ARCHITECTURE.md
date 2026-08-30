@@ -27,6 +27,8 @@ All failures use a serializable `AppError { code, messageKey, details, retryable
 
 File dialogs, directory listings, recent files and single-instance arguments register canonical paths in an in-memory grant registry. The compatibility API may display paths, but every privileged command resolves an opaque grant and rejects unknown paths, traversal and symlink escapes. Windows comparisons are case-insensitive; Unix comparisons are not.
 
+User-selected `.exe` files are rejected by the native open policy before they can be restored, read, passed to the system shell, run, debugged or consumed as Agent attachments. Non-opening file operations such as reveal, rename and delete remain available.
+
 Document bytes cross IPC as raw `Uint8Array`, never Base64 or JSON number arrays. Commands that require metadata and bytes use a versioned `WAE1` envelope. Writes snapshot the previous file, write a sibling temporary file, sync it and atomically replace the destination.
 
 ## Persistent state

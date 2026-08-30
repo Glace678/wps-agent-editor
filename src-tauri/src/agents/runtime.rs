@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    files::FileServices,
+    files::{ensure_file_can_be_opened, FileServices},
     providers::store::ProviderStore,
 };
 
@@ -421,13 +421,14 @@ impl AgentRuntime {
         // Validate every opaque grant even when rendered content is cached. This
         // prevents a revoked/cross-window grant from becoming a cache oracle.
         for attachment in &message.attachments {
-            files.access.resolve(
+            let path = files.access.resolve(
                 owner,
                 &attachment.path,
                 &attachment.grant_id,
                 false,
                 Some(false),
             )?;
+            ensure_file_can_be_opened(&path)?;
         }
 
         let signature = attachment_signature(owner, message);

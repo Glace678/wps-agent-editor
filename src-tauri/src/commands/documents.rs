@@ -7,6 +7,7 @@ use crate::{
         },
     },
     error::{AppError, AppResult},
+    files::ensure_file_can_be_opened,
     state::AppState,
 };
 use serde::{Deserialize, Serialize};
@@ -74,6 +75,7 @@ pub async fn documents_prepare_word(
         .files
         .access
         .resolve(window.label(), &path, &grant_id, false, Some(false))?;
+    ensure_file_can_be_opened(&path)?;
     let prepared = converter::prepare_word_with_metadata(&path).await?;
     let metadata = PreparedOfficeMetadata {
         converted_from_legacy: prepared.converted_from_legacy,
@@ -98,6 +100,7 @@ pub async fn documents_read_file(
         .files
         .access
         .resolve(window.label(), &path, &grant_id, false, Some(false))?;
+    ensure_file_can_be_opened(&path)?;
     let metadata = tokio::fs::metadata(&path).await?;
     if metadata.len() > 100 * 1024 * 1024 {
         return Err(AppError::new(
@@ -119,6 +122,7 @@ pub async fn documents_prepare_presentation(
         .files
         .access
         .resolve(window.label(), &path, &grant_id, false, Some(false))?;
+    ensure_file_can_be_opened(&path)?;
     let prepared = converter::prepare_presentation_with_metadata(&path).await?;
     let metadata = PreparedOfficeMetadata {
         converted_from_legacy: prepared.converted_from_legacy,
@@ -143,6 +147,7 @@ pub async fn documents_prepare_spreadsheet(
         .files
         .access
         .resolve(window.label(), &path, &grant_id, false, Some(false))?;
+    ensure_file_can_be_opened(&path)?;
     Ok(Response::new(converter::prepare_spreadsheet(&path).await?))
 }
 
@@ -179,6 +184,7 @@ pub async fn documents_edit_presentation(
             false,
             Some(false),
         )?;
+        ensure_file_can_be_opened(&source)?;
         Some(converter::prepare_presentation_for_reuse(&source).await?)
     } else {
         None
@@ -278,6 +284,7 @@ pub async fn documents_set_current_file(
                 .files
                 .access
                 .resolve(window.label(), &path, &grant_id, false, Some(false))?;
+        ensure_file_can_be_opened(&resolved)?;
         current.insert(
             window.label().to_owned(),
             crate::files::models::GrantedPath {

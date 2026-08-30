@@ -8,7 +8,7 @@ pub mod recent;
 pub mod session;
 
 use crate::error::AppResult;
-use std::path::PathBuf;
+use std::{ffi::OsStr, path::PathBuf};
 
 pub struct FileServices {
     pub access: access::AccessRegistry,
@@ -39,6 +39,22 @@ pub(crate) fn app_error(code: &'static str, message: impl Into<String>) -> crate
     crate::error::AppError::new(code, message.into())
 }
 
+pub(crate) fn is_executable_file(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+}
+
+pub(crate) fn ensure_file_can_be_opened(path: &std::path::Path) -> AppResult<()> {
+    if is_executable_file(path) {
+        return Err(app_error(
+            "executable-file-blocked",
+            "Executable (.exe) files cannot be opened",
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn path_string(path: &std::path::Path) -> AppResult<String> {
     dunce::simplified(path)
         .to_str()
@@ -52,6 +68,27 @@ pub(crate) fn path_key(path: &std::path::Path) -> String {
         key.to_lowercase()
     } else {
         key
+    }
+}
+
+#[cfg(test)]
+mod executable_policy_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn executable_policy_is_case_insensitive_and_extension_specific() {
+        assert!(is_executable_file(Path::new("installer.exe")));
+        assert!(is_executable_file(Path::new("INSTALLER.EXE")));
+        assert!(!is_executable_file(Path::new("installer.exe.txt")));
+        assert!(!is_executable_file(Path::new("notes.txt")));
+    }
+
+    #[test]
+    fn executable_policy_returns_a_stable_error() {
+        let error = ensure_file_can_be_opened(Path::new("tool.ExE")).unwrap_err();
+        assert_eq!(error.code, "executable-file-blocked");
+        assert_eq!(error.message_key, "errors.executable-file-blocked");
     }
 }
 
