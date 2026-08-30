@@ -144,6 +144,15 @@ try {
   assert.match(sizeResult.stderr, /limit is 100\.00 MiB/)
 
   const tauriConfig = JSON.parse(await readFile(join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
+  assert.deepEqual(tauriConfig.bundle.icon, [
+    'icons/32x32.png',
+    'icons/64x64.png',
+    'icons/128x128.png',
+    'icons/128x128@2x.png',
+    'icons/icon.png',
+    'icons/icon.icns',
+    'icons/icon.ico',
+  ])
   const linuxConfig = join(temporaryRoot, 'linux-release.json')
   runScript('tauri-release-config.mjs', [linuxConfig], {
     GITHUB_REPOSITORY: 'owner/repository',

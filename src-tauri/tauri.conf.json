@@ -35,6 +35,15 @@
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/esbuild"],
     "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "category": "Productivity",
     "license": "AGPL-3.0-only",
     "licenseFile": "../LICENSE",
