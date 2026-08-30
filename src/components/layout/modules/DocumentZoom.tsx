@@ -17,7 +17,8 @@ const ZOOM_STEP = 0.1
 const DEFAULT_ZOOM = 1
 const ZOOM_STORAGE_KEY = 'wps-document-zoom'
 const ZOOM_MODE_KEY = 'wps-zoom-mode'
-const WHEEL_GESTURE_IDLE_MS = 280
+const WHEEL_GESTURE_IDLE_MS = 160
+const WHEEL_ZOOM_MIN_INTERVAL_MS = 32
 
 type PageLayoutMode = 'single' | 'two-pages' | 'continuous'
 
@@ -35,14 +36,6 @@ function loadZoom(): number {
     return clampZoom(n)
   } catch {
     return DEFAULT_ZOOM
-  }
-}
-
-function persistZoom(value: number): void {
-  try {
-    localStorage.setItem(ZOOM_STORAGE_KEY, String(value))
-  } catch {
-    /* ignore */
   }
 }
 
@@ -74,13 +67,12 @@ interface DocumentZoomProps {
 
 interface DocumentZoomValue {
   zoom: number
-  settledZoom: number
   percent: number
   zoomIn: () => void
   zoomOut: () => void
   zoomReset: () => void
-  previewZoomPercent: (percent: number) => void
-  setZoomPercent: (percent: number, settle?: boolean) => void
+  /** 编辑器内部缩放（如 SuperDoc 工具栏缩放下拉）回写全局状态，单位百分比 */
+  setZoomPercent: (percent: number) => void
 }
 
 const DocumentZoomContext = createContext<DocumentZoomValue | null>(null)
@@ -90,40 +82,46 @@ export function useDocumentZoom(): DocumentZoomValue {
   if (!value) {
     return {
       zoom: DEFAULT_ZOOM,
-      settledZoom: DEFAULT_ZOOM,
       percent: 100,
       zoomIn: () => {},
       zoomOut: () => {},
       zoomReset: () => {},
-      previewZoomPercent: () => {},
       setZoomPercent: () => {},
     }
   }
   return value
 }
 
+/**
+ * 文档区缩放：
+ * - 通过 CSS 变量 --document-zoom 下发比例
+ * - 默认由 .document-zoom-target 缩放（PDF、演示文稿等）
+ * - Word 仅缩放正文；Excel/文本编辑器使用自身的高清原生缩放
+ * - 左右侧栏不在此容器内，不受影响
+ */
 export function DocumentZoom({ children }: DocumentZoomProps) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(loadZoom)
-  const [settledZoom, setSettledZoom] = useState(zoom)
   const [hintVisible, setHintVisible] = useState(false)
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const zoomRef = useRef(zoom)
-  const settledZoomRef = useRef(settledZoom)
   const wheelGestureRef = useRef<{
     accumulatedDelta: number
     direction: -1 | 0 | 1
     frame: number | null
+    flushTimer: ReturnType<typeof setTimeout> | null
     idleTimer: ReturnType<typeof setTimeout> | null
+    lastFlushAt: number
   }>({
     accumulatedDelta: 0,
     direction: 0,
     frame: null,
+    flushTimer: null,
     idleTimer: null,
+    lastFlushAt: Number.NEGATIVE_INFINITY,
   })
   zoomRef.current = zoom
-  settledZoomRef.current = settledZoom
 
   const showHint = useCallback(() => {
     setHintVisible(true)
@@ -131,80 +129,34 @@ export function DocumentZoom({ children }: DocumentZoomProps) {
     hintTimerRef.current = setTimeout(() => setHintVisible(false), 900)
   }, [])
 
-  const updateZoom = useCallback(
-    (next: number, settle: boolean) => {
+  const applyZoom = useCallback(
+    (next: number) => {
       const z = clampZoom(next)
-      const displayChanged = Math.abs(z - zoomRef.current) >= 0.005
-      const settledChanged = settle && Math.abs(z - settledZoomRef.current) >= 0.005
-      if (!displayChanged && !settledChanged) return
-      if (displayChanged) {
-        setZoom(z)
-        zoomRef.current = z
-      }
-      if (settledChanged) {
-        setSettledZoom(z)
-        settledZoomRef.current = z
-        persistZoom(z)
+      if (Math.abs(z - zoomRef.current) < 0.005) return
+      setZoom(z)
+      zoomRef.current = z
+      try {
+        localStorage.setItem(ZOOM_STORAGE_KEY, String(z))
+      } catch {
+        /* ignore */
       }
       showHint()
     },
     [showHint],
   )
 
-  const cancelWheelGesture = useCallback(() => {
-    const gesture = wheelGestureRef.current
-    if (gesture.frame !== null) cancelAnimationFrame(gesture.frame)
-    if (gesture.idleTimer !== null) clearTimeout(gesture.idleTimer)
-    gesture.accumulatedDelta = 0
-    gesture.direction = 0
-    gesture.frame = null
-    gesture.idleTimer = null
-  }, [])
-
-  const applyZoom = useCallback((next: number) => {
-    cancelWheelGesture()
-    updateZoom(next, true)
-  }, [cancelWheelGesture, updateZoom])
-
-  const previewZoom = useCallback((next: number) => {
-    cancelWheelGesture()
-    updateZoom(next, false)
-  }, [cancelWheelGesture, updateZoom])
-
-  const settleWheelZoom = useCallback(() => {
-    const z = zoomRef.current
-    if (Math.abs(z - settledZoomRef.current) < 0.005) return
-    setSettledZoom(z)
-    settledZoomRef.current = z
-    persistZoom(z)
-  }, [])
-
   const zoomIn = useCallback(() => applyZoom(zoomRef.current + ZOOM_STEP), [applyZoom])
   const zoomOut = useCallback(() => applyZoom(zoomRef.current - ZOOM_STEP), [applyZoom])
   const zoomReset = useCallback(() => applyZoom(DEFAULT_ZOOM), [applyZoom])
-
-  const previewZoomPercent = useCallback(
+  const setZoomPercent = useCallback(
     (percent: number) => {
       if (!Number.isFinite(percent) || percent <= 0) return
       const next = clampZoom(percent / 100)
+      // 编辑器回写同值时不重复触发（避免 setZoom ↔ zoomChange 往返）
       if (Math.abs(next - zoomRef.current) < 0.005) return
-      previewZoom(next)
+      applyZoom(next)
     },
-    [previewZoom],
-  )
-
-  const setZoomPercent = useCallback(
-    (percent: number, settle = true) => {
-      if (!Number.isFinite(percent) || percent <= 0) return
-      const next = clampZoom(percent / 100)
-      if (settle && Math.abs(next - settledZoomRef.current) < 0.005 && Math.abs(next - zoomRef.current) < 0.005) return
-      if (!settle) {
-        previewZoom(next)
-      } else {
-        applyZoom(next)
-      }
-    },
-    [applyZoom, previewZoom],
+    [applyZoom],
   )
 
   useEffect(() => {
@@ -239,21 +191,30 @@ export function DocumentZoom({ children }: DocumentZoomProps) {
     const flushWheelZoom = () => {
       const gesture = wheelGestureRef.current
       gesture.frame = null
+      gesture.lastFlushAt = performance.now()
       const { steps, remainder } = consumeWheelZoomSteps(gesture.accumulatedDelta)
       gesture.accumulatedDelta = remainder
-      if (steps !== 0) updateZoom(zoomRef.current - steps * ZOOM_STEP, false)
+      if (steps !== 0) applyZoom(zoomRef.current - steps * ZOOM_STEP)
     }
 
     const scheduleWheelZoom = () => {
       const gesture = wheelGestureRef.current
-      if (gesture.frame !== null) return
-      gesture.frame = requestAnimationFrame(flushWheelZoom)
+      if (gesture.frame !== null || gesture.flushTimer !== null) return
+      const wait = WHEEL_ZOOM_MIN_INTERVAL_MS - (performance.now() - gesture.lastFlushAt)
+      const queueFrame = () => {
+        gesture.flushTimer = null
+        gesture.frame = requestAnimationFrame(flushWheelZoom)
+      }
+      if (wait > 0) gesture.flushTimer = setTimeout(queueFrame, wait)
+      else queueFrame()
     }
 
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return
       if (hasManagedDocumentZoom(rootRef.current, e.target)) return
-      e.preventDefault()
+      // Tauri disables whole-page zoom hotkeys in the webview configuration.
+      // Keeping this listener passive lets ordinary document scrolling stay on
+      // the compositor thread instead of waiting for the renderer main thread.
       e.stopPropagation()
       const delta = normalizeWheelZoomDelta(e.deltaY, e.deltaMode)
       if (delta === 0) return
@@ -271,67 +232,48 @@ export function DocumentZoom({ children }: DocumentZoomProps) {
         gesture.accumulatedDelta = 0
         gesture.direction = 0
         gesture.idleTimer = null
-        settleWheelZoom()
       }, WHEEL_GESTURE_IDLE_MS)
 
       scheduleWheelZoom()
     }
 
-    el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('wheel', onWheel, { passive: true })
     return () => {
       el.removeEventListener('wheel', onWheel)
-      cancelWheelGesture()
-    }
-  }, [cancelWheelGesture, settleWheelZoom, updateZoom])
-
-  // 用户点击正文、按下按键或触控交互时，立即结算滚轮手势，无需等待 280ms idle 定时器，保证点击立即响应
-  useEffect(() => {
-    const onUserInteractionCapture = (e: Event) => {
-      if (e instanceof KeyboardEvent && (e.ctrlKey || e.metaKey)) return
-      if (e instanceof MouseEvent && (e.ctrlKey || e.metaKey)) return
       const gesture = wheelGestureRef.current
-      if (
-        gesture.idleTimer !== null ||
-        gesture.frame !== null ||
-        Math.abs(zoomRef.current - settledZoomRef.current) >= 0.005
-      ) {
-        cancelWheelGesture()
-        settleWheelZoom()
-      }
+      if (gesture.frame !== null) cancelAnimationFrame(gesture.frame)
+      if (gesture.flushTimer !== null) clearTimeout(gesture.flushTimer)
+      if (gesture.idleTimer !== null) clearTimeout(gesture.idleTimer)
+      gesture.accumulatedDelta = 0
+      gesture.direction = 0
+      gesture.frame = null
+      gesture.flushTimer = null
+      gesture.idleTimer = null
+      gesture.lastFlushAt = Number.NEGATIVE_INFINITY
     }
+  }, [applyZoom])
 
-    window.addEventListener('pointerdown', onUserInteractionCapture, true)
-    window.addEventListener('mousedown', onUserInteractionCapture, true)
-    window.addEventListener('touchstart', onUserInteractionCapture, true)
-    window.addEventListener('wheel', onUserInteractionCapture, true)
-    window.addEventListener('keydown', onUserInteractionCapture, true)
+  useEffect(() => {
     return () => {
-      window.removeEventListener('pointerdown', onUserInteractionCapture, true)
-      window.removeEventListener('mousedown', onUserInteractionCapture, true)
-      window.removeEventListener('touchstart', onUserInteractionCapture, true)
-      window.removeEventListener('wheel', onUserInteractionCapture, true)
-      window.removeEventListener('keydown', onUserInteractionCapture, true)
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
     }
-  }, [cancelWheelGesture, settleWheelZoom])
+  }, [])
 
   const percent = Math.round(zoom * 100)
   const rootStyle = {
-    ['--document-zoom']: String(zoom),
+    // 供 Word 正文 / .document-zoom-target 读取
+    ['--document-zoom' as string]: String(zoom),
   } as CSSProperties
 
   return (
-    <DocumentZoomContext.Provider
-      value={{ zoom, settledZoom, percent, zoomIn, zoomOut, zoomReset, previewZoomPercent, setZoomPercent }}
-    >
+    <DocumentZoomContext.Provider value={{ zoom, percent, zoomIn, zoomOut, zoomReset, setZoomPercent }}>
       <div
         ref={rootRef}
         className="document-zoom-root relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden"
         data-document-zoom={zoom}
-        data-document-zoom-settled={settledZoom}
-        data-document-zoom-preview={Math.abs(zoom - settledZoom) >= 0.005 ? zoom : undefined}
         style={rootStyle}
       >
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-auto">
           <div className="h-full min-h-full w-full">{children}</div>
         </div>
 

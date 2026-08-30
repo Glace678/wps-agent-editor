@@ -1,0 +1,240 @@
+name: Signed staging release smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Signed GitHub Release tag to install and smoke (for example v2.0.1)
+        required: true
+        type: string
+      previous_tag:
+        description: Optional older published tag for updater acceptance (for example v2.0.0)
+        required: false
+        default: ''
+        type: string
+      promote:
+        description: Promote the accepted prerelease to the stable channel
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  attestations: read
+
+concurrency:
+  group: staging-smoke-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      PREVIOUS_TAG: ${{ inputs.previous_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate requested releases and updater verification key
+        shell: bash
+        run: |
+          test -n "$TAURI_UPDATER_PUBLIC_KEY" || { echo 'Missing TAURI_UPDATER_PUBLIC_KEY secret' >&2; exit 1; }
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'release_tag must be a SemVer tag' >&2; exit 1; }
+          release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease)"
+          [[ "$(jq -r .isDraft <<<"$release_json")" == false ]] || { echo 'release_tag must be published' >&2; exit 1; }
+          [[ "$(jq -r .isPrerelease <<<"$release_json")" == true ]] || { echo 'release_tag must remain a prerelease until staging acceptance passes' >&2; exit 1; }
+          if [[ "$RELEASE_TAG" != v2.0.0 && -z "$PREVIOUS_TAG" ]]; then
+            echo 'previous_tag is required after the initial v2.0.0 release' >&2
+            exit 1
+          fi
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            [[ "$PREVIOUS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'previous_tag must be a SemVer tag' >&2; exit 1; }
+            previous_json="$(gh release view "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease)"
+            [[ "$(jq -r .isDraft <<<"$previous_json")" == false ]] || { echo 'previous_tag must be published' >&2; exit 1; }
+            [[ "$(jq -r .isPrerelease <<<"$previous_json")" == false ]] || { echo 'previous_tag must be a stable release' >&2; exit 1; }
+          fi
+
+  install-smoke:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: windows, arch: x86, primary_suffix: '-setup.exe' }
+          - { runner: windows-2022, platform: windows, arch: x86_64, primary_suffix: '-setup.exe' }
+          - { runner: windows-11-arm, platform: windows, arch: aarch64, primary_suffix: '-setup.exe' }
+          - { runner: macos-15-intel, platform: macos, arch: x86_64, primary_suffix: '.dmg' }
+          - { runner: macos-15, platform: macos, arch: aarch64, primary_suffix: '.dmg' }
+          - { runner: ubuntu-22.04, platform: linux, arch: x86_64, primary_suffix: '.AppImage' }
+          - { runner: ubuntu-22.04-arm, platform: linux, arch: aarch64, primary_suffix: '.AppImage' }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+      PRIMARY_PATH: smoke-artifacts/${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.primary_suffix }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Linux runtime smoke dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            file xvfb dbus-x11 libgtk-3-0 libwebkit2gtk-4.1-0 \
+            libayatana-appindicator3-1 librsvg2-2 xdg-utils
+      - name: Download exact release assets
+        shell: bash
+        run: >-
+          node scripts/release/download-release-smoke.mjs
+          --tag "$RELEASE_TAG"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --directory smoke-artifacts
+      - name: Verify names, checksums, size, latest.json, and updater signature
+        shell: bash
+        run: >-
+          node scripts/release/verify-release-smoke.mjs
+          --tag "$RELEASE_TAG"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --directory smoke-artifacts
+      - name: Verify GitHub build provenance
+        shell: bash
+        run: gh attestation verify "$PRIMARY_PATH" --repo "$GITHUB_REPOSITORY"
+      - name: Windows Authenticode/install/start/uninstall smoke
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: >-
+          ./scripts/release/windows-install-smoke.ps1
+          -Artifact "$env:PRIMARY_PATH"
+          -Arch "${{ matrix.arch }}"
+          -LogDirectory smoke-logs
+      - name: macOS notarization/install/start/remove smoke
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: >-
+          bash scripts/release/macos-install-smoke.sh
+          "$PRIMARY_PATH"
+          '${{ matrix.arch }}'
+          smoke-logs
+          "smoke-artifacts/macos-${{ matrix.arch }}.app.tar.gz"
+      - name: Linux AppImage extract/start/remove smoke
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: bash scripts/release/linux-install-smoke.sh "$PRIMARY_PATH" '${{ matrix.arch }}' smoke-logs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staging-smoke-${{ inputs.release_tag }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: smoke-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  updater-smoke:
+    if: inputs.previous_tag != ''
+    needs: install-smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: windows, arch: x86 }
+          - { runner: windows-2022, platform: windows, arch: x86_64 }
+          - { runner: windows-11-arm, platform: windows, arch: aarch64 }
+          - { runner: macos-15-intel, platform: macos, arch: x86_64 }
+          - { runner: macos-15, platform: macos, arch: aarch64 }
+          - { runner: ubuntu-22.04, platform: linux, arch: x86_64 }
+          - { runner: ubuntu-22.04-arm, platform: linux, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      PREVIOUS_TAG: ${{ inputs.previous_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Linux updater-test dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            file xvfb dbus-x11 libgtk-3-0 libwebkit2gtk-4.1-0 \
+            libayatana-appindicator3-1 librsvg2-2 xdg-utils
+      - name: Download current updater inputs
+        shell: bash
+        run: >-
+          node scripts/release/download-release-smoke.mjs
+          --tag "$RELEASE_TAG"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --directory current-release
+      - name: Download previous installer inputs
+        shell: bash
+        run: >-
+          node scripts/release/download-release-smoke.mjs
+          --tag "$PREVIOUS_TAG"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --directory previous-release
+      - name: Verify current and previous signed assets
+        shell: bash
+        run: |
+          node scripts/release/verify-release-smoke.mjs --tag "$RELEASE_TAG" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" --directory current-release
+          node scripts/release/verify-release-smoke.mjs --tag "$PREVIOUS_TAG" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" --directory previous-release
+      - name: Exercise updater, startup health rollback, tamper rejection, and invalid-install preservation
+        shell: bash
+        run: >-
+          node scripts/release/updater-smoke.mjs
+          --previous-tag "$PREVIOUS_TAG"
+          --current-tag "$RELEASE_TAG"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --previous-directory previous-release
+          --current-directory current-release
+          --report "updater-${{ matrix.platform }}-${{ matrix.arch }}-smoke-report.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: updater-smoke-${{ inputs.previous_tag }}-to-${{ inputs.release_tag }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: updater-*-smoke-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  promote:
+    needs: [install-smoke, updater-smoke]
+    if: >-
+      always() &&
+      inputs.promote &&
+      needs.install-smoke.result == 'success' &&
+      (inputs.previous_tag == '' || needs.updater-smoke.result == 'success')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Promote accepted prerelease to stable
+        shell: bash
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false

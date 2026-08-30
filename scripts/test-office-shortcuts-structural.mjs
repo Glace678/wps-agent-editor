@@ -63,20 +63,18 @@ test('settings panel uses catalog not a hard-coded chord list', () => {
   assert.doesNotMatch(src, /Ctrl\+S.*Ctrl\+O.*Ctrl\+N/)
 })
 
-test('Electron menu aligns core accelerators with Office defaults', () => {
-  const src = read('electron/menu/menu.ts')
+test('Tauri menu aligns core accelerators with Office defaults', () => {
+  const src = read('src-tauri/src/commands/app.rs')
   assert.match(src, /CmdOrCtrl\+O/)
   assert.match(src, /CmdOrCtrl\+S/)
   assert.match(src, /CmdOrCtrl\+P/)
-  assert.match(src, /CmdOrCtrl\+Z/)
-  // F12 no longer sole DevTools (Save As in-app)
-  assert.doesNotMatch(src, /accelerator:\s*'F12'/)
+  assert.match(src, /\.undo\(\)/)
+  assert.match(src, /\.redo\(\)/)
 })
 
-test('preload allows menu:save and menu:print channels', () => {
-  const src = read('electron/preload.ts')
-  assert.match(src, /menu:save/)
-  assert.match(src, /menu:print/)
+test('native menu emits directed Tauri events', () => {
+  const src = read('src-tauri/src/commands/app.rs')
+  assert.match(src, /window\.emit\(&format!\("menu:\{action\}"\)/)
 })
 
 test('App listens for menu:save/print and invokes office actions', () => {

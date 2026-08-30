@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useRef, useState } from 'react'
 import { Bug, ChevronRight } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
@@ -27,7 +28,7 @@ export function DebugConsoleView() {
     if (!expression || status === 'idle') return
     setInput('')
     useDebugStore.getState().addConsoleLine({ kind: 'eval', text: `> ${expression}` })
-    void window.api.lw.debugEvaluate(expression, crypto.randomUUID())
+    void desktopApi.process.debugEvaluate(expression, crypto.randomUUID())
   }
 
   const breakpointEntries = Object.entries(breakpoints)

@@ -1,7 +1,7 @@
+import { desktopApi } from '@/platform'
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { createPortal } from 'react-dom'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronDown, Key, LoaderCircle, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, Key, LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { AuthStatus, ProviderDefinition, CustomProviderConfig, ProviderModel } from '@/types/provider'
 import { orderProvidersForSettings } from '@/lib/provider-order'
 import { createProviderSearchIndex, searchProviderIndex } from '@/lib/provider-search'
@@ -80,165 +80,6 @@ function createCustomProviderForm(): Partial<CustomProviderConfig> {
   }
 }
 
-interface ProviderContextMenuProps {
-  x: number
-  y: number
-  provider: ProviderDefinition
-  onDelete: () => void
-  onClose: () => void
-}
-
-function ProviderContextMenu({ x, y, provider: _provider, onDelete, onClose }: ProviderContextMenuProps) {
-  const { t } = useTranslation()
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [coords, setCoords] = useState({ top: y, left: x })
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      const menu = menuRef.current
-      if (!menu) return
-      const rect = menu.getBoundingClientRect()
-      const vw = window.innerWidth
-      const vh = window.innerHeight
-      let left = x
-      let top = y
-      if (left + rect.width + 8 > vw) left = Math.max(8, vw - rect.width - 8)
-      if (top + rect.height + 8 > vh) top = Math.max(8, vh - rect.height - 8)
-      setCoords({ top, left })
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [x, y])
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    const handleOutsidePointer = (event: Event) => {
-      if (menuRef.current && event.target instanceof Node && menuRef.current.contains(event.target)) return
-      onClose()
-    }
-
-    const timer = setTimeout(() => {
-      document.addEventListener('pointerdown', handleOutsidePointer)
-      document.addEventListener('contextmenu', handleOutsidePointer)
-      document.addEventListener('keydown', handleKeyDown)
-    }, 10)
-
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener('pointerdown', handleOutsidePointer)
-      document.removeEventListener('contextmenu', handleOutsidePointer)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [onClose])
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      role="menu"
-      data-testid="provider-context-menu"
-      className="fixed z-[2147483000] min-w-[130px] rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl animate-in fade-in-0 zoom-in-95 duration-100 outline-none"
-      style={{
-        top: coords.top,
-        left: coords.left,
-      }}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        data-testid="provider-context-menu-delete"
-        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none cursor-pointer transition-colors"
-        onClick={() => {
-          onDelete()
-        }}
-      >
-        <Trash2 className="h-3.5 w-3.5 shrink-0" />
-        <span>{t('providerSettings.delete')}</span>
-      </button>
-    </div>,
-    document.body,
-  )
-}
-
-interface ProviderDeleteConfirmDialogProps {
-  provider: ProviderDefinition
-  isDeleting: boolean
-  onConfirm: () => void
-  onCancel: () => void
-}
-
-function ProviderDeleteConfirmDialog({
-  provider,
-  isDeleting,
-  onConfirm,
-  onCancel,
-}: ProviderDeleteConfirmDialogProps) {
-  const { t } = useTranslation()
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        onCancel()
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown, true)
-    return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [onCancel])
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-black/50 p-4 animate-in fade-in-0 duration-150"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel()
-      }}
-    >
-      <div
-        className="flex w-full max-w-sm flex-col rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-2xl space-y-4"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('providerSettings.deleteConfirmTitle')}
-        data-testid="provider-delete-confirm-dialog"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-destructive">
-            <Trash2 className="h-4 w-4" />
-            <h3 className="text-sm font-semibold">{t('providerSettings.deleteConfirmTitle')}</h3>
-          </div>
-          <button
-            type="button"
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label={t('providerSettings.cancel')}
-            onClick={onCancel}
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <p className="text-xs text-muted-foreground leading-relaxed break-words">
-          {t('providerSettings.deleteConfirmMessage', { name: provider.name })}
-        </p>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={onCancel} disabled={isDeleting}>
-            {t('providerSettings.cancel')}
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            data-testid="provider-confirm-delete-button"
-            disabled={isDeleting}
-            onClick={onConfirm}
-          >
-            {isDeleting && <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            {isDeleting ? t('providerSettings.deleting') : t('providerSettings.confirmDelete')}
-          </Button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
 interface ProviderSettingsProps {
   onClose: () => void
 }
@@ -261,13 +102,6 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   const [customTestError, setCustomTestError] = useState('')
   const [isTestingCustomConnection, setIsTestingCustomConnection] = useState(false)
   const [isCustomModelMenuOpen, setIsCustomModelMenuOpen] = useState(false)
-  const [contextMenu, setContextMenu] = useState<{
-    x: number
-    y: number
-    provider: ProviderDefinition
-  } | null>(null)
-  const [providerToDelete, setProviderToDelete] = useState<ProviderDefinition | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
   const listPanelRef = useRef<HTMLDivElement>(null)
   const listContentRef = useRef<HTMLDivElement>(null)
   const listWidthRef = useRef(DEFAULT_LIST_WIDTH)
@@ -341,8 +175,8 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
 
   const load = useCallback(async (forceRefresh = false): Promise<ProviderDefinition[]> => {
     const [list, statuses] = await Promise.all([
-      window.api.provider.list(forceRefresh),
-      window.api.auth.getAll().catch(() => ({} as Record<string, AuthStatus>)),
+      desktopApi.providers.list(forceRefresh),
+      desktopApi.providers.auth.getAll().catch(() => ({} as Record<string, AuthStatus>)),
     ])
     setProviders(list)
     setAuthStatus(statuses)
@@ -359,7 +193,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   useEffect(() => {
     let cancelled = false
     void load()
-      .then(() => window.api.provider.list(true))
+      .then(() => desktopApi.providers.list(true))
       .then((list) => {
         if (!cancelled) setProviders(list)
       })
@@ -383,6 +217,10 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     [providerSearchIndex, search],
   )
   const hasSearchQuery = search.trim().length > 0
+  const matchedModelCount = useMemo(
+    () => filtered.reduce((total, result) => total + result.matchedModels.length, 0),
+    [filtered],
+  )
 
   const selected = providers.find((p) => p.id === selectedId)
   const providerLink = selected
@@ -406,7 +244,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
       if (!value || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
         throw new Error('INVALID_PROVIDER_BASE_URL')
       }
-      await window.api.provider.setBaseURL(selectedId, value)
+      await desktopApi.providers.setBaseURL(selectedId, value)
       const list = await load()
       setBaseURL(list.find((provider) => provider.id === selectedId)?.api || value)
       setBaseURLError('')
@@ -425,7 +263,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     setBaseURLError('')
     setBaseURLSaved(false)
 
-    await window.api.provider.setBaseURL(providerId, '')
+    await desktopApi.providers.setBaseURL(providerId, '')
     setProviders((current) => current.map((provider) => (
       provider.id === providerId
         ? { ...provider, api: restoredBaseURL, isApiOverridden: false }
@@ -435,7 +273,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
 
   const handleSaveKey = async () => {
     if (!apiKey.trim()) return
-    await window.api.auth.set(selectedId, apiKey.trim())
+    await desktopApi.providers.auth.set(selectedId, apiKey.trim())
     setApiKey('')
     await load()
   }
@@ -477,7 +315,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
     setIsCustomModelMenuOpen(false)
 
     try {
-      const result = await window.api.customProvider.testConnection(testBaseURL, testApiKey)
+      const result = await desktopApi.providers.custom.testConnection(testBaseURL, testApiKey)
       // Ignore a late response after the user has edited the URL or API key.
       if (requestId !== customConnectionTestRef.current) return
       if (!result.success) {
@@ -521,35 +359,13 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
       protocol: customForm.protocol || 'openai-compatible',
       createdAt: Date.now(),
     }
-    await window.api.customProvider.save(provider)
+    await desktopApi.providers.custom.save(provider)
     if (customApiKey.trim()) {
-      await window.api.auth.set(provider.id, customApiKey.trim())
+      await desktopApi.providers.auth.set(provider.id, customApiKey.trim())
     }
     closeCustomForm()
     await load()
     setSelectedId(provider.id)
-  }
-
-  const handleConfirmDelete = async () => {
-    if (!providerToDelete || isDeleting) return
-    setIsDeleting(true)
-    try {
-      const targetId = providerToDelete.id
-      await window.api.provider.delete(targetId)
-      if (enabledProviderId === targetId) {
-        setEnabledProviderId(null)
-        persistEnabledProviderId(null)
-      }
-      const list = await load(true)
-      if (selectedId === targetId) {
-        const next = list[0]
-        setSelectedId(next ? next.id : '')
-        setApiKey('')
-      }
-      setProviderToDelete(null)
-    } finally {
-      setIsDeleting(false)
-    }
   }
 
   return (
@@ -598,6 +414,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                 >
                   {t('providerSettings.searchSummary', {
                     providers: filtered.length,
+                    models: matchedModelCount,
                   })}
                 </p>
               )}
@@ -630,29 +447,11 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                         selectedId === p.id ? 'bg-accent' : ''
                       }`}
                       onClick={() => { setSelectedId(p.id); setApiKey('') }}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        setContextMenu({
-                          x: event.clientX,
-                          y: event.clientY,
-                          provider: p,
-                        })
-                      }}
                     >
                       <button
                         type="button"
                         className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 py-2 text-left"
                         aria-pressed={selectedId === p.id}
-                        onContextMenu={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          setContextMenu({
-                            x: event.clientX,
-                            y: event.clientY,
-                            provider: p,
-                          })
-                        }}
                       >
                         <ProviderLogo
                           providerId={p.id}
@@ -964,7 +763,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                           variant="outline"
                           data-testid="provider-delete-key"
                           onClick={async () => {
-                            await window.api.auth.remove(selectedId)
+                            await desktopApi.providers.auth.remove(selectedId)
                             await load()
                           }}
                         >
@@ -989,28 +788,6 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
           </div>
         </div>
       </div>
-
-      {contextMenu && (
-        <ProviderContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          provider={contextMenu.provider}
-          onDelete={() => {
-            setProviderToDelete(contextMenu.provider)
-            setContextMenu(null)
-          }}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-
-      {providerToDelete && (
-        <ProviderDeleteConfirmDialog
-          provider={providerToDelete}
-          isDeleting={isDeleting}
-          onConfirm={() => void handleConfirmDelete()}
-          onCancel={() => setProviderToDelete(null)}
-        />
-      )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 # Provider logos
 
 This directory contains one local identification asset for every provider in
-`electron/services/provider-catalog.seed.ts`, plus the local `ollama`
+`src-tauri/resources/provider-catalog.json`, plus the local `ollama`
 provider. Provider IDs are the filenames used by the renderer.
 
 ## Official-source policy
@@ -18,7 +18,7 @@ Regional endpoints, coding plans, and token plans reuse their parent
 provider's official mark when no separate product mark exists.
 
 [`sources.json`](./sources.json) records the source URL, source page, retrieval
-date, alias relationship, and color treatment for all 182 providers.
+date, alias relationship, and color treatment for all 179 providers.
 
 ## Color presentation
 
@@ -29,10 +29,6 @@ guidelines. The color is presentation metadata, not a recolored logo.
 
 Providers whose official identity is exclusively monochrome remain
 monochrome. The app does not invent a color variant.
-
-Four contact sheets in [`previews`](./previews) show the same presentation used
-by the provider and model pickers. Regenerate them with
-`npm run generate:provider-logo-previews`.
 
 Run `npm run verify:provider-logos` after changing the provider catalog or any
 asset. The verifier enforces complete source metadata and rejects community

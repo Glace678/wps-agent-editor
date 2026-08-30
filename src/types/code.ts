@@ -44,8 +44,14 @@ export type DebugEvent =
   | { event: 'error'; message: string }
   | { event: 'exit'; code: number | null }
 
+export type RoutedDebugEvent = DebugEvent & {
+  sessionId: string
+  windowLabel: string
+}
+
 export interface DebugStartResult {
   ok: boolean
   kind?: 'node' | 'python'
   error?: 'unsupported' | 'failed' | string
+  sessionId?: string
 }

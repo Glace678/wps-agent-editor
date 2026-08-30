@@ -36,10 +36,7 @@ const sensitiveFile = /(^|\/)(?:auth|recent-files|agents|custom-providers|provid
 const environmentFile = /(^|\/)\.env(?:\..+)?$/i
 const allowedEnvironmentExample = /(^|\/)\.env\.example$/i
 const keyFile = /(?:^|\/)(?:id_rsa|id_ed25519)$|\.(?:pem|p12|pfx|key)$/i
-const packagedBinary = /\.(?:exe|msi|dmg|appimage|asar|blockmap)$/i
-const generatedUserData = /(^|\/)(?:tmp|artifact-drafts|artifact-review-history|artifact-producer-recipes)(?:\/|$)/i
 const highConfidenceSecret = /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{30,}|A(?:KI|SI)A[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b/g
-const signedCredentialURL = /[?&](?:X-Amz-(?:Credential|Signature)|X-Goog-(?:Credential|Signature)|sig|signature)=/i
 const privateKey = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g
 const literalCredential = /\b(?:password|passwd|api_?key|access_?token|client_?secret)\b\s*[:=]\s*(['"])([^'"]+)\1/gi
 const personalPath = /[A-Z]:[\\/]Users[\\/](?!Public(?:[\\/]|\b))[^\\/\s'"]+|\/(?:Users|home)\/(?!Shared(?:\/|\b))[^\/\s'"]+/gi
@@ -57,8 +54,6 @@ for (const file of files) {
     report(normalized, 'environment-file')
   }
   if (keyFile.test(normalized)) report(normalized, 'private-key-file')
-  if (packagedBinary.test(normalized)) report(normalized, 'packaged-binary')
-  if (generatedUserData.test(normalized)) report(normalized, 'generated-user-data')
 
   const absolute = path.join(root, file)
   if (!existsSync(absolute) || !statSync(absolute).isFile() || statSync(absolute).size > 2_000_000) {
@@ -74,7 +69,6 @@ for (const file of files) {
   privateKey.lastIndex = 0
   if (personalPath.test(content)) report(normalized, 'personal-absolute-path')
   personalPath.lastIndex = 0
-  if (signedCredentialURL.test(content)) report(normalized, 'signed-credential-url')
 
   for (const match of content.matchAll(literalCredential)) {
     if (!safeLiteral.test(match[2])) report(normalized, 'literal-credential')

@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { t as translate } from './translate'
+import { desktopApi } from '@/platform/desktop'
 import {
   getLanguage,
   languages,
@@ -54,12 +55,8 @@ function applyDocumentLanguage(language: LanguageCode): void {
 
 function syncNativeMenu(language: LanguageCode): void {
   if (typeof window === 'undefined') return
-  const bridge = (window as Window & {
-    api?: { i18n?: { setLanguage: (code: LanguageCode) => Promise<unknown> } }
-  }).api?.i18n
-  if (!bridge) return
-  void bridge.setLanguage(language).catch(() => {
-    // The browser preview does not expose Electron IPC.
+  void desktopApi.app.setLanguage(language).catch(() => {
+    // The browser preview does not expose the Tauri desktop transport.
   })
 }
 

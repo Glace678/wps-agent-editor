@@ -1,4 +1,5 @@
 import type { AgentAttachment, AgentAttachmentSource } from '@/types/agent'
+import { getFileGrantId } from '@/platform/grants'
 
 export const AGENT_ATTACHMENT_MIME = 'application/x-wps-agent-attachments'
 export const MAX_AGENT_ATTACHMENTS = 12
@@ -10,9 +11,15 @@ function fileNameFromPath(filePath: string): string {
 export function createAgentAttachment(
   filePath: string,
   source: AgentAttachmentSource,
+  providedGrantId?: string,
 ): AgentAttachment {
+  const grantId = providedGrantId || getFileGrantId(filePath)
+  if (!grantId) {
+    throw new Error('Agent attachments require an opaque file grant')
+  }
   return {
     path: filePath,
+    grantId,
     name: fileNameFromPath(filePath),
     source,
   }
@@ -57,6 +64,8 @@ export function readAgentAttachmentDragData(dataTransfer: DataTransfer): AgentAt
         if (!item || typeof item !== 'object') return false
         const candidate = item as Partial<AgentAttachment>
         return typeof candidate.path === 'string'
+          && typeof candidate.grantId === 'string'
+          && candidate.grantId.length > 0
           && typeof candidate.name === 'string'
           && ['browse', 'recent', 'tab', 'picker'].includes(candidate.source || '')
       })

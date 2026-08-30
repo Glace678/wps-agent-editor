@@ -80,7 +80,7 @@ interface RecentFileContextMenuProps {
  * 「最近」列表的右键菜单。
  *
  * 与 FileHoverCard 同理：portal 到 body、position:fixed 像素定位、
- * box-shadow 画描边，避免 Electron 下 transform 弹层的半边框问题。
+ * box-shadow 画描边，避免 WebView 中 transform 弹层的半边框问题。
  */
 export function RecentFileContextMenu({ x, y, onAction, onClose }: RecentFileContextMenuProps) {
   const { t } = useTranslation()

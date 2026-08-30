@@ -1,6 +1,6 @@
 /**
  * Hover card outline for 最近 / 浏览 file popups.
- * box-shadow stroke (not CSS border) — more reliable in Electron compositing.
+ * box-shadow stroke (not CSS border) — more reliable in WebView compositing.
  *
  * Light and dark MUST share the same outline width (dark white ring is the
  * visual reference). Only the stroke *color* changes with theme.

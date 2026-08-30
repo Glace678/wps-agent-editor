@@ -1,14 +1,6 @@
 /* Fortune Sheet has no theme API. Keep every override scoped to the Excel editor. */
 .excel-editor-shell {
   --excel-dropdown-radius: 6px;
-  --excel-light-border: #d4d7de;
-  --excel-light-popup-border: #c8cdd6;
-  --excel-light-popup-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
-  --excel-light-popup-bg: #ffffff;
-  --excel-light-hover-bg: #f1f3f7;
-  --excel-light-active-bg: #e4e8fa;
-  --excel-light-search-header-bg: #f8fafc;
-  --excel-light-search-border: #b8c0cc;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -103,26 +95,6 @@
 .excel-editor-shell .fortune-sheet-container {
   flex: 1 1 auto;
   overflow: hidden;
-}
-
-/* Fortune always reserves a 22px selection-stat strip below the sheet tab bar,
-   which paints as a white edge at the window bottom and keeps the tab bar from
-   sitting flush. Take the strip out of the flow and overlay it on the tab bar
-   row (Excel-style status area), clear of the zoom control (~126px incl. the
-   bar's right padding). */
-.excel-editor-shell .fortune-stat-area {
-  position: absolute;
-  right: 132px;
-  bottom: 0;
-  height: 31px;
-  max-width: 32%;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.excel-editor-shell .fortune-stat-area .luckysheet-sheet-selection-calInfo {
-  height: auto;
-  padding-left: 0;
 }
 
 .dark .excel-editor-shell {
@@ -285,14 +257,10 @@
 .excel-editor-shell .fortune-toolbar-more-container,
 .excel-editor-shell .toolbar-item-sub-menu,
 .excel-editor-shell .condition-format-sub-menu,
-.excel-editor-shell .fortune-context-menu,
 .excel-editor-shell .fortune-filter-menu,
 .excel-editor-shell .luckysheet-filter-bycolor-submenu,
 .excel-editor-shell .fortune-zoom-ratio-menu,
 .excel-editor-shell .fortune-sheet-list,
-.excel-editor-shell .fortune-border-select-menu,
-.excel-editor-shell .fortune-border-style-picker-menu,
-.excel-editor-shell .luckysheet-cols-menu,
 .excel-editor-shell #fortune-custom-color,
 .excel-editor-shell #fortune-change-color,
 .excel-editor-shell #luckysheet-dataVerification-dropdown-List {
@@ -324,66 +292,7 @@
   max-width: 100%;
 }
 
-/* Light mode menus, popovers, dropdowns and dialogs.
-   Provides crisp 1px border outline and clean ambient elevation shadow
-   so white dropdown panels contrast distinctly against the white Excel sheet background. */
-.excel-editor-shell .fortune-toolbar-select,
-.excel-editor-shell .fortune-toolbar-color-picker,
-.excel-editor-shell .fortune-toolbar-more-container,
-.excel-editor-shell .toolbar-item-sub-menu,
-.excel-editor-shell .condition-format-sub-menu,
-.excel-editor-shell .fortune-context-menu,
-.excel-editor-shell .fortune-filter-menu,
-.excel-editor-shell .luckysheet-filter-bycolor-submenu,
-.excel-editor-shell .fortune-zoom-ratio-menu,
-.excel-editor-shell .fortune-sheet-list,
-.excel-editor-shell .fortune-border-select-menu,
-.excel-editor-shell .fortune-border-style-picker-menu,
-.excel-editor-shell .luckysheet-cols-menu,
-.excel-editor-shell .fortune-dialog,
-.excel-editor-shell .fortune-link-modify-modal,
-.excel-editor-shell .luckysheet-formula-search-c,
-.excel-editor-shell .luckysheet-formula-help-c,
-.excel-editor-shell #range-dialog,
-.excel-editor-shell #luckysheet-dataVerification-dropdown-List,
-.excel-editor-shell #luckysheet-dataVerification-showHintBox {
-  background: var(--excel-light-popup-bg, #ffffff);
-  color: #20242c;
-  border: 1px solid var(--excel-light-popup-border, #c8cdd6);
-  box-shadow: var(
-    --excel-light-popup-shadow,
-    0 0 0 1px rgba(0, 0, 0, 0.05),
-    0 8px 24px rgba(0, 0, 0, 0.12),
-    0 2px 6px rgba(0, 0, 0, 0.06)
-  );
-}
-
-.excel-editor-shell .fortune-toolbar-select-option,
-.excel-editor-shell .fortune-border-select-option,
-.excel-editor-shell .fortune-border-style-picker-menu,
-.excel-editor-shell .condition-format-item,
-.excel-editor-shell .fortune-menuitem-row,
-.excel-editor-shell .fortune-sheet-list-item,
-.excel-editor-shell #luckysheet-dataVerification-dropdown-List .dropdown-List-item {
-  color: #20242c;
-}
-
-.excel-editor-shell .fortune-toolbar-select-option:hover,
-.excel-editor-shell .fortune-border-select-option:hover,
-.excel-editor-shell .fortune-border-style-picker-menu:hover,
-.excel-editor-shell .condition-format-item:hover,
-.excel-editor-shell .fortune-zoom-ratio-item:hover,
-.excel-editor-shell .fortune-sheet-list :hover,
-.excel-editor-shell #luckysheet-dataVerification-dropdown-List .dropdown-List-item:hover,
-.excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem:hover,
-.excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem-hover,
-.excel-editor-shell .fortune-filter-menu .luckysheet-cols-menuitem:hover,
-.excel-editor-shell .fortune-filter-menu .luckysheet-cols-menuitem-hover {
-  background: var(--excel-light-hover-bg, #f1f3f7);
-  color: #0f172a;
-}
-
-/* Menus, popovers and dialogs in dark mode. */
+/* Menus, popovers and dialogs, including the font-family picker. */
 .dark .excel-editor-shell .fortune-toolbar-select,
 .dark .excel-editor-shell .fortune-toolbar-color-picker,
 .dark .excel-editor-shell .fortune-toolbar-more-container,
@@ -453,9 +362,20 @@
 .dark .excel-editor-shell .fortune-sheet-list :hover,
 .dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List .dropdown-List-item:hover,
 .dark .excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem:hover,
-.dark .excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem-hover,
+.dark .excel-editor-shell .luckysheet-cols-menu .luckysheet-cols-menuitem-hover {
+  background: var(--fortune-dark-hover);
+  color: var(--fortune-dark-text);
+}
+
+.dark .excel-editor-shell .fortune-toolbar-select-option:hover,
+.dark .excel-editor-shell .fortune-border-select-option:hover,
+.dark .excel-editor-shell .fortune-border-style-picker-menu:hover,
+.dark .excel-editor-shell .condition-format-item:hover,
 .dark .excel-editor-shell .fortune-filter-menu .luckysheet-cols-menuitem:hover,
-.dark .excel-editor-shell .fortune-filter-menu .luckysheet-cols-menuitem-hover {
+.dark .excel-editor-shell .fortune-filter-menu .luckysheet-cols-menuitem-hover,
+.dark .excel-editor-shell .fortune-zoom-ratio-item:hover,
+.dark .excel-editor-shell .fortune-sheet-list :hover,
+.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List .dropdown-List-item:hover {
   background: var(--fortune-dark-picker-hover);
   color: var(--fortune-dark-text);
 }
@@ -475,13 +395,6 @@
   box-sizing: border-box;
   background: #fff;
   border-radius: var(--excel-dropdown-radius);
-  border: 1px solid var(--excel-light-popup-border, #c8cdd6);
-  box-shadow: var(
-    --excel-light-popup-shadow,
-    0 0 0 1px rgba(0, 0, 0, 0.05),
-    0 8px 24px rgba(0, 0, 0, 0.12),
-    0 2px 6px rgba(0, 0, 0, 0.06)
-  );
 }
 
 .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind] .fortune-toolbar-select {
@@ -537,10 +450,10 @@
   box-sizing: border-box;
   padding: 8px 10px 7px;
   overflow: hidden;
-  /* Fully opaque with subtle tinted background to distinguish search chrome from list */
-  background: var(--excel-light-search-header-bg, #f8fafc);
-  border-bottom: 1px solid #dce1e8;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+  /* Fully opaque so scrolling options never show through */
+  background: #fff;
+  border-bottom: 1px solid #d8dce3;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 4%);
 }
 
 .excel-editor-shell .excel-toolbar-picker-search-input {
@@ -564,11 +477,11 @@
   white-space: nowrap;
   -webkit-text-fill-color: currentColor;
   caret-color: currentColor;
+  /* Match the search chrome — never pure black (avoids trailing “black edge”). */
   background: #fff;
-  border: 1px solid var(--excel-light-search-border, #b8c0cc);
+  border: 1px solid #aeb6c2;
   border-radius: 4px;
   outline: none;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .excel-editor-shell .excel-toolbar-picker-search-input::placeholder {
@@ -590,14 +503,13 @@
 }
 
 .excel-editor-shell .excel-toolbar-picker-search-input:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 2px rgb(79 70 229 / 18%);
+  border-color: #5b63d3;
+  box-shadow: 0 0 0 2px rgb(91 99 211 / 20%);
 }
 
 .excel-editor-shell .excel-toolbar-picker-option-active {
   color: #151a28;
-  background: var(--excel-light-active-bg, #e4e8fa);
-  font-weight: 500;
+  background: #e7eafd;
 }
 
 .excel-editor-shell .excel-toolbar-picker-empty {
@@ -668,13 +580,6 @@
   border-radius: var(--excel-dropdown-radius) !important;
   overflow: hidden !important;
   max-height: min(75vh, 320px) !important;
-  border: 1px solid var(--excel-light-popup-border, #c8cdd6) !important;
-  box-shadow: var(
-    --excel-light-popup-shadow,
-    0 0 0 1px rgba(0, 0, 0, 0.05),
-    0 8px 24px rgba(0, 0, 0, 0.12),
-    0 2px 6px rgba(0, 0, 0, 0.06)
-  ) !important;
 }
 
 .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'] .fortune-toolbar-select {
@@ -695,21 +600,13 @@
 }
 
 .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'] .fortune-toolbar-select-option.excel-toolbar-picker-option-active {
-  background-color: var(--excel-light-active-bg, #e4e8fa);
+  background-color: #e5e7eb;
   color: #111827;
-  font-weight: 600;
 }
 
 .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'] .fortune-toolbar-select-option:hover {
-  background-color: var(--excel-light-hover-bg, #f1f3f7);
+  background-color: #f3f4f6;
   color: #111827;
-}
-
-.dark .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'] {
-  border-color: var(--fortune-dark-picker-border) !important;
-  box-shadow:
-    0 0 0 1px var(--fortune-dark-picker-border),
-    0 10px 28px rgb(0 0 0 / 72%) !important;
 }
 
 .dark .excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font-size'] .fortune-toolbar-select-option.excel-toolbar-picker-option-active {
@@ -1186,52 +1083,18 @@
 /* ==========================================================================
    Excel Circular Color Picker (Hue Wheel + RGB/Hex Values + Slider)
    ========================================================================== */
-.excel-editor-shell {
-  --excel-color-picker-bg: #ffffff;
-  --excel-color-picker-text: #20242c;
-  --excel-color-picker-border: #c8cdd6;
-  --excel-color-picker-control-bg: #f6f7f9;
-  --excel-color-picker-control-border: #aeb6c2;
-  --excel-color-picker-control-text: #20242c;
-  --excel-color-picker-muted-text: #5f6875;
-  --excel-color-picker-hover-bg: #e9ecf1;
-  --excel-color-picker-wheel-outline: rgba(32, 36, 44, 0.38);
-  --excel-color-picker-inset-shadow: rgba(0, 0, 0, 0.24);
-}
-
-.dark .excel-editor-shell {
-  --excel-color-picker-bg: #000000;
-  --excel-color-picker-text: #f0f0f0;
-  --excel-color-picker-border: #4a4a4a;
-  --excel-color-picker-control-bg: #252525;
-  --excel-color-picker-control-border: #5a5a5a;
-  --excel-color-picker-control-text: #ffffff;
-  --excel-color-picker-muted-text: #b8b8b8;
-  --excel-color-picker-hover-bg: #333333;
-  --excel-color-picker-wheel-outline: rgba(255, 255, 255, 0.28);
-  --excel-color-picker-inset-shadow: rgba(0, 0, 0, 0.65);
-}
-
 .excel-editor-shell #fortune-custom-color,
 .excel-editor-shell #fortune-change-color {
   min-width: 356px;
-  width: max-content;
-  max-width: 390px;
+  width: 356px;
+  max-width: 356px;
   padding: 12px;
-  background: var(--excel-color-picker-bg) !important;
+  background: #252526 !important;
   border-radius: var(--excel-dropdown-radius, 8px);
-  color: var(--excel-color-picker-text) !important;
-  border: 1px solid var(--excel-color-picker-border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  color: #f0f0f0 !important;
+  border: 1px solid #3a3a3a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
   box-sizing: border-box;
-}
-
-.dark .excel-editor-shell #fortune-custom-color,
-.dark .excel-editor-shell #fortune-change-color {
-  background: var(--excel-color-picker-bg) !important;
-  color: var(--excel-color-picker-text) !important;
-  border-color: var(--excel-color-picker-border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
 .excel-circular-color-picker {
@@ -1241,8 +1104,6 @@
   user-select: none;
   font-family: inherit;
   box-sizing: border-box;
-  background: var(--excel-color-picker-bg);
-  color: var(--excel-color-picker-text);
 }
 
 .excel-color-header {
@@ -1253,9 +1114,9 @@
 }
 
 .excel-color-reset-btn {
-  background: var(--excel-color-picker-control-bg);
-  color: var(--excel-color-picker-control-text);
-  border: 1px solid var(--excel-color-picker-control-border);
+  background: #333333;
+  color: #f0f0f0;
+  border: 1px solid #4a4a4a;
   border-radius: 4px;
   padding: 4px 12px;
   font-size: 12px;
@@ -1265,14 +1126,8 @@
 }
 
 .excel-color-reset-btn:hover {
-  background: var(--excel-color-picker-hover-bg);
-  border-color: #0188fb;
-}
-
-.excel-color-reset-btn:focus-visible,
-.excel-color-confirm-btn:focus-visible {
-  outline: 2px solid #0188fb;
-  outline-offset: 2px;
+  background: #3f3f3f;
+  border-color: #5a5a5a;
 }
 
 .excel-color-confirm-btn {
@@ -1318,7 +1173,7 @@
   background:
     radial-gradient(circle at 50% 50%, #ffffff 0%, rgba(255, 255, 255, 0) 100%),
     conic-gradient(from 90deg at 50% 50%, #ff0000 0deg, #ffff00 60deg, #00ff00 120deg, #00ffff 180deg, #0000ff 240deg, #ff00ff 300deg, #ff0000 360deg);
-  box-shadow: 0 0 0 1px var(--excel-color-picker-wheel-outline), 0 2px 8px rgba(0, 0, 0, 0.42);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15), 0 2px 8px rgba(0, 0, 0, 0.5);
   pointer-events: none;
   box-sizing: border-box;
 }
@@ -1352,8 +1207,8 @@
   width: 28px;
   height: 148px;
   border-radius: 4px;
-  border: 1px solid var(--excel-color-picker-control-border);
-  box-shadow: inset 0 0 1px var(--excel-color-picker-inset-shadow);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.3);
   flex-shrink: 0;
   box-sizing: border-box;
 }
@@ -1364,8 +1219,8 @@
   width: 14px;
   height: 148px;
   border-radius: 7px;
-  border: 1px solid var(--excel-color-picker-control-border);
-  box-shadow: inset 0 0 1px var(--excel-color-picker-inset-shadow);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.4);
   flex-shrink: 0;
   cursor: pointer;
   touch-action: none;
@@ -1391,8 +1246,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-width: 114px;
-  width: auto;
+  width: 114px;
   height: 148px;
   flex-shrink: 0;
 }
@@ -1405,10 +1259,10 @@
 .excel-color-hex-input {
   width: 100%;
   height: 24px;
-  background: var(--excel-color-picker-control-bg);
-  border: 1px solid var(--excel-color-picker-control-border);
+  background: #363636;
+  border: 1px solid #4a4a4a;
   border-radius: 4px;
-  color: var(--excel-color-picker-control-text);
+  color: #ffffff;
   font-size: 12px;
   font-family: 'Consolas', 'Courier New', monospace;
   padding: 0 8px;
@@ -1419,7 +1273,6 @@
 
 .excel-color-hex-input:focus {
   border-color: #0188fb;
-  box-shadow: 0 0 0 2px rgba(1, 136, 251, 0.18);
 }
 
 .excel-color-mode-select {
@@ -1428,10 +1281,10 @@
   justify-content: space-between;
   width: 100%;
   height: 24px;
-  background: var(--excel-color-picker-control-bg);
-  border: 1px solid var(--excel-color-picker-control-border);
+  background: #363636;
+  border: 1px solid #4a4a4a;
   border-radius: 4px;
-  color: var(--excel-color-picker-control-text);
+  color: #dcdcdc;
   font-size: 12px;
   padding: 0 8px;
   box-sizing: border-box;
@@ -1440,7 +1293,7 @@
 
 .excel-color-chevron {
   font-size: 10px;
-  color: var(--excel-color-picker-muted-text);
+  color: #999999;
 }
 
 .excel-color-channel-row {
@@ -1450,12 +1303,12 @@
 }
 
 .excel-color-channel-input {
-  width: 52px;
+  width: 60px;
   height: 24px;
-  background: var(--excel-color-picker-control-bg);
-  border: 1px solid var(--excel-color-picker-control-border);
+  background: #363636;
+  border: 1px solid #4a4a4a;
   border-radius: 4px;
-  color: var(--excel-color-picker-control-text);
+  color: #ffffff;
   font-size: 12px;
   padding: 0 6px;
   box-sizing: border-box;
@@ -1473,304 +1326,11 @@
 
 .excel-color-channel-input:focus {
   border-color: #0188fb;
-  box-shadow: 0 0 0 2px rgba(1, 136, 251, 0.18);
-}
-
-/* Keep the picker fields raised above the pure-black popup. This selector
-   intentionally outranks the shared dark-mode rule for native inputs. */
-.dark .excel-editor-shell .excel-circular-color-picker :is(
-  .excel-color-hex-input,
-  .excel-color-channel-input
-) {
-  background: var(--excel-color-picker-control-bg);
-  border-color: var(--excel-color-picker-control-border);
-  color: var(--excel-color-picker-control-text);
-  caret-color: var(--excel-color-picker-control-text);
-}
-
-.dark .excel-editor-shell .excel-circular-color-picker :is(
-  .excel-color-hex-input,
-  .excel-color-channel-input
-):focus {
-  border-color: #0188fb;
-  box-shadow: 0 0 0 2px rgba(1, 136, 251, 0.22);
 }
 
 .excel-color-channel-label {
   font-size: 12px;
-  color: var(--excel-color-picker-text);
+  color: #efefef;
   white-space: nowrap;
   cursor: default;
-}
-
-/* ==========================================================================
-   Excel Border Color & Style Submenus (Leftward Expansion & Anti-Flicker)
-   ========================================================================== */
-/* Fortune natively opens these submenus on hover via an inline display:block.
-   The app opens them itself — color palette on click only, style flyout on
-   hover — and marks the active one with data-excel-border-submenu-active, so
-   keep every other state hidden regardless of inline styles. */
-.excel-editor-shell .fortune-border-select-menu {
-  display: none !important;
-}
-
-.excel-editor-shell .fortune-border-select-menu[data-excel-border-submenu-active="true"] {
-  display: block !important;
-}
-
-.excel-editor-shell .fortune-border-select-option[data-excel-border-option-active="true"] {
-  background-color: #e5e7eb;
-  color: #111827;
-}
-
-.dark .excel-editor-shell .fortune-border-select-option[data-excel-border-option-active="true"] {
-  background-color: var(--fortune-dark-picker-active, #444) !important;
-  color: var(--fortune-dark-text, #f5f5f5) !important;
-}
-
-/* Rotate arrow to point left, clearly indicating leftward expansion */
-.excel-editor-shell .fortune-border-select-option .fortune-toolbar-menu-line svg {
-  transform: rotate(180deg);
-  transition: transform 120ms ease;
-}
-
-.excel-editor-shell .fortune-border-select-menu {
-  box-sizing: border-box;
-  border-radius: var(--excel-dropdown-radius, 8px);
-  z-index: 1005 !important;
-}
-
-/* Color Submenu container overrides (housing circular color picker) */
-.excel-editor-shell .fortune-border-select-menu:has(#fortune-custom-color, #fortune-change-color, .excel-circular-color-picker) {
-  width: max-content !important;
-  min-width: 356px !important;
-  max-width: 390px !important;
-  padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-}
-
-/* Style Submenu container overrides */
-.excel-editor-shell .fortune-border-select-menu:has(.fortune-border-style-picker-menu, .fortune-boder-style-picker) {
-  width: 120px !important;
-  min-width: 120px !important;
-  max-width: 120px !important;
-  padding: 4px 0;
-  background: #ffffff;
-  border: 1px solid #d8dce3;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.08);
-}
-
-.dark .excel-editor-shell .fortune-border-select-menu:has(.fortune-border-style-picker-menu, .fortune-boder-style-picker) {
-  background: var(--fortune-dark-picker-bg, #252525);
-  border-color: var(--fortune-dark-picker-border, #4a4a4a);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.72), 0 0 0 1px var(--fortune-dark-picker-border);
-}
-
-.excel-editor-shell .fortune-border-style-picker-menu {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 12px;
-  cursor: pointer;
-  border-radius: 4px;
-  margin: 1px 4px;
-  transition: background-color 100ms ease;
-}
-
-.excel-editor-shell .fortune-border-style-picker-menu:hover {
-  background-color: #f3f4f6;
-}
-
-.dark .excel-editor-shell .fortune-border-style-picker-menu:hover {
-  background-color: var(--fortune-dark-picker-hover, #363636);
-}
-
-.excel-editor-shell .fortune-border-style-reset {
-  font-size: 12px;
-  font-weight: 500;
-  border-bottom: 1px solid #e5e7eb;
-  padding-bottom: 6px;
-  margin-bottom: 4px;
-  border-radius: 4px 4px 0 0;
-}
-
-.dark .excel-editor-shell .fortune-border-style-reset {
-  border-bottom-color: var(--fortune-dark-picker-border, #4a4a4a);
-}
-
-/* ==========================================================================
-   App-owned Excel formula suggestions
-   ========================================================================== */
-.excel-editor-shell.excel-function-suggestions-open .luckysheet-formula-search-c,
-.excel-editor-shell.excel-function-suggestions-open .luckysheet-formula-help-c {
-  display: none !important;
-}
-
-.excel-editor-shell .excel-function-suggestions {
-  position: absolute;
-  z-index: 1200;
-  display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr);
-  max-height: min(420px, 65vh);
-  overflow: hidden;
-  border: 1px solid var(--excel-light-popup-border, #c8cdd6);
-  border-radius: var(--excel-dropdown-radius, 6px);
-  background: var(--excel-light-popup-bg, #fff);
-  color: #20242c;
-  box-shadow: var(--excel-light-popup-shadow, 0 8px 24px rgb(0 0 0 / 16%));
-  font-size: 12px;
-}
-
-.excel-editor-shell .excel-function-suggestions-list {
-  min-width: 0;
-  overflow: auto;
-  border-inline-end: 1px solid #e0e4ea;
-}
-
-.excel-editor-shell .excel-function-suggestions-list button {
-  display: grid;
-  grid-template-columns: minmax(90px, auto) auto 1fr;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  min-height: 34px;
-  padding: 6px 9px;
-  border: 0;
-  border-bottom: 1px solid #eef0f3;
-  background: transparent;
-  color: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.excel-editor-shell .excel-function-suggestions-list button:hover,
-.excel-editor-shell .excel-function-suggestions-list button.is-active {
-  background: var(--excel-light-active-bg, #e4e8fa);
-}
-
-.excel-editor-shell .excel-function-suggestion-name,
-.excel-editor-shell .excel-function-suggestion-details-title {
-  color: #111827;
-  font-weight: 700;
-  font-family: Consolas, 'Courier New', monospace;
-}
-
-.excel-editor-shell .excel-function-suggestions-list .is-verified,
-.excel-editor-shell .excel-function-suggestions-list .is-unverified {
-  padding: 1px 5px;
-  border-radius: 999px;
-  white-space: nowrap;
-  font-size: 10px;
-  line-height: 16px;
-}
-
-.excel-editor-shell .excel-function-suggestions-list .is-verified {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.excel-editor-shell .excel-function-suggestions-list .is-unverified {
-  background: #f1f5f9;
-  color: #64748b;
-}
-
-.excel-editor-shell .excel-function-suggestion-category {
-  overflow: hidden;
-  color: #667085;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.excel-editor-shell .excel-function-suggestion-details {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  padding: 13px 15px;
-  overflow: auto;
-  line-height: 1.45;
-}
-
-.excel-editor-shell .excel-function-suggestion-details-title {
-  font-size: 14px;
-}
-
-.excel-editor-shell .excel-function-suggestion-summary {
-  color: #4b5563;
-}
-
-.excel-editor-shell .excel-function-suggestion-details code {
-  overflow-wrap: anywhere;
-  color: #4338ca;
-  font-family: Consolas, 'Courier New', monospace;
-}
-
-.excel-editor-shell .excel-function-suggestions-empty {
-  grid-column: 1 / -1;
-  padding: 16px;
-  color: #667085;
-  text-align: center;
-}
-
-.dark .excel-editor-shell .excel-function-suggestions {
-  border-color: var(--fortune-dark-picker-border, #4a4a4a);
-  background: var(--fortune-dark-picker-bg, #252525);
-  color: var(--fortune-dark-text, #f5f5f5);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 72%);
-}
-
-.dark .excel-editor-shell .excel-function-suggestions-list {
-  border-inline-end-color: var(--fortune-dark-picker-border, #4a4a4a);
-}
-
-.dark .excel-editor-shell .excel-function-suggestions-list button {
-  border-bottom-color: #343434;
-}
-
-.dark .excel-editor-shell .excel-function-suggestions-list button:hover,
-.dark .excel-editor-shell .excel-function-suggestions-list button.is-active {
-  background: var(--fortune-dark-picker-active, #444);
-}
-
-.dark .excel-editor-shell :is(
-  .excel-function-suggestion-name,
-  .excel-function-suggestion-details-title
-) {
-  color: #fff;
-}
-
-.dark .excel-editor-shell .excel-function-suggestion-category,
-.dark .excel-editor-shell .excel-function-suggestion-summary,
-.dark .excel-editor-shell .excel-function-suggestions-empty {
-  color: #b8b8b8;
-}
-
-.dark .excel-editor-shell .excel-function-suggestion-details code {
-  color: #a5b4fc;
-}
-
-.dark .excel-editor-shell .excel-function-suggestions-list .is-verified {
-  background: #164e32;
-  color: #bbf7d0;
-}
-
-.dark .excel-editor-shell .excel-function-suggestions-list .is-unverified {
-  background: #3f3f46;
-  color: #d4d4d8;
-}
-
-@media (max-width: 620px) {
-  .excel-editor-shell .excel-function-suggestions {
-    grid-template-columns: 1fr;
-  }
-
-  .excel-editor-shell .excel-function-suggestion-details {
-    display: none;
-  }
-
-  .excel-editor-shell .excel-function-suggestions-list {
-    border-inline-end: 0;
-  }
 }

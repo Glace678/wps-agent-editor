@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import {
   lazy,
   Suspense,
@@ -11,7 +12,6 @@ import {
 } from 'react'
 import { FileText, Keyboard } from 'lucide-react'
 import { useEditorStore } from '@/stores/editor.store'
-import { useAgentStore } from '@/stores/agent.store'
 import {
   useGlobalOfficeShortcutListener,
   useOfficeShortcuts,
@@ -19,21 +19,36 @@ import {
 } from '@/lib/office-shortcuts'
 import { ShortcutSettingsPanel } from '@/components/shortcuts/ShortcutSettingsPanel'
 import { useTranslation } from '@/lib/i18n/runtime'
-import './styles'
 import { MODULE_ID, MODULE_VERSION } from './config'
 import {
   getDocKind,
+  isImageFile,
   SUPPORTED_FILE_EXTENSIONS,
   SUPPORTED_SPECIAL_FILE_NAMES,
 } from './utils/file-io'
 import { tabIndexByOffset } from './document-tabs'
 import { DocumentTabBar } from './components/DocumentTabBar'
 import { SaveConfirmDialog } from './components/SaveConfirmDialog'
-import { WordEditor } from './editors/WordEditor'
-import { ExcelEditor } from './editors/ExcelEditor'
-import { PdfViewer } from './editors/PdfViewer'
-import { TextEditor } from './editors/TextEditor'
-import { ArtifactReviewWorkspace } from './components/ArtifactReviewWorkspace'
+
+const WordEditor = lazy(async () => {
+  const module = await import('./editors/WordEditor')
+  return { default: module.WordEditor }
+})
+
+const ExcelEditor = lazy(async () => {
+  const module = await import('./editors/ExcelEditor')
+  return { default: module.ExcelEditor }
+})
+
+const PdfViewer = lazy(async () => {
+  const module = await import('./editors/PdfViewer')
+  return { default: module.PdfViewer }
+})
+
+const TextEditor = lazy(async () => {
+  const module = await import('./editors/TextEditor')
+  return { default: module.TextEditor }
+})
 
 const CodeEditor = lazy(async () => {
   const module = await import('./editors/CodeEditor')
@@ -144,11 +159,17 @@ function useBinaryDocShortcuts(
       previousTab: () => tabNav?.previousTab(),
       open: () => {
         void (async () => {
-          const target = await window.api.file.selectFile('all')
-          if (target) {
-            await window.api.file.open(target)
-            setCurrentFile(target)
+          const selected = await desktopApi.files.selectFile('all')
+          if (!selected) return
+          const target = selected.path
+          // 图片等文件交给系统默认应用打开
+          if (isImageFile(target)) {
+            void desktopApi.files.openExternal(target)
+            return
           }
+          // 立即切换文件渲染编辑器，最近文件记录后台完成
+          void desktopApi.files.open(target)
+          setCurrentFile(target)
         })()
       },
       print: () => {
@@ -159,10 +180,10 @@ function useBinaryDocShortcuts(
         tabNav?.closeActiveTab()
       },
       closeWindow: () => {
-        void window.api.window.close()
+        void desktopApi.app.close()
       },
       // Zoom: Word stays with DocumentZoom; Excel delegates to Fortune Sheet.
-      // Clipboard roles left to native/Electron when we return false
+      // Clipboard roles stay with the native webview when we return false.
       cut: () => false,
       copy: () => false,
       paste: () => false,
@@ -178,29 +199,11 @@ function useBinaryDocShortcuts(
 export function LightweightDocumentEditor() {
   const { t } = useTranslation()
   const currentFile = useEditorStore((s) => s.currentFile)
-  const artifactDraft = useAgentStore((s) => s.artifactDraft)
-  const artifactReview = useAgentStore((s) => s.artifactReview)
-  const artifactReviewQueue = useAgentStore((s) => s.artifactReviewQueue)
-  const setArtifactReview = useAgentStore((s) => s.setArtifactReview)
   const setEditorReady = useEditorStore((s) => s.setEditorReady)
   const setIsDirty = useEditorStore((s) => s.setIsDirty)
   const setCurrentFile = useEditorStore((s) => s.setCurrentFile)
   const saveRef = useRef<(() => Promise<void>) | null>(null)
   const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false)
-
-  useEffect(() => window.api.artifact.onEvent((event) => {
-    if (event.type === 'draft-opened' && event.manifest && event.state) {
-      setArtifactReview(event.manifest, event.state)
-      return
-    }
-    if (event.state) {
-      const store = useAgentStore.getState()
-      const queued = store.artifactReviewQueue.find(({ manifest }) => manifest.draftId === event.draftId)?.manifest
-      const current = store.artifactDraft
-      const manifest = queued ?? (current?.draftId === event.draftId ? current : null)
-      if (manifest) setArtifactReview(manifest, event.state)
-    }
-  }), [setArtifactReview])
 
   const [tabs, setTabs] = useState<TabItem[]>([])
   const [activeTabId, setActiveTabId] = useState<string>('')
@@ -324,10 +327,15 @@ export function LightweightDocumentEditor() {
 
   const newDocument = useCallback(() => {
     void (async () => {
-      const target = await window.api.file.selectFile('all')
-      if (target) {
-        await window.api.file.open(target)
+      const selected = await desktopApi.files.selectFile('all')
+      if (!selected) return
+      const target = selected.path
+      // 图片等文件交给系统默认应用打开
+      if (isImageFile(target)) {
+        await desktopApi.files.openExternal(target)
+        return
       }
+      await desktopApi.files.open(target)
     })()
   }, [])
 
@@ -352,19 +360,6 @@ export function LightweightDocumentEditor() {
       setTabs(nextTabs)
     }
   }, [activeTabId, setIsDirty])
-
-  useEffect(() => {
-    const handleArtifactSaved = (event: Event) => {
-      const filePath = (event as CustomEvent<{ filePath?: string }>).detail?.filePath
-      if (!filePath) return
-      const nextTabs = tabsRef.current.map((tab) => tab.path === filePath ? { ...tab, dirty: false } : tab)
-      tabsRef.current = nextTabs
-      setTabs(nextTabs)
-      if (currentFile === filePath) setIsDirty(false)
-    }
-    window.addEventListener('artifact-review-file-saved', handleArtifactSaved)
-    return () => window.removeEventListener('artifact-review-file-saved', handleArtifactSaved)
-  }, [currentFile, setIsDirty])
 
   useEffect(() => {
     if (currentFile) {
@@ -400,20 +395,8 @@ export function LightweightDocumentEditor() {
   useEffect(() => {
     setEditorReady(false)
     setIsDirty(false)
-    void window.api.lw.setCurrentFile(currentFile)
-    if (currentFile) {
-      void window.api.artifact.findDraft(currentFile).then((draft) => {
-        if (draft?.reviewState) setArtifactReview(draft.manifest, draft.reviewState)
-      }).catch(() => {})
-    }
+    void desktopApi.documents.setCurrentFile(currentFile)
   }, [currentFile, setEditorReady, setIsDirty])
-
-  useEffect(() => {
-    if (!artifactDraft || !artifactReview || ['saved', 'discarded'].includes(artifactReview.phase)) return
-    if (artifactDraft.documentId === currentFile) return
-    if (!artifactReviewQueue.some(({ manifest }) => manifest.draftId === artifactDraft.draftId)) return
-    setCurrentFile(artifactDraft.documentId, artifactDraft.sourceName)
-  }, [artifactDraft, artifactReview, artifactReviewQueue, currentFile, setCurrentFile])
 
   // Shared Office shortcut dispatch for all document kinds
   useGlobalOfficeShortcutListener(true)
@@ -452,15 +435,21 @@ export function LightweightDocumentEditor() {
     () => ({
       open: () => {
         void (async () => {
-          const target = await window.api.file.selectFile('all')
-          if (target) {
-            await window.api.file.open(target)
-            setCurrentFile(target)
+          const selected = await desktopApi.files.selectFile('all')
+          if (!selected) return
+          const target = selected.path
+          // 图片等文件交给系统默认应用打开
+          if (isImageFile(target)) {
+            void desktopApi.files.openExternal(target)
+            return
           }
+          // 立即切换文件渲染编辑器，最近文件记录后台完成
+          void desktopApi.files.open(target)
+          setCurrentFile(target)
         })()
       },
       newWindow: () => {
-        void window.api.window.newWindow()
+        void desktopApi.app.newWindow()
       },
     }),
     [setCurrentFile],
@@ -497,35 +486,24 @@ export function LightweightDocumentEditor() {
       )
     }
 
-    if (
-      artifactDraft
-      && artifactReview
-      && (artifactDraft.documentId === currentFile || artifactDraft.sourceName === currentFile.split(/[/\\]/).pop())
-      && !['saved', 'discarded'].includes(artifactReview.phase)
-    ) {
-      return (
-        <ArtifactReviewWorkspace
-          filePath={currentFile}
-          manifest={artifactDraft}
-          reviewState={artifactReview}
-          onReady={handleReady}
-          onSaved={() => {
-            handleSaveSuccess()
-          }}
-        />
-      )
-    }
-
     if (kind === 'word') {
       return (
         <div className="relative flex h-full min-h-0 flex-1 flex-col">
-          <WordEditor
-            filePath={currentFile}
-            onReady={handleReady}
-            onDirty={handleDirty}
-            onSaveSuccess={handleSaveSuccess}
-            onRegisterSave={handleRegisterSave}
-          />
+          <Suspense
+            fallback={(
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
+                {t('wordEditor.loading')}
+              </div>
+            )}
+          >
+            <WordEditor
+              filePath={currentFile}
+              onReady={handleReady}
+              onDirty={handleDirty}
+              onSaveSuccess={handleSaveSuccess}
+              onRegisterSave={handleRegisterSave}
+            />
+          </Suspense>
           <button
             type="button"
             className="absolute bottom-12 right-3 z-20 flex h-8 items-center gap-1.5 rounded-md border border-black/10 bg-white/95 px-2.5 text-[12px] shadow-sm hover:bg-white dark:border-white/10 dark:bg-[#2a2a2a]/95"
@@ -543,16 +521,24 @@ export function LightweightDocumentEditor() {
     if (kind === 'excel') {
       return (
         <div className="relative flex h-full min-h-0 flex-1 flex-col">
-          <ExcelEditor
-            filePath={currentFile}
-            onReady={handleReady}
-            onDirty={handleDirty}
-            onSaveSuccess={handleSaveSuccess}
-            onRegisterSave={handleRegisterSave}
-          />
+          <Suspense
+            fallback={(
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
+                {t('excelEditor.loading')}
+              </div>
+            )}
+          >
+            <ExcelEditor
+              filePath={currentFile}
+              onReady={handleReady}
+              onDirty={handleDirty}
+              onSaveSuccess={handleSaveSuccess}
+              onRegisterSave={handleRegisterSave}
+            />
+          </Suspense>
           <button
             type="button"
-            className="absolute bottom-[26px] right-3 z-20 flex h-8 items-center gap-1.5 rounded-md border border-black/10 bg-white/95 px-2.5 text-[12px] shadow-sm hover:bg-white dark:border-white/10 dark:bg-[#2a2a2a]/95"
+            className="absolute bottom-12 right-3 z-20 flex h-8 items-center gap-1.5 rounded-md border border-black/10 bg-white/95 px-2.5 text-[12px] shadow-sm hover:bg-white dark:border-white/10 dark:bg-[#2a2a2a]/95"
             onClick={() => setShortcutSettingsOpen(true)}
             title={t('appShell.shortcutSettings')}
             data-testid="open-shortcut-settings"
@@ -569,7 +555,15 @@ export function LightweightDocumentEditor() {
       // 标签栏在外层保持固定尺寸
       return (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <PdfViewer filePath={currentFile} onReady={handleReady} />
+          <Suspense
+            fallback={(
+              <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
+                {t('pdfViewer.loadingPdf')}
+              </div>
+            )}
+          >
+            <PdfViewer filePath={currentFile} onReady={handleReady} />
+          </Suspense>
         </div>
       )
     }
@@ -618,17 +612,25 @@ export function LightweightDocumentEditor() {
     }
 
     return (
-      <TextEditor
-        filePath={currentFile}
-        onReady={handleReady}
-        onDirty={handleDirty}
-        onSaveSuccess={handleSaveSuccess}
-        onRegisterSave={handleRegisterSave}
-        showTabBar={false}
-        onShellNextTab={() => switchTabByOffset(1)}
-        onShellPreviousTab={() => switchTabByOffset(-1)}
-        onShellCloseTab={closeActiveTab}
-      />
+      <Suspense
+        fallback={(
+          <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
+            {t('notepad.loadingTextFile')}
+          </div>
+        )}
+      >
+        <TextEditor
+          filePath={currentFile}
+          onReady={handleReady}
+          onDirty={handleDirty}
+          onSaveSuccess={handleSaveSuccess}
+          onRegisterSave={handleRegisterSave}
+          showTabBar={false}
+          onShellNextTab={() => switchTabByOffset(1)}
+          onShellPreviousTab={() => switchTabByOffset(-1)}
+          onShellCloseTab={closeActiveTab}
+        />
+      </Suspense>
     )
   }
 

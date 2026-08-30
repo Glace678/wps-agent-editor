@@ -1,0 +1,293 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WPS Agent Editor",
+  "version": "2.0.0",
+  "identifier": "com.wpsagent.editor",
+  "build": {
+    "beforeDevCommand": "npm run dev:web",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build:web",
+    "frontendDist": "../out/renderer"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "WPS Agent Editor",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 600,
+        "resizable": true,
+        "zoomHotkeysEnabled": false,
+        "fullscreen": false,
+        "backgroundColor": "#ffffff"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost; worker-src 'self' blob:",
+      "devCsp": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1421; worker-src 'self' blob:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/esbuild"],
+    "targets": "all",
+    "category": "Productivity",
+    "license": "AGPL-3.0-only",
+    "licenseFile": "../LICENSE",
+    "fileAssociations": [
+      {
+        "ext": ["doc"],
+        "name": "WPS Agent Editor Document",
+        "description": "Word processing document",
+        "role": "Editor",
+        "mimeType": "application/msword"
+      },
+      {
+        "ext": ["docx"],
+        "name": "WPS Agent Editor Document",
+        "description": "Word processing document",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      },
+      {
+        "ext": ["odt"],
+        "name": "WPS Agent Editor Document",
+        "description": "Word processing document",
+        "role": "Editor",
+        "mimeType": "application/vnd.oasis.opendocument.text"
+      },
+      {
+        "ext": ["xls"],
+        "name": "WPS Agent Editor Workbook",
+        "description": "Spreadsheet workbook",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-excel"
+      },
+      {
+        "ext": ["xlsx"],
+        "name": "WPS Agent Editor Workbook",
+        "description": "Spreadsheet workbook",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      },
+      {
+        "ext": ["csv"],
+        "name": "WPS Agent Editor Workbook",
+        "description": "Spreadsheet workbook",
+        "role": "Editor",
+        "mimeType": "text/csv"
+      },
+      {
+        "ext": ["ods"],
+        "name": "WPS Agent Editor Workbook",
+        "description": "Spreadsheet workbook",
+        "role": "Editor",
+        "mimeType": "application/vnd.oasis.opendocument.spreadsheet"
+      },
+      {
+        "ext": ["ppt"],
+        "name": "WPS Agent Editor Presentation",
+        "description": "Presentation document",
+        "role": "Editor",
+        "mimeType": "application/vnd.ms-powerpoint"
+      },
+      {
+        "ext": ["pptx"],
+        "name": "WPS Agent Editor Presentation",
+        "description": "Presentation document",
+        "role": "Editor",
+        "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      },
+      {
+        "ext": ["odp"],
+        "name": "WPS Agent Editor Presentation",
+        "description": "Presentation document",
+        "role": "Editor",
+        "mimeType": "application/vnd.oasis.opendocument.presentation"
+      },
+      {
+        "ext": ["pdf"],
+        "contentTypes": ["com.adobe.pdf"],
+        "name": "WPS Agent Editor PDF",
+        "description": "PDF document",
+        "role": "Editor",
+        "mimeType": "application/pdf"
+      },
+      {
+        "ext": ["txt"],
+        "name": "WPS Agent Editor Text",
+        "description": "Text document",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": ["log"],
+        "name": "WPS Agent Editor Text",
+        "description": "Text document",
+        "role": "Editor",
+        "mimeType": "text/x-log"
+      },
+      {
+        "ext": ["md", "markdown"],
+        "name": "WPS Agent Editor Text",
+        "description": "Text document",
+        "role": "Editor",
+        "mimeType": "text/markdown"
+      },
+      {
+        "ext": ["js", "jsx"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/javascript"
+      },
+      {
+        "ext": ["ts", "tsx"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": ["json"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "application/json"
+      },
+      {
+        "ext": ["css"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/css"
+      },
+      {
+        "ext": ["html"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/html"
+      },
+      {
+        "ext": ["xml"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "application/xml"
+      },
+      {
+        "ext": ["py"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/x-python"
+      },
+      {
+        "ext": ["rs"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/rust"
+      },
+      {
+        "ext": ["go"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/x-go"
+      },
+      {
+        "ext": ["java"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/x-java"
+      },
+      {
+        "ext": ["c"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/x-csrc"
+      },
+      {
+        "ext": ["cpp"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/x-c++src"
+      },
+      {
+        "ext": ["h"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/x-chdr"
+      },
+      {
+        "ext": ["hpp"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/x-c++hdr"
+      },
+      {
+        "ext": ["sh"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "application/x-shellscript"
+      },
+      {
+        "ext": ["ps1"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "application/x-powershell"
+      },
+      {
+        "ext": ["yaml", "yml"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "application/yaml"
+      },
+      {
+        "ext": ["toml"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "application/toml"
+      },
+      {
+        "ext": ["sql"],
+        "name": "WPS Agent Editor Source",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "application/sql"
+      }
+    ],
+    "shortDescription": "Cross-platform document editor with local agent support",
+    "longDescription": "A lightweight desktop editor for documents, spreadsheets, presentations, PDFs, text, and code.",
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRTc2MjBGMTg0MkI0RTgxRgpSV1FmNkxSQ0dBOWk1M21sWWVjTzRJelQ1MVRHUHB2V3VjTlNDaDFDQk0wUVRhTG43M1k3R0ZPMwo=",
+      "endpoints": []
+    }
+  }
+}

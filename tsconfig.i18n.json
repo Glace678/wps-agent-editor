@@ -1,11 +1,14 @@
 {
   "extends": "./tsconfig.node.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": [
     "src/lib/i18n/**/*",
-    "electron/i18n/**/*",
     "scripts/check-i18n.ts"
   ]
 }

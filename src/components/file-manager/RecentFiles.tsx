@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Clock } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
@@ -73,15 +74,15 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
         onOpen(file.path)
         break
       case 'show-in-folder': {
-        const result = await window.api.file.showInFolder(file.path)
+        const result = await desktopApi.files.showInFolder(file.path)
         if (!result.success) showError(t('recentFiles.errorNotFound'))
         break
       }
       case 'remove-record':
-        setRecentFiles(await window.api.file.removeRecent(file.path))
+        setRecentFiles(await desktopApi.files.removeRecent(file.path))
         break
       case 'info': {
-        const stat = await window.api.file.stat(file.path)
+        const stat = await desktopApi.files.stat(file.path)
         if (!stat.exists) {
           showError(t('recentFiles.errorNotFound'))
         } else {
@@ -95,7 +96,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
         const shareable = await Promise.all(
           filesToShare.map(async (candidate) => ({
             file: candidate,
-            stat: await window.api.file.stat(candidate.path),
+            stat: await desktopApi.files.stat(candidate.path),
           })),
         )
         const existingFiles = shareable
@@ -115,7 +116,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
           showError(t('recentFiles.errorFileOpen'))
           break
         }
-        const stat = await window.api.file.stat(file.path)
+        const stat = await desktopApi.files.stat(file.path)
         if (!stat.exists) {
           showError(t('recentFiles.errorNotFound'))
         } else {
@@ -138,7 +139,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
   }, [files, onOpen, selectedPaths, setRecentFiles, showError, t])
 
   const submitRename = useCallback(async (file: RecentFile, newName: string) => {
-    const result = await window.api.file.rename(file.path, newName)
+    const result = await desktopApi.files.rename(file.path, newName)
     if (!result.success) return renameErrorMessage(result.errorCode)
     if (result.recent) setRecentFiles(result.recent)
     setDialog(null)
@@ -146,7 +147,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
   }, [renameErrorMessage, setRecentFiles])
 
   const confirmDelete = useCallback(async (file: RecentFile) => {
-    const result = await window.api.file.delete(file.path)
+    const result = await desktopApi.files.delete(file.path)
     if (!result.success) {
       setDialog({
         kind: 'message',

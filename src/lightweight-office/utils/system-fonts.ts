@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { t } from '@/lib/i18n/translate'
 import type { LanguageCode } from '@/lib/i18n'
 
@@ -63,7 +64,7 @@ export function loadSystemFontFaces(language: LanguageCode): Promise<SystemFontF
   let request = systemFontFacesPromises.get(language)
   if (!request) {
     const fallback = createFallbackSystemFontFaces(language)
-    request = window.api.lw.listFonts(language)
+    request = desktopApi.documents.listFonts(language)
       .then((faces) => faces.length > 0 ? faces : fallback)
       .catch(() => fallback)
     systemFontFacesPromises.set(language, request)

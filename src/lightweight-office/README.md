@@ -1,32 +1,15 @@
-# lightweight-office（轻量离线文档模块）
+# Lightweight Office renderer
 
-独立文件夹，可随时卸载或替换，不影响主应用其他功能。
+该目录包含按需加载的 Web 文档界面。桌面权限、二进制读写、格式转换和进程调用均由 `src-tauri/` 提供，渲染层不直接访问文件系统或 Shell。
 
-## 包含
+| 类型 | Web 编辑/预览引擎 | 旧格式处理 |
+| --- | --- | --- |
+| DOCX | SuperDoc | DOC/ODT 由可选的 WPS、Microsoft Office 或 LibreOffice 转为 DOCX |
+| XLSX/CSV | Fortune Sheet | XLS/ODS 由可选系统 Office 转为 XLSX |
+| PPTX | pptx-renderer | PPT/ODP 由可选系统 Office 转为 PPTX |
+| PDF | PDF.js | 只读预览 |
+| 文本/代码 | Monaco 与轻量文本编辑器 | 无外部运行时 |
 
-| 文件类型 | 引擎 | 体积 |
-|---------|------|------|
-| .docx | SuperDoc | ~60MB |
-| .doc | 内置 OLE/CFB 兼容层 → SuperDoc（纯 JS，不调用本机 Word/WPS） | 很小 |
-| .xlsx/.csv | Fortune Sheet | ~8MB |
-| .pdf | pdf.js | ~36MB |
+编辑器入口必须继续使用动态 `import()`，避免把全部文档引擎放进首屏 chunk。文件数据通过 `desktopApi.documents` 以原始 `Uint8Array` 或版本化 WAE1 envelope 传递，不得改回 Base64 或 JSON 字节数组。
 
-## 试用说明
-
-- 默认已启用（`config.ts` + `electron/lightweight-office/config.ts`）
-- 打开 `.docx` / `.doc` / `.xlsx` / `.pdf` / `.txt` 即可编辑或预览
-- 旧版 `.doc` 由应用内兼容层解析正文；保存为同名 `.docx`
-- `Ctrl+S` 保存 Word / Excel / 文本
-- Agent 通过主窗口内 `document-bridge` 操作文档，无需 OnlyOffice 隐藏窗口
-
-## 卸载方法
-
-1. 设置 `src/lightweight-office/config.ts` 与 `electron/lightweight-office/config.ts` 中 `LIGHTWEIGHT_OFFICE_ENABLED = false`
-2. `App.tsx` 移除 `useAgentBridge()` 相关代码
-3. 删除本文件夹 `src/lightweight-office/`
-4. 删除 `electron/lightweight-office/`
-5. `npm uninstall superdoc @superdoc-dev/react @fortune-sheet/react @fortune-sheet/core pdfjs-dist xlsx mammoth`
-
-## Agent 文档操作
-
-通过 `agent/document-bridge.ts` 暴露 API，无需 OnlyOffice 服务端。
+Agent 文档操作由 `agent/document-bridge.ts` 连接当前可见编辑器；不存在隐藏编辑窗口或本地文档服务器。

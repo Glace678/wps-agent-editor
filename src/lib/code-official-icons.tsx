@@ -55,40 +55,31 @@ export const JsxIcon: FC<CodeOfficialIconProps> = ({ className, size = 16, ...pr
 export const PythonIcon: FC<CodeOfficialIconProps> = ({ className, size = 16, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className} {...props}>
     <path
-      d="M7.92 1.5C5.07 1.5 5.2 2.74 5.2 2.74l.01 1.28h2.76v.38H3.92s-1.82-.21-1.82 2.6c0 2.82 1.59 2.72 1.59 2.72h.95v-1.35s-.05-1.59 1.56-1.59h2.69s1.51-.02 1.51-1.51V2.97s.22-1.47-2.48-1.47z"
-      fill="#387EB8"
+      d="M7.9 1.5C5.4 1.5 5.5 2.6 5.5 2.6v1.1h2.5v.4H4.2S2.5 4 2.5 6.4c0 2.5 1.5 2.4 1.5 2.4h.9V7.6s-.1-1.4 1.4-1.4h2.4s1.3 0 1.3-1.3V2.8s.2-1.3-1.6-1.3zm-1.2.9a.4.4 0 110 .8.4.4 0 010-.8z"
+      fill="#3776AB"
     />
     <path
-      d="M8.08 14.5c2.85 0 2.72-1.24 2.72-1.24l-.01-1.28H8.03v-.38h4.05s1.82.21 1.82-2.6c0-2.82-1.59-2.72-1.59-2.72h-.95v1.35s.05 1.59-1.56 1.59H7.11s-1.51.02-1.51 1.51v2.3s-.22 1.47 2.48 1.47z"
-      fill="#FFE052"
+      d="M8.1 14.5c2.5 0 2.4-1.1 2.4-1.1v-1.1H8v-.4h3.8s1.7.1 1.7-2.3c0-2.5-1.5-2.4-1.5-2.4h-.9v1.2s.1 1.4-1.4 1.4H7.8s-1.3 0-1.3 1.3v2.1s-.2 1.3 1.6 1.3zm1.2-.9a.4.4 0 110-.8.4.4 0 010 .8z"
+      fill="#FFD43B"
     />
-    <circle cx="6.7" cy="2.8" r="0.45" fill="#FFFFFF" />
-    <circle cx="9.3" cy="13.2" r="0.45" fill="#FFFFFF" />
   </svg>
 )
 
 // 6. C++
 export const CppIcon: FC<CodeOfficialIconProps> = ({ className, size = 16, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className} {...props}>
-    <path d="M8 1.2L14 4.7v6.6L8 14.8 2 11.3V4.7L8 1.2z" fill="#00599C" />
-    <path d="M8 1.2v13.6l6-3.5V4.7L8 1.2z" fill="#003566" opacity="0.3" />
-    <path
-      d="M6 5.2c-1.6 0-2.5 1.2-2.5 2.8s.9 2.8 2.5 2.8c.9 0 1.5-.4 1.9-1l-.9-.7c-.2.4-.6.6-1 .6-.9 0-1.4-.7-1.4-1.7s.5-1.7 1.4-1.7c.4 0 .8.2 1 .6l.9-.7c-.4-.6-1-1-1.9-1z"
-      fill="#FFFFFF"
-    />
-    <path d="M9.5 6.8h.6v1.1h1.1v.6h-1.1v1.1h-.6v-1.1H8.4v-.6h1.1V6.8zm3.2 0h.6v1.1h1.1v.6h-1.1v1.1h-.6v-1.1h-1.1v-.6h1.1V6.8z" fill="#659AD2" />
+    <path d="M8 1l6 3.5v7L8 15l-6-3.5v-7L8 1z" fill="#00599C" />
+    <path d="M6.2 5.5c-1.5 0-2.4 1.1-2.4 2.5s.9 2.5 2.4 2.5c.8 0 1.4-.4 1.8-.9l-.8-.6c-.2.3-.5.5-1 .5-.8 0-1.3-.6-1.3-1.5s.5-1.5 1.3-1.5c.5 0 .8.2 1 .5l.8-.6c-.4-.5-1-.9-1.8-.9z" fill="#FFFFFF" />
+    <path d="M9.8 6.6h.7v1h1v.7h-1v1h-.7v-1h-1v-.7h1v-1zm3.1 0h.7v1h1v.7h-1v1h-.7v-1h-1v-.7h1v-1z" fill="#0086D6" />
+    <path d="M9.8 6.6h.7v1h1v.7h-1v1h-.7v-1h-1v-.7h1v-1zm3.1 0h.7v1h1v.7h-1v1h-.7v-1h-1v-.7h1v-1z" fill="#FFFFFF" />
   </svg>
 )
 
 // 7. C
 export const CIcon: FC<CodeOfficialIconProps> = ({ className, size = 16, ...props }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className} {...props}>
-    <path d="M8 1.2L14 4.7v6.6L8 14.8 2 11.3V4.7L8 1.2z" fill="#659AD2" />
-    <path d="M8 1.2v13.6l6-3.5V4.7L8 1.2z" fill="#00599C" opacity="0.25" />
-    <path
-      d="M8.3 4.5c-2.2 0-3.5 1.6-3.5 3.5s1.3 3.5 3.5 3.5c1.2 0 2.1-.5 2.6-1.3l-1.2-.9c-.3.5-.8.8-1.4.8-1.2 0-2-.9-2-2.1s.8-2.1 2-2.1c.6 0 1.1.3 1.4.8l1.2-.9c-.5-.8-1.4-1.3-2.6-1.3z"
-      fill="#FFFFFF"
-    />
+    <path d="M8 1l6 3.5v7L8 15l-6-3.5v-7L8 1z" fill="#659AD2" />
+    <path d="M8.2 4.8c-2 0-3.2 1.4-3.2 3.2s1.2 3.2 3.2 3.2c1.1 0 1.9-.5 2.4-1.2l-1.1-.8c-.3.4-.7.7-1.3.7-1.1 0-1.8-.8-1.8-1.9s.7-1.9 1.8-1.9c.6 0 1 .3 1.3.7l1.1-.8c-.5-.7-1.3-1.2-2.4-1.2z" fill="#FFFFFF" />
   </svg>
 )
 
@@ -430,8 +421,6 @@ const EXTENSION_OFFICIAL_ICONS: Record<string, FC<CodeOfficialIconProps>> = {
   cuh: CppIcon,
   c: CIcon,
   h: CIcon,
-  m: CIcon,
-  mm: CppIcon,
   cs: CSharpIcon,
   java: JavaIcon,
   groovy: JavaIcon,
@@ -490,54 +479,17 @@ const EXTENSION_OFFICIAL_ICONS: Record<string, FC<CodeOfficialIconProps>> = {
   conf: ConfigIcon,
   properties: ConfigIcon,
   proto: ConfigIcon,
-  coffee: JavaScriptIcon,
-  pl: GenericCodeIcon,
-  pm: GenericCodeIcon,
-  pas: GenericCodeIcon,
-  asm: GenericCodeIcon,
-  s: GenericCodeIcon,
-  tcl: GenericCodeIcon,
-  sv: GenericCodeIcon,
-  svh: GenericCodeIcon,
-  fs: GenericCodeIcon,
-  fsx: GenericCodeIcon,
-  vb: GenericCodeIcon,
   wgsl: GenericCodeIcon,
 }
 
 const FILENAME_OFFICIAL_ICONS: Record<string, FC<CodeOfficialIconProps>> = {
   dockerfile: DockerIcon,
-  '.dockerignore': DockerIcon,
-  'docker-compose.yml': DockerIcon,
-  'docker-compose.yaml': DockerIcon,
   makefile: ShellIcon,
   'cmakelists.txt': ConfigIcon,
   jenkinsfile: JavaIcon,
   rakefile: RubyIcon,
   gemfile: RubyIcon,
   podfile: RubyIcon,
-  '.gitignore': ConfigIcon,
-  '.gitattributes': ConfigIcon,
-  '.gitmodules': ConfigIcon,
-  '.npmrc': ConfigIcon,
-  '.nvmrc': ConfigIcon,
-  '.yarnrc': ConfigIcon,
-  '.editorconfig': ConfigIcon,
-  '.prettierrc': ConfigIcon,
-  '.eslintrc': ConfigIcon,
-}
-
-export function hasCodeOfficialIcon(filePath: string): boolean {
-  const filename = filePath.split(/[/\\]/).pop()?.toLowerCase() ?? ''
-  if (!filename) return false
-  if (FILENAME_OFFICIAL_ICONS[filename]) return true
-  if (filename === '.env' || filename.startsWith('.env.')) return true
-  const dot = filename.lastIndexOf('.')
-  if (dot >= 0 && dot < filename.length - 1) {
-    const ext = filename.slice(dot + 1)
-    return Boolean(EXTENSION_OFFICIAL_ICONS[ext])
-  }
-  return false
 }
 
 export function getCodeOfficialIcon(filePath: string): FC<CodeOfficialIconProps> {

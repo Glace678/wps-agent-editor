@@ -22,12 +22,6 @@ export type ProviderSearchLocale = (typeof PROVIDER_SEARCH_LOCALES)[number]
 export interface ProviderSearchAliasTerm {
   readonly value: string
   readonly locale?: ProviderSearchLocale
-  /**
-   * Terms scraped from API/documentation hostnames are weak identity hints:
-   * gateways embed brand subdomains such as "openai.example-gateway.com" that
-   * must not compete with curated brand aliases.
-   */
-  readonly source?: 'domain'
 }
 
 export interface ProviderSearchAliasBundle {
@@ -133,78 +127,6 @@ const PROVIDER_ALIAS_RULES: readonly ProviderAliasRule[] = [
         fr: ['Baidu', 'Baidu Qianfan', 'modèle ERNIE'],
         ru: ['Baidu', 'Байду', 'Baidu Qianfan', 'модель ERNIE'],
         ar: ['Baidu', 'بايدو', 'Baidu Qianfan', 'نموذج ERNIE'],
-      },
-    ),
-  },
-  {
-    familyPattern: /(?:iflytek|xfyun|astron|spark(?:desk|[- ]x))/i,
-    directPattern: /(?:iflytek|xfyun|astron)/i,
-    boost: 100,
-    aliases: aliases(
-      ['iflytek', 'iflytek spark', 'xfyun', 'spark ai', 'sparkdesk', 'astron', 'astron maas'],
-      {
-        'zh-CN': ['科大讯飞', '讯飞', '讯飞星火', '星火大模型', '讯飞星辰', '星辰 MaaS'],
-        ja: ['科大訊飛', '訊飛星火', 'iFLYTEK Spark'],
-        es: ['iFLYTEK', 'Spark AI', 'Astron MaaS'],
-        pt: ['iFLYTEK', 'Spark AI', 'Astron MaaS'],
-        de: ['iFLYTEK', 'Spark AI', 'Astron MaaS'],
-        fr: ['iFLYTEK', 'Spark AI', 'Astron MaaS'],
-        ru: ['iFLYTEK', 'Spark AI', 'Astron MaaS'],
-        ar: ['iFLYTEK', 'Spark AI', 'Astron MaaS'],
-      },
-    ),
-  },
-  {
-    familyPattern: /(?:jdcloud|jd cloud|joybuilder|jingdong)/i,
-    directPattern: /(?:jdcloud|jd cloud|joybuilder)/i,
-    boost: 90,
-    aliases: aliases(
-      ['jd cloud', 'jdcloud', 'jingdong cloud', 'joybuilder', 'joy builder'],
-      {
-        'zh-CN': ['京东', '京东云', '京东 JoyBuilder', 'JoyBuilder'],
-        ja: ['京東クラウド', 'JD Cloud', 'JoyBuilder'],
-        es: ['JD Cloud', 'JoyBuilder'],
-        pt: ['JD Cloud', 'JoyBuilder'],
-        de: ['JD Cloud', 'JoyBuilder'],
-        fr: ['JD Cloud', 'JoyBuilder'],
-        ru: ['JD Cloud', 'JoyBuilder'],
-        ar: ['JD Cloud', 'JoyBuilder'],
-      },
-    ),
-  },
-  {
-    familyPattern: /(?:streamlake|kwaikat|kwai kat|kat[- ]coder|kuaishou)/i,
-    directPattern: /(?:streamlake|kwaikat|kwai kat)/i,
-    boost: 90,
-    aliases: aliases(
-      ['streamlake', 'stream lake', 'kwai', 'kwai kat', 'kwaikat', 'kat coder', 'kuaishou'],
-      {
-        'zh-CN': ['快手', '快手万擎', '万擎', '快手 KwaiKAT', 'KwaiKAT'],
-        ja: ['快手', 'StreamLake', 'KwaiKAT'],
-        es: ['StreamLake', 'KwaiKAT'],
-        pt: ['StreamLake', 'KwaiKAT'],
-        de: ['StreamLake', 'KwaiKAT'],
-        fr: ['StreamLake', 'KwaiKAT'],
-        ru: ['StreamLake', 'KwaiKAT'],
-        ar: ['StreamLake', 'KwaiKAT'],
-      },
-    ),
-  },
-  {
-    familyPattern: /(?:compshare|ucloud|modelverse)/i,
-    directPattern: /(?:compshare|ucloud)/i,
-    boost: 85,
-    aliases: aliases(
-      ['compshare', 'ucloud', 'ucloud ai', 'modelverse'],
-      {
-        'zh-CN': ['优云智算', '优刻得', 'UCloud', '模型广场'],
-        ja: ['UCloud', 'Compshare'],
-        es: ['UCloud', 'Compshare'],
-        pt: ['UCloud', 'Compshare'],
-        de: ['UCloud', 'Compshare'],
-        fr: ['UCloud', 'Compshare'],
-        ru: ['UCloud', 'Compshare'],
-        ar: ['UCloud', 'Compshare'],
       },
     ),
   },
@@ -763,13 +685,6 @@ const PREFERRED_PROVIDER_BOOSTS: Readonly<Record<string, number>> = {
   'tencent-tokenhub': 60,
   'tencent-coding-plan': 50,
   'tencent-token-plan': 40,
-  volcengine: 60,
-  'volcengine-agent-plan': 50,
-  'volcengine-coding-plan': 40,
-  'iflytek-astron-coding-plan': 60,
-  'jdcloud-joybuilder-coding-plan': 60,
-  'streamlake-kwaikat-coding-plan': 60,
-  'compshare-coding-plan': 60,
 }
 
 const GENERIC_TOKEN_ALIASES: Record<string, Partial<Record<ProviderSearchLocale, readonly string[]>>> = {
@@ -904,10 +819,6 @@ const QUERY_ALIAS_REPLACEMENTS: readonly { aliases: readonly string[]; canonical
   { aliases: ['月之暗面', '月之暗面 Kimi', 'ムーンショット', 'Кими', 'كيمي'], canonical: 'kimi' },
   { aliases: ['智谱 AI', '智谱', '智谱大模型', 'チープー', 'Чжипу', 'زيبو'], canonical: 'zhipu' },
   { aliases: ['百度智能云', '百度千帆', '文心一言', '文心大模型', '百度', 'バイドゥ', 'Байду', 'بايدو'], canonical: 'baidu' },
-  { aliases: ['科大讯飞', '讯飞星火', '星火大模型', '讯飞星辰', '星辰 MaaS', '讯飞', '科大訊飛'], canonical: 'iflytek' },
-  { aliases: ['京东云', '京东 JoyBuilder', '京东', '京東クラウド'], canonical: 'jdcloud' },
-  { aliases: ['快手万擎', '快手 KwaiKAT', '万擎', '快手'], canonical: 'streamlake' },
-  { aliases: ['优云智算', '优刻得', '模型广场'], canonical: 'compshare' },
   { aliases: ['火山方舟', '火山引擎', '豆包大模型', '豆包', 'volcengine ark', 'ドウバオ', 'БайтДэнс', 'بايت دانس'], canonical: 'doubao' },
   { aliases: ['阶跃星辰', '阶跃 AI', '阶跃', '跃问', 'yuewen', 'ステップファン'], canonical: 'stepfun' },
   { aliases: ['硅基流动', '硅基流动平台', '硅基流动云', 'siliconcloud', 'silicon cloud', 'シリコンフロー', 'СиликонФлоу', 'سيليكون فلو'], canonical: 'siliconflow' },
@@ -953,14 +864,9 @@ function splitIdentifier(value: string): string[] {
     .filter((part) => part.length > 1)
 }
 
-function addTerm(
-  target: ProviderSearchAliasTerm[],
-  value: string,
-  locale?: ProviderSearchLocale,
-  source?: 'domain',
-): void {
+function addTerm(target: ProviderSearchAliasTerm[], value: string, locale?: ProviderSearchLocale): void {
   if (!value.trim()) return
-  target.push({ value, locale, source })
+  target.push({ value, locale })
 }
 
 function collectLocalizedAliases(target: ProviderSearchAliasTerm[], values: LocalizedAliases): void {
@@ -970,44 +876,34 @@ function collectLocalizedAliases(target: ProviderSearchAliasTerm[], values: Loca
   }
 }
 
-// Generic hostname labels that say nothing about the provider's brand. Without
-// this filter, hosts such as "open.bigmodel.cn" or "text.pollinations.ai"
-// would turn "open" or "text" into strong provider aliases.
-const GENERIC_HOST_TERMS = /^(?:www|api|chat|v1|com|ai|cn|net|org|cloud|open|llm|gateway|docs|doc|app|dev|text|studio|platform|console|admin|portal)$/i
-
 function hostTerms(value: string): string[] {
   try {
     const url = new URL(value)
     return url.hostname
       .split('.')
       .flatMap((part) => splitIdentifier(part))
-      .filter((part) => !GENERIC_HOST_TERMS.test(part))
+      .filter((part) => !/^(?:www|api|chat|v1|com|ai|cn|net|org|cloud)$/i.test(part))
   } catch {
     return []
   }
 }
 
 function addGeneratedProviderTerms(provider: ProviderDefinition, target: ProviderSearchAliasTerm[]): void {
-  const sources: readonly { value: string; origin?: 'domain' }[] = [
-    { value: provider.id },
-    { value: provider.name },
-    ...hostTerms(provider.api).map((value) => ({ value, origin: 'domain' as const })),
-    ...hostTerms(provider.doc ?? '').map((value) => ({ value, origin: 'domain' as const })),
-  ]
+  const sources = [provider.id, provider.name, ...hostTerms(provider.api), ...hostTerms(provider.doc ?? '')]
   const stopWords = new Set(['ai', 'api', 'www', 'cloud', 'models', 'model', 'service', 'services', 'provider', 'providers'])
 
-  for (const { value, origin } of sources) {
-    const parts = splitIdentifier(value)
+  for (const source of sources) {
+    const parts = splitIdentifier(source)
     if (parts.length === 0) continue
-    addTerm(target, parts.join(' '), undefined, origin)
+    addTerm(target, parts.join(' '))
     const useful = parts.filter((part) => !stopWords.has(part.toLowerCase()))
-    if (useful.length > 0 && useful.length !== parts.length) addTerm(target, useful.join(' '), undefined, origin)
+    if (useful.length > 0 && useful.length !== parts.length) addTerm(target, useful.join(' '))
     for (const part of useful) {
-      if (part.length >= 3) addTerm(target, part, undefined, origin)
+      if (part.length >= 3) addTerm(target, part)
       const translations = GENERIC_TOKEN_ALIASES[part.toLowerCase()]
       if (!translations) continue
       for (const locale of PROVIDER_SEARCH_LOCALES) {
-        for (const translated of translations[locale] ?? []) addTerm(target, translated, locale, origin)
+        for (const value of translations[locale] ?? []) addTerm(target, value, locale)
       }
     }
   }

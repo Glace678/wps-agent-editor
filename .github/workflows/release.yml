@@ -1,0 +1,259 @@
+name: Signed cross-platform release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify version and release ancestry
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          node scripts/check-version.mjs --tag "$GITHUB_REF_NAME"
+          git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH" || { echo 'Release tag must point to the protected default branch' >&2; exit 1; }
+      - name: Require all release credentials
+        shell: bash
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          for name in UPDATER_KEY UPDATER_KEY_PASSWORD UPDATER_PUBLIC_KEY WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_KEYCHAIN_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_CONTENT; do
+            test -n "${!name}" || { echo "Missing required release secret: $name" >&2; exit 1; }
+          done
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: windows, arch: x86, target: i686-pc-windows-msvc, bundles: nsis }
+          - { runner: windows-2022, platform: windows, arch: x86_64, target: x86_64-pc-windows-msvc, bundles: nsis }
+          - { runner: windows-11-arm, platform: windows, arch: aarch64, target: aarch64-pc-windows-msvc, bundles: nsis }
+          - { runner: macos-15-intel, platform: macos, arch: x86_64, target: x86_64-apple-darwin, bundles: dmg, deployment_target: '10.15' }
+          - { runner: macos-15, platform: macos, arch: aarch64, target: aarch64-apple-darwin, bundles: dmg, deployment_target: '11.0' }
+          - { runner: ubuntu-22.04, platform: linux, arch: x86_64, target: x86_64-unknown-linux-gnu, bundles: appimage }
+          - { runner: ubuntu-22.04-arm, platform: linux, arch: aarch64, target: aarch64-unknown-linux-gnu, bundles: appimage }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      WAE_BUILD_TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file libssl-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+            libxdo-dev patchelf xvfb dbus-x11 xdg-utils
+      - run: npm ci
+      - name: Prepare target esbuild sidecar
+        run: npm run prepare:sidecar -- --target ${{ matrix.target }}
+      - name: Audit package inputs and size budgets
+        run: |
+          npm run build:web
+          node scripts/release/check-bundle-inputs.mjs --target ${{ matrix.target }}
+      - name: Import Windows Authenticode certificate
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'wae-release.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $imported = @(Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $password)
+          Remove-Item -LiteralPath $pfxPath -Force
+          $certificate = @($imported | Where-Object {
+            $_.HasPrivateKey -and
+            @($_.EnhancedKeyUsageList | Where-Object { $_.ObjectId.Value -eq '1.3.6.1.5.5.7.3.3' }).Count -gt 0
+          })
+          if ($certificate.Count -ne 1) {
+            throw "Expected exactly one private-key Code Signing certificate in the PFX, found $($certificate.Count)"
+          }
+          $certificate = $certificate[0]
+          "WAE_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Import Apple certificate and notarization key
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import "$RUNNER_TEMP/certificate.p12" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+      - name: Generate release-only updater and signing config
+        shell: bash
+        env:
+          WAE_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node scripts/release/tauri-release-config.mjs "$RUNNER_TEMP/tauri-release.json"
+      - name: Build signed Windows bundle
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "$env:RUNNER_TEMP/tauri-release.json"
+      - name: Build signed and notarized macOS bundle
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          npx tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}' --config "$RUNNER_TEMP/tauri-release.json"
+      - name: Build signed Linux updater bundle
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}' --config "$RUNNER_TEMP/tauri-release.json"
+      - name: Collect and normalize artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node scripts/release/create-updater-invalid-install-fixture.mjs ${{ matrix.platform }} ${{ matrix.arch }} artifacts
+          npx tauri signer sign artifacts/updater-invalid-install-${{ matrix.platform }}-${{ matrix.arch }}.bin
+          node scripts/release/collect-artifacts.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle artifacts
+      - name: Windows signed install/start/uninstall smoke
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: >-
+          ./scripts/release/windows-install-smoke.ps1
+          -Artifact "artifacts/windows-${{ matrix.arch }}-setup.exe"
+          -Arch "${{ matrix.arch }}"
+          -LogDirectory smoke-logs
+      - name: macOS signed install/start/remove smoke
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: >-
+          bash scripts/release/macos-install-smoke.sh
+          "artifacts/macos-${{ matrix.arch }}.dmg"
+          "${{ matrix.arch }}"
+          smoke-logs
+          "artifacts/macos-${{ matrix.arch }}.app.tar.gz"
+      - name: Linux install/start/remove smoke
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: >-
+          bash scripts/release/linux-install-smoke.sh
+          "artifacts/linux-${{ matrix.arch }}.AppImage"
+          "${{ matrix.arch }}"
+          smoke-logs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.platform }}-${{ matrix.arch }}
+          path: smoke-logs
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  finalize:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - run: npm ci
+      - name: Build SBOMs and source archive
+        shell: bash
+        run: |
+          npm sbom --sbom-format cyclonedx > artifacts/sbom-npm.cdx.json
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust
+          mv src-tauri/sbom-rust.json artifacts/sbom-rust.cdx.json
+          git archive --format=zip --output="artifacts/WPS-Agent-Editor-${GITHUB_REF_NAME}-source.zip" HEAD
+      - name: Validate and finalize metadata
+        env:
+          REQUIRE_RELEASE_MATRIX: '1'
+        run: |
+          node scripts/release/check-artifacts.mjs artifacts
+          node scripts/release/finalize-release.mjs artifacts
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: artifacts/*
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: true
+          generate_release_notes: true
+          files: artifacts/*

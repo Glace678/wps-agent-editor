@@ -1,10 +1,9 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TextDecoder } from 'node:util'
 import { languages, setLanguage, translations } from '../src/lib/i18n'
 import { t } from '../src/lib/i18n/translate'
-import { t as electronT } from '../electron/i18n/translate'
 import { OFFICE_SHORTCUT_CATALOG } from '../src/lib/office-shortcuts/catalog'
 import { getShortcutCommandTranslationKey } from '../src/lib/office-shortcuts/i18n'
 import type {
@@ -15,7 +14,6 @@ import type {
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const localeDirectory = resolve(projectRoot, 'src/lib/i18n/locales')
-const electronLocaleDirectory = resolve(projectRoot, 'electron/i18n/locales')
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -206,7 +204,6 @@ assert(
   JSON.stringify(actualFiles) === JSON.stringify(expectedFiles),
   `Unexpected locale files. Expected ${expectedFiles.join(', ')}, received ${actualFiles.join(', ')}.`,
 )
-assert(!existsSync(electronLocaleDirectory), 'Electron must not contain a duplicate locales directory.')
 
 for (const code of languageCodes) {
   assert(
@@ -217,7 +214,7 @@ for (const code of languageCodes) {
 
 const english = flatten(translations.en)
 const englishKeys = [...english.keys()].sort()
-assert(englishKeys.length === 820, `Expected 820 translation keys, received ${englishKeys.length}.`)
+assert(englishKeys.length === 713, `Expected 713 translation keys, received ${englishKeys.length}.`)
 
 for (const [code, translation] of localeEntries) {
   const current = flatten(translation)
@@ -329,9 +326,6 @@ const i18nSourceFiles = [
   resolve(projectRoot, 'src/lib/i18n/index.ts'),
   resolve(projectRoot, 'src/lib/i18n/translate.ts'),
   resolve(projectRoot, 'src/lib/i18n/types.ts'),
-  resolve(projectRoot, 'electron/i18n/index.ts'),
-  resolve(projectRoot, 'electron/i18n/translate.ts'),
-  resolve(projectRoot, 'electron/i18n/types.ts'),
 ]
 
 for (const filePath of i18nSourceFiles) {
@@ -377,20 +371,10 @@ for (const [bindingIndex, key] of shortcutTranslationKeys.entries()) {
 
 assert(t('pdfViewer.pageNumber', { number: 7 }, 'zh-CN') === '第 7 页', 'Interpolation failed for zh-CN.')
 assert(t('notepad.currentZoom', { percent: 125 }, 'en') === 'Zoom 125%', 'Zoom interpolation failed for en.')
-assert(t('documentServer.downloadProgress', {
-  downloadedMB: 5,
-  totalMB: 10,
-  percent: 50,
-}, 'en') === 'Downloaded 5 MB of 10 MB (50%).', 'Interpolation failed for en.')
 assert(t('menu.file', 'ja') === 'ファイル', 'The Japanese menu lookup failed.')
 assert(t('menu.file', 'de') === 'Datei', 'The German menu lookup failed.')
 assert(t('menu.file', 'fr') === 'Fichier', 'The French menu lookup failed.')
 assert(t('menu.file', 'ru') === 'Файл', 'The Russian menu lookup failed.')
-assert(
-  electronT('menu.quit', 'ar') === t('menu.quit', 'ar'),
-  'Electron and renderer do not share the same menu translation.',
-)
-
 const japaneseMenu = translations.ja.menu as { file?: string }
 const japaneseFileLabel = japaneseMenu.file
 delete japaneseMenu.file

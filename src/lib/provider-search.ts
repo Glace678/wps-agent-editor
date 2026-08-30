@@ -19,16 +19,6 @@ const ALIAS_WEIGHTS = {
   contains: 48,
 } as const
 
-// Aliases scraped from API/doc hostnames are weak discovery hints: they only
-// score on an exact whole-token match ("bigmodel" for docs.bigmodel.cn).
-// Prefix and substring tiers stay at 0 so "open" cannot surface every gateway
-// whose endpoint embeds an "openai.<gateway>.com" subdomain.
-const DOMAIN_ALIAS_WEIGHTS = {
-  exact: 34,
-  prefix: 0,
-  contains: 0,
-} as const
-
 // Family aliases are deliberately weaker than a direct provider alias. This
 // keeps first-party entries at the top while still collecting every gateway
 // that exposes the same model family.
@@ -101,7 +91,6 @@ export interface ProviderSearchIndexEntry {
   readonly providerText: readonly IndexedText[]
   readonly aliasText: readonly IndexedText[]
   readonly localizedAliasText: readonly IndexedText[]
-  readonly domainAliasText: readonly IndexedText[]
   readonly familyText: readonly IndexedText[]
   readonly localizedFamilyText: readonly IndexedText[]
   readonly models: readonly IndexedModel[]
@@ -117,7 +106,6 @@ export interface ProviderSearchResult {
   readonly provider: ProviderDefinition
   readonly score: number
   readonly matchKind: ProviderSearchMatchKind | null
-  /** Populated only in the "provider-names-and-models" scope; otherwise []. */
   readonly matchedModels: readonly ProviderModel[]
 }
 
@@ -150,13 +138,8 @@ function uniqueTexts(values: readonly (string | undefined)[]): readonly IndexedT
   return result
 }
 
-function uniqueAliasTexts(
-  terms: readonly ProviderSearchAliasTerm[],
-  language?: ProviderSearchLocale,
-  source?: 'domain',
-): readonly IndexedText[] {
+function uniqueAliasTexts(terms: readonly ProviderSearchAliasTerm[], language?: ProviderSearchLocale): readonly IndexedText[] {
   const values = terms
-    .filter((term) => (source === 'domain' ? term.source === 'domain' : term.source !== 'domain'))
     .filter((term) => language === undefined || term.locale === undefined || term.locale === language)
     .map((term) => term.value)
   return uniqueTexts(values)
@@ -326,7 +309,6 @@ export function createProviderSearchIndex(
       providerText: uniqueTexts([provider.name, provider.id]),
       aliasText: uniqueAliasTexts(bundle.provider),
       localizedAliasText: uniqueAliasTexts(bundle.provider, language),
-      domainAliasText: uniqueAliasTexts(bundle.provider, undefined, 'domain'),
       familyText: uniqueAliasTexts(bundle.family),
       localizedFamilyText: uniqueAliasTexts(bundle.family, language),
       models: (provider.models ?? [])
@@ -377,9 +359,7 @@ export function searchProviderIndex(
 
   for (const entry of index) {
     const directFull = bestTextScore(entry.providerText, full.variants, TEXT_WEIGHTS, { allowCompactSubstring: true })
-    const curatedAliasFull = localizedScore(entry.aliasText, entry.localizedAliasText, full.variants, ALIAS_WEIGHTS)
-    const domainFull = bestTextScore(entry.domainAliasText, full.variants, DOMAIN_ALIAS_WEIGHTS)
-    const aliasFull = domainFull.score > curatedAliasFull.score ? domainFull : curatedAliasFull
+    const aliasFull = localizedScore(entry.aliasText, entry.localizedAliasText, full.variants, ALIAS_WEIGHTS)
     const familyFull = includeModelMatches
       ? localizedScore(entry.familyText, entry.localizedFamilyText, full.variants, FAMILY_WEIGHTS)
       : NO_FIELD_SCORE
@@ -394,9 +374,7 @@ export function searchProviderIndex(
 
     for (const part of parts) {
       const direct = bestTextScore(entry.providerText, part.variants, TEXT_WEIGHTS, { allowCompactSubstring: true })
-      const curatedAlias = localizedScore(entry.aliasText, entry.localizedAliasText, part.variants, ALIAS_WEIGHTS)
-      const domain = bestTextScore(entry.domainAliasText, part.variants, DOMAIN_ALIAS_WEIGHTS)
-      const alias = domain.score > curatedAlias.score ? domain : curatedAlias
+      const alias = localizedScore(entry.aliasText, entry.localizedAliasText, part.variants, ALIAS_WEIGHTS)
       const family = includeModelMatches
         ? localizedScore(entry.familyText, entry.localizedFamilyText, part.variants, FAMILY_WEIGHTS)
         : NO_FIELD_SCORE
@@ -409,9 +387,7 @@ export function searchProviderIndex(
         break
       }
       tokenScore += partScore
-      // Hostname-derived terms are discovery hints only — they must not count
-      // as a provider identity match for the coverage bonus or relevance boost.
-      if (direct.score > 0 || curatedAlias.score > 0) providerMatchedParts += 1
+      if (direct.score > 0 || alias.score > 0) providerMatchedParts += 1
       if (direct.score >= bestKindScore) {
         bestKind = 'provider'
         bestKindScore = direct.score
@@ -438,7 +414,7 @@ export function searchProviderIndex(
     else if (familyFull.score >= modelFull.score && familyFull.score > 0) bestKind = 'alias'
     else if (modelFull.score > 0) bestKind = 'model'
 
-    const hasDirectProviderMatch = directFull.score > 0 || curatedAliasFull.score > 0 || providerMatchedParts > 0
+    const hasDirectProviderMatch = directFull.score > 0 || aliasFull.score > 0 || providerMatchedParts > 0
     const providerCoverageBonus = providerMatchedParts === parts.length
       ? providerMatchedParts * 45
       : 0

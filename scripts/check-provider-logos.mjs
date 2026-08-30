@@ -3,20 +3,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const seedPath = path.join(root, 'electron', 'services', 'provider-catalog.seed.ts')
+const catalogPath = path.join(root, 'src-tauri', 'resources', 'provider-catalog.json')
 const assetDir = path.join(root, 'src', 'assets', 'provider-logos')
 const providerLogoComponentPath = path.join(root, 'src', 'components', 'agent', 'ProviderLogo.tsx')
 const sourceManifestPath = path.join(assetDir, 'sources.json')
-const seed = fs.readFileSync(seedPath, 'utf8')
-const start = seed.indexOf('const BUNDLED_PROVIDER_SNAPSHOT = [')
-const end = seed.indexOf('export const BUNDLED_PROVIDER_CATALOG')
-
-if (start < 0 || end < 0 || end <= start) {
-  throw new Error('Unable to find the bundled provider snapshot')
-}
-
-const snapshot = seed.slice(start, end)
-const providerIds = [...snapshot.matchAll(/^\s*\{"id":"([^"]+)"/gm)].map((match) => match[1])
+const providerIds = JSON.parse(fs.readFileSync(catalogPath, 'utf8')).map((provider) => provider.id)
 const expectedIds = new Set(['ollama', ...providerIds])
 const assetFiles = fs.readdirSync(assetDir).filter((file) => /\.(?:svg|png|ico|webp|avif)$/i.test(file))
 const assetsById = new Map()

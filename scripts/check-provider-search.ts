@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { BUNDLED_PROVIDER_CATALOG } from '../electron/services/provider-catalog.seed'
+import catalog from '../src-tauri/resources/provider-catalog.json'
 import {
   createProviderSearchIndex,
   normalizeProviderSearchQuery,
@@ -8,6 +8,8 @@ import {
 } from '../src/lib/provider-search'
 import { PROVIDER_SEARCH_LOCALES, type ProviderSearchLocale } from '../src/lib/provider-search-aliases'
 import type { ProviderDefinition } from '../src/types/provider'
+
+const BUNDLED_PROVIDER_CATALOG = catalog as ProviderDefinition[]
 
 const ALIBABA_PROVIDER_IDS = [
   'alibaba',
@@ -25,12 +27,6 @@ const XIAOMI_PROVIDER_IDS = [
   'xiaomi-token-plan-sgp',
 ]
 
-const VOLCENGINE_PROVIDER_IDS = [
-  'volcengine',
-  'volcengine-agent-plan',
-  'volcengine-coding-plan',
-]
-
 const CATALOG_INDEX = createProviderSearchIndex(BUNDLED_PROVIDER_CATALOG)
 
 function resultIds(
@@ -41,10 +37,10 @@ function resultIds(
   return searchProviders(providers, query, language).map(({ provider }) => provider.id)
 }
 
-assert.equal(BUNDLED_PROVIDER_CATALOG.length, 185, 'all bundled providers must be indexed')
+assert.equal(BUNDLED_PROVIDER_CATALOG.length, 178, 'all bundled providers must be indexed')
 assert.equal(
   BUNDLED_PROVIDER_CATALOG.reduce((count, provider) => count + provider.models.length, 0),
-  5_556,
+  5_482,
   'all bundled model metadata must remain searchable',
 )
 
@@ -169,10 +165,6 @@ const familyChecks: ReadonlyArray<{ query: string; providers: readonly string[] 
   { query: '硅基流动', providers: ['siliconflow', 'siliconflow-cn'] },
   { query: 'SiliconCloud', providers: ['siliconflow', 'siliconflow-cn'] },
   { query: '魔搭', providers: ['modelscope'] },
-  { query: '科大讯飞', providers: ['iflytek-astron-coding-plan'] },
-  { query: '京东云', providers: ['jdcloud-joybuilder-coding-plan'] },
-  { query: '快手万擎', providers: ['streamlake-kwaikat-coding-plan'] },
-  { query: '优云智算', providers: ['compshare-coding-plan'] },
   { query: '小爱同学', providers: XIAOMI_PROVIDER_IDS },
   { query: 'OpenAI', providers: ['openai'] },
   { query: 'Claude', providers: ['anthropic'] },
@@ -184,37 +176,13 @@ for (const { query, providers } of familyChecks) {
     assert.ok(ids.includes(providerId), `${query} must suggest ${providerId}`)
   }
 }
-
-for (const query of ['豆包', 'DOUBAO', 'seed', '火山引擎', '火山方舟', 'Volcengine Ark']) {
-  assert.deepEqual(
-    resultIds(query).slice(0, VOLCENGINE_PROVIDER_IDS.length),
-    VOLCENGINE_PROVIDER_IDS,
-    `${query} must prioritize the official Volcengine API and subscription plans`,
-  )
-}
-assert.deepEqual(
-  resultIds('豆包 coding').slice(0, 1),
-  ['volcengine-coding-plan'],
-  'a Doubao coding query must prioritize Volcengine Coding Plan',
-)
-assert.deepEqual(
-  resultIds('豆包 套餐').slice(0, 2),
-  ['volcengine-agent-plan', 'volcengine-coding-plan'],
-  'a Doubao plan query must surface both Volcengine subscriptions before the metered API',
-)
-for (const [query, providerId] of [
-  ['Astron Coding', 'iflytek-astron-coding-plan'],
-  ['JoyBuilder', 'jdcloud-joybuilder-coding-plan'],
-  ['KwaiKAT', 'streamlake-kwaikat-coding-plan'],
-  ['Compshare', 'compshare-coding-plan'],
-] as const) {
-  assert.equal(resultIds(query)[0], providerId, `${query} must prioritize its official coding plan`)
-}
 // Brands that only exist as hosted models (no dedicated provider entry) are
 // invisible to provider-name search but stay reachable for model pickers
 // through the model-inclusive scope.
 for (const [query, modelPattern] of [
   ['百度', /(?:ernie|qianfan|wenxin)/i],
+  ['豆包', /(?:doubao|seed)/i],
+  ['火山方舟', /(?:doubao|seed)/i],
 ] as const) {
   assert.deepEqual(
     resultIds(query),
@@ -291,6 +259,6 @@ assert.deepEqual(
 )
 
 console.log(
-  `PASS provider search covers ${BUNDLED_PROVIDER_CATALOG.length} providers, 5,556 models, `
+  `PASS provider search covers ${BUNDLED_PROVIDER_CATALOG.length} providers, 5,482 models, `
     + `${PROVIDER_SEARCH_LOCALES.length} locales, and ${qwenResults.length} Qwen hosts`,
 )

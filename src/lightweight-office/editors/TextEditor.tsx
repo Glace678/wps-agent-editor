@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import {
   Fragment,
   useCallback,
@@ -48,7 +49,6 @@ import {
 import { DocumentTabBar } from '../components/DocumentTabBar'
 import { SaveConfirmDialog } from '../components/SaveConfirmDialog'
 import { NotepadCommandBar } from './NotepadCommandBar'
-import { NotepadScrollbar } from './NotepadScrollbar'
 import { NotepadSettingsPage } from './NotepadSettingsPage'
 import {
   applyLineEnding,
@@ -469,11 +469,63 @@ function spellCheckFormatForName(name: string): SpellCheckFormat | null {
 const NOTEPAD_MIN_ZOOM = 10
 const NOTEPAD_MAX_ZOOM = 500
 const NOTEPAD_ZOOM_STEP = 10
-const NOTEPAD_ZOOM_SETTLE_MS = 280
+const NOTEPAD_WHEEL_ZOOM_IDLE_MS = 160
+const NOTEPAD_FONT_POINT_TO_PIXEL = 96 / 72
 
 function clampNotepadZoom(value: number): number {
   const stepped = Math.round(value / NOTEPAD_ZOOM_STEP) * NOTEPAD_ZOOM_STEP
   return Math.min(NOTEPAD_MAX_ZOOM, Math.max(NOTEPAD_MIN_ZOOM, stepped))
+}
+
+interface NotepadZoomAnchor {
+  surface: HTMLElement
+  viewportX: number
+  viewportY: number
+  scrollLeft: number
+  scrollTop: number
+  scrollWidth: number
+  scrollHeight: number
+}
+
+function applyNotepadTextZoom(
+  root: HTMLElement | null,
+  fontSizePoints: number,
+  percent: number,
+): void {
+  if (!root) return
+  const pixels = fontSizePoints * NOTEPAD_FONT_POINT_TO_PIXEL * (percent / 100)
+  root.style.setProperty('--notepad-editor-font-size', `${pixels}px`)
+}
+
+function restoreNotepadZoomAnchor(
+  anchor: NotepadZoomAnchor | null,
+  wordWrap: boolean,
+): void {
+  if (!anchor?.surface.isConnected) return
+  const { surface } = anchor
+
+  const verticalProgress = (
+    anchor.scrollTop + anchor.viewportY
+  ) / Math.max(1, anchor.scrollHeight)
+  const nextScrollTop = verticalProgress * surface.scrollHeight - anchor.viewportY
+  surface.scrollTop = Math.min(
+    Math.max(0, nextScrollTop),
+    Math.max(0, surface.scrollHeight - surface.clientHeight),
+  )
+
+  if (wordWrap) {
+    surface.scrollLeft = 0
+    return
+  }
+
+  const horizontalProgress = (
+    anchor.scrollLeft + anchor.viewportX
+  ) / Math.max(1, anchor.scrollWidth)
+  const nextScrollLeft = horizontalProgress * surface.scrollWidth - anchor.viewportX
+  surface.scrollLeft = Math.min(
+    Math.max(0, nextScrollLeft),
+    Math.max(0, surface.scrollWidth - surface.clientWidth),
+  )
 }
 
 function createTabId(): string {
@@ -623,6 +675,7 @@ export function TextEditor({
   const historyIndexRef = useRef(-1)
   const readyOnceRef = useRef(false)
   const editorRootRef = useRef<HTMLDivElement>(null)
+  const zoomStatusRef = useRef<HTMLSpanElement>(null)
   const displayNameRef = useRef(filePath.split(/[/\\]/).pop() || filePath)
   const dirtyRef = useRef(false)
   const tabsRef = useRef<TextTab[]>([])
@@ -630,26 +683,153 @@ export function TextEditor({
 
   const setCurrentFile = useEditorStore((state) => state.setCurrentFile)
   const setIsDirty = useEditorStore((state) => state.setIsDirty)
+  const notepadFontSizeRef = useRef(readNumberSetting('notepad-font-size', 11))
   const [zoomPercent, setZoomPercent] = useState(() =>
     clampNotepadZoom(readNumberSetting('notepad-zoom', 100)),
   )
-  const zoomPercentRef = useRef(zoomPercent)
   const zoom = zoomPercent / 100
+  const liveZoomPercentRef = useRef(zoomPercent)
+  const appliedZoomPercentRef = useRef(zoomPercent)
+  const wheelZoomGestureRef = useRef<{
+    accumulatedDelta: number
+    direction: -1 | 0 | 1
+    frame: number | null
+    idleTimer: ReturnType<typeof setTimeout> | null
+    anchor: NotepadZoomAnchor | null
+    clientX: number | null
+    clientY: number | null
+  }>({
+    accumulatedDelta: 0,
+    direction: 0,
+    frame: null,
+    idleTimer: null,
+    anchor: null,
+    clientX: null,
+    clientY: null,
+  })
 
-  const updateZoom = useCallback((value: number) => {
-    const next = clampNotepadZoom(value)
-    if (next === zoomPercentRef.current) return
-    zoomPercentRef.current = next
-    setZoomPercent(next)
+  const getZoomSurface = useCallback(
+    (): HTMLElement | null => textareaRef.current ?? previewRef.current,
+    [],
+  )
+
+  const updateZoomIndicator = useCallback((percent: number) => {
+    if (editorRootRef.current) {
+      editorRootRef.current.dataset.zoom = String(percent / 100)
+    }
+    if (zoomStatusRef.current) {
+      zoomStatusRef.current.textContent = `${percent}%`
+    }
   }, [])
 
-  const zoomIn = useCallback(() => {
-    updateZoom(zoomPercentRef.current + NOTEPAD_ZOOM_STEP)
-  }, [updateZoom])
-  const zoomOut = useCallback(() => {
-    updateZoom(zoomPercentRef.current - NOTEPAD_ZOOM_STEP)
-  }, [updateZoom])
-  const zoomReset = useCallback(() => updateZoom(100), [updateZoom])
+  const captureZoomAnchor = useCallback(
+    (clientX?: number | null, clientY?: number | null): NotepadZoomAnchor | null => {
+      const surface = getZoomSurface()
+      if (!surface) return null
+      const rect = surface.getBoundingClientRect()
+      const viewportX = clientX == null
+        ? surface.clientWidth / 2
+        : Math.min(surface.clientWidth, Math.max(0, clientX - rect.left))
+      const viewportY = clientY == null
+        ? surface.clientHeight / 2
+        : Math.min(surface.clientHeight, Math.max(0, clientY - rect.top))
+      return {
+        surface,
+        viewportX,
+        viewportY,
+        scrollLeft: surface.scrollLeft,
+        scrollTop: surface.scrollTop,
+        scrollWidth: surface.scrollWidth,
+        scrollHeight: surface.scrollHeight,
+      }
+    },
+    [getZoomSurface],
+  )
+
+  const applyLiveZoom = useCallback(
+    (nextPercent: number, clientX?: number | null, clientY?: number | null) => {
+      const next = clampNotepadZoom(nextPercent)
+      const gesture = wheelZoomGestureRef.current
+      const surface = getZoomSurface()
+      if (!surface) return
+      if (!gesture.anchor || gesture.anchor.surface !== surface) {
+        gesture.anchor = captureZoomAnchor(clientX, clientY)
+      }
+
+      applyNotepadTextZoom(editorRootRef.current, notepadFontSizeRef.current, next)
+      liveZoomPercentRef.current = next
+      updateZoomIndicator(next)
+      restoreNotepadZoomAnchor(gesture.anchor, wordWrapRef.current)
+    },
+    [captureZoomAnchor, getZoomSurface, updateZoomIndicator],
+  )
+
+  const takeWheelZoomAnchor = useCallback((): NotepadZoomAnchor | null => {
+    const gesture = wheelZoomGestureRef.current
+    if (gesture.frame !== null) cancelAnimationFrame(gesture.frame)
+    if (gesture.idleTimer !== null) clearTimeout(gesture.idleTimer)
+    const anchor = gesture.anchor
+    gesture.accumulatedDelta = 0
+    gesture.direction = 0
+    gesture.frame = null
+    gesture.idleTimer = null
+    gesture.anchor = null
+    gesture.clientX = null
+    gesture.clientY = null
+    return anchor
+  }, [])
+
+  const commitZoom = useCallback(
+    (nextPercent: number) => {
+      const next = clampNotepadZoom(nextPercent)
+      liveZoomPercentRef.current = next
+      updateZoomIndicator(next)
+
+      if (next === appliedZoomPercentRef.current) {
+        return
+      }
+
+      setZoomPercent(next)
+    },
+    [updateZoomIndicator],
+  )
+
+  const commitWheelZoom = useCallback(() => {
+    const next = liveZoomPercentRef.current
+    takeWheelZoomAnchor()
+    commitZoom(next)
+  }, [commitZoom, takeWheelZoomAnchor])
+
+  const cancelZoomGesture = useCallback(() => {
+    takeWheelZoomAnchor()
+    applyNotepadTextZoom(
+      editorRootRef.current,
+      notepadFontSizeRef.current,
+      appliedZoomPercentRef.current,
+    )
+    liveZoomPercentRef.current = appliedZoomPercentRef.current
+    updateZoomIndicator(appliedZoomPercentRef.current)
+  }, [takeWheelZoomAnchor, updateZoomIndicator])
+
+  const applyDiscreteZoom = useCallback(
+    (nextPercent: number) => {
+      takeWheelZoomAnchor()
+      applyLiveZoom(nextPercent)
+      const gesture = wheelZoomGestureRef.current
+      if (gesture.idleTimer !== null) clearTimeout(gesture.idleTimer)
+      gesture.idleTimer = setTimeout(commitWheelZoom, NOTEPAD_WHEEL_ZOOM_IDLE_MS)
+    },
+    [applyLiveZoom, commitWheelZoom, takeWheelZoomAnchor],
+  )
+  const zoomIn = useCallback(
+    () => applyDiscreteZoom(liveZoomPercentRef.current + NOTEPAD_ZOOM_STEP),
+    [applyDiscreteZoom],
+  )
+  const zoomOut = useCallback(
+    () => applyDiscreteZoom(liveZoomPercentRef.current - NOTEPAD_ZOOM_STEP),
+    [applyDiscreteZoom],
+  )
+  const zoomReset = useCallback(() => applyDiscreteZoom(100), [applyDiscreteZoom])
 
   const [text, setText] = useState('')
   const [displayName, setDisplayName] = useState(() => filePath.split(/[/\\]/).pop() || filePath)
@@ -677,6 +857,8 @@ export function TextEditor({
   const [wordWrap, setWordWrap] = useState(() =>
     readBooleanSetting('notepad-word-wrap', true),
   )
+  const wordWrapRef = useRef(wordWrap)
+  wordWrapRef.current = wordWrap
   const [statusBar, setStatusBar] = useState(() =>
     readBooleanSetting('notepad-status-bar', true),
   )
@@ -704,9 +886,8 @@ export function TextEditor({
     // UI chrome on Segoe UI (the root container) and apply this only to text.
     () => localStorage.getItem('notepad-font-family') || 'Consolas',
   )
-  const [fontSize, setFontSize] = useState(() =>
-    readNumberSetting('notepad-font-size', 11),
-  )
+  const [fontSize, setFontSize] = useState(() => notepadFontSizeRef.current)
+  notepadFontSizeRef.current = fontSize
   const [fontSizeInput, setFontSizeInput] = useState(() =>
     String(readNumberSetting('notepad-font-size', 11)),
   )
@@ -1052,7 +1233,7 @@ export function TextEditor({
       let target = currentPathRef.current
       if (saveAs || !target) {
         const defaultName = /\.[^./\\]+$/.test(displayName) ? displayName : `${displayName}.txt`
-        target = await window.api.file.selectSaveFile(defaultName)
+        target = (await desktopApi.files.selectSaveFile(defaultName))?.path ?? null
       }
       if (!target) return false
 
@@ -1060,7 +1241,7 @@ export function TextEditor({
       const targetLineEnding = options?.lineEnding ?? lineEndingRef.current
       const targetEncoding = options?.encoding ?? encodingRef.current
       const diskText = applyLineEnding(value, targetLineEnding)
-      await window.api.lw.saveText(target, diskText, targetEncoding)
+      await desktopApi.documents.saveText(target, diskText, targetEncoding)
 
       savedTextRef.current = value
       currentPathRef.current = target
@@ -1076,7 +1257,7 @@ export function TextEditor({
       displayNameRef.current = nextName
       setDisplayName(nextName)
       setDocumentType(nextName.toLowerCase().match(/\.(?:md|markdown)$/) ? 'markdown' : 'plain')
-      const opened = await window.api.file.open(target)
+      const opened = await desktopApi.files.open(target)
       setRecentFiles(opened.recent)
       if (target !== filePath) setCurrentFile(target, nextName)
       const current = captureCurrentTab()
@@ -1098,7 +1279,7 @@ export function TextEditor({
       if (!tab.dirty) continue
       if (tab.path) {
         const diskText = applyLineEnding(tab.text, tab.lineEnding)
-        await window.api.lw.saveText(tab.path, diskText, tab.encoding)
+        await desktopApi.documents.saveText(tab.path, diskText, tab.encoding)
         replaceTabs(tabsRef.current.map((candidate) => candidate.id === tab.id
           ? { ...candidate, savedText: candidate.text, dirty: false }
           : candidate))
@@ -1241,12 +1422,19 @@ export function TextEditor({
       setRecentFiles([])
       return
     }
-    void window.api.file.getRecent().then((files) => setRecentFiles(files))
+    void desktopApi.files.getRecent().then((files) => setRecentFiles(files))
   }, [filePath, recentFilesEnabled])
 
   useEffect(() => {
     localStorage.setItem('notepad-zoom', String(zoomPercent))
   }, [zoomPercent])
+
+  useLayoutEffect(() => {
+    applyNotepadTextZoom(editorRootRef.current, fontSize, zoomPercent)
+    appliedZoomPercentRef.current = zoomPercent
+    liveZoomPercentRef.current = zoomPercent
+    updateZoomIndicator(zoomPercent)
+  }, [fontSize, updateZoomIndicator, zoomPercent])
 
   useLayoutEffect(() => {
     const viewport = editorViewportRef.current
@@ -1278,45 +1466,54 @@ export function TextEditor({
   useEffect(() => {
     const root = editorRootRef.current
     if (!root) return
-    let accumulatedDelta = 0
-    let direction: -1 | 0 | 1 = 0
-    let frame: number | null = null
-    let idleTimer: ReturnType<typeof setTimeout> | null = null
 
     const flushWheelZoom = () => {
-      frame = null
-      const { steps, remainder } = consumeWheelZoomSteps(accumulatedDelta)
-      accumulatedDelta = remainder
+      const gesture = wheelZoomGestureRef.current
+      gesture.frame = null
+      const { steps, remainder } = consumeWheelZoomSteps(gesture.accumulatedDelta)
+      gesture.accumulatedDelta = remainder
       if (steps === 0) return
-      const applyStep = steps < 0 ? zoomIn : zoomOut
-      for (let index = 0; index < Math.abs(steps); index += 1) applyStep()
+      applyLiveZoom(
+        liveZoomPercentRef.current - steps * NOTEPAD_ZOOM_STEP,
+        gesture.clientX,
+        gesture.clientY,
+      )
     }
 
     const handleWheel = (event: WheelEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.deltaY === 0) return
-      event.preventDefault()
-      if (settingsOpen) return
+      if (!(event.ctrlKey || event.metaKey)) return
       const delta = normalizeWheelZoomDelta(event.deltaY, event.deltaMode)
       if (delta === 0) return
-      const nextDirection = Math.sign(delta) as -1 | 1
-      if (direction !== 0 && direction !== nextDirection) accumulatedDelta = 0
-      direction = nextDirection
-      accumulatedDelta += delta
-      if (idleTimer !== null) clearTimeout(idleTimer)
-      idleTimer = setTimeout(() => {
-        accumulatedDelta = 0
-        direction = 0
-        idleTimer = null
-      }, NOTEPAD_ZOOM_SETTLE_MS)
-      if (frame === null) frame = requestAnimationFrame(flushWheelZoom)
+      event.preventDefault()
+      if (settingsOpenRef.current) return
+      event.stopPropagation()
+
+      const gesture = wheelZoomGestureRef.current
+      const direction = Math.sign(delta) as -1 | 1
+      if (gesture.direction !== 0 && gesture.direction !== direction) {
+        gesture.accumulatedDelta = 0
+      }
+      gesture.direction = direction
+      gesture.accumulatedDelta += delta
+      gesture.clientX = event.clientX
+      gesture.clientY = event.clientY
+
+      if (gesture.frame === null) {
+        gesture.frame = requestAnimationFrame(flushWheelZoom)
+      }
+      if (gesture.idleTimer !== null) clearTimeout(gesture.idleTimer)
+      gesture.idleTimer = setTimeout(commitWheelZoom, NOTEPAD_WHEEL_ZOOM_IDLE_MS)
     }
     root.addEventListener('wheel', handleWheel, { passive: false })
     return () => {
       root.removeEventListener('wheel', handleWheel)
-      if (frame !== null) cancelAnimationFrame(frame)
-      if (idleTimer !== null) clearTimeout(idleTimer)
+      cancelZoomGesture()
     }
-  }, [loading, settingsOpen, zoomIn, zoomOut])
+  }, [applyLiveZoom, cancelZoomGesture, commitWheelZoom, loading])
+
+  useLayoutEffect(() => {
+    commitWheelZoom()
+  }, [activeTabId, commitWheelZoom, markdownView, settingsOpen])
 
   const currentSelection = useCallback((): SelectionRange => {
     const editor = textareaRef.current
@@ -1413,22 +1610,23 @@ export function TextEditor({
   }, [commitCurrentTab, resetDocument, t])
 
   const openDocument = useCallback(async () => {
-    const target = await window.api.file.selectFile('text')
-    if (!target) return
+    const selected = await desktopApi.files.selectFile('text')
+    if (!selected) return
+    const target = selected.path
     if (openFileBehavior === 'window') {
-      await window.api.window.newWindow(target)
+      await desktopApi.app.newWindow(target)
       return
     }
-    await window.api.file.open(target)
+    await desktopApi.files.open(target)
     setCurrentFile(target)
   }, [openFileBehavior, setCurrentFile])
 
   const openRecentDocument = useCallback(async (target: string) => {
     if (openFileBehavior === 'window') {
-      await window.api.window.newWindow(target)
+      await desktopApi.app.newWindow(target)
       return
     }
-    await window.api.file.open(target)
+    await desktopApi.files.open(target)
     setCurrentFile(target)
   }, [openFileBehavior, setCurrentFile])
 
@@ -1490,7 +1688,7 @@ export function TextEditor({
     } else {
       if (tabToClose.path) {
         const diskText = applyLineEnding(tabToClose.text, tabToClose.lineEnding)
-        await window.api.lw.saveText(tabToClose.path, diskText, tabToClose.encoding)
+        await desktopApi.documents.saveText(tabToClose.path, diskText, tabToClose.encoding)
         performCloseTab(tabToClose.id)
         setSavePromptTab(null)
       } else {
@@ -1525,7 +1723,7 @@ export function TextEditor({
         .format(dirtyTabs.map((tab) => tab.name))
       if (!window.confirm(t('notepad.discardChanges', { names }))) return
     }
-    void window.api.window.close()
+    void desktopApi.app.close()
   }, [commitCurrentTab, language, t])
 
   const exitApplication = useCallback(() => {
@@ -1536,7 +1734,7 @@ export function TextEditor({
         .format(dirtyTabs.map((tab) => tab.name))
       if (!window.confirm(t('notepad.discardChanges', { names }))) return
     }
-    void window.api.window.quit()
+    void desktopApi.app.quit()
   }, [commitCurrentTab, language, t])
 
   const copySelection = useCallback(async () => {
@@ -2493,7 +2691,7 @@ export function TextEditor({
   /** Office-common actions → local notepad implementations (shared catalog chords). */
   const officeHandlers = useMemo<ShortcutHandlerMap>(() => ({
     new: () => newDocument(),
-    newWindow: () => { void window.api.window.newWindow() },
+    newWindow: () => { void desktopApi.app.newWindow() },
     newMarkdown: () => newMarkdownDocument(),
     open: () => { void openDocument() },
     save: () => { void saveDocument(false) },
@@ -2613,26 +2811,6 @@ export function TextEditor({
       ? DOMPurify.sanitize(renderPlainTextTableDocument(text))
       : renderNotepadMarkdown(text),
     [documentType, text],
-  )
-  // These operations scan or copy the document. Zoom-only renders must reuse
-  // their previous results, especially for multi-megabyte TXT files.
-  const cursor = useMemo(
-    () => getCursorPosition(text, selection.start),
-    [selection.start, text],
-  )
-  const matches = useMemo(
-    () => findTextMatches(text, findQuery, findOptions),
-    [findOptions, findQuery, text],
-  )
-  const activeMatch = useMemo(
-    () => matches.findIndex(
-      (match) => match.start === selection.start && match.end === selection.end,
-    ),
-    [matches, selection.end, selection.start],
-  )
-  const printableText = useMemo(
-    () => applyLineEnding(text, lineEnding),
-    [lineEnding, text],
   )
 
   const revealPendingTableInsertion = useCallback((root: HTMLElement) => {
@@ -2774,6 +2952,22 @@ export function TextEditor({
     applyPendingPlainFormat(root)
   }, [activeSpellCheck, applyPendingPlainFormat, documentType, formattedHtml, markdownView, revealPendingTableInsertion, text])
 
+  const cursor = useMemo(
+    () => getCursorPosition(text, selection.start),
+    [selection.start, text],
+  )
+  const matches = useMemo(
+    () => findOpen ? findTextMatches(text, findQuery, findOptions) : [],
+    [findOpen, findOptions, findQuery, text],
+  )
+  const activeMatch = useMemo(
+    () => matches.findIndex(
+      (match) => match.start === selection.start && match.end === selection.end,
+    ),
+    [matches, selection.end, selection.start],
+  )
+  const printText = useMemo(() => applyLineEnding(text, lineEnding), [lineEnding, text])
+
   if (error) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-sm text-destructive">
@@ -2802,7 +2996,6 @@ export function TextEditor({
       data-notepad-editor
       data-manages-document-zoom
       data-zoom={zoom}
-      data-zoom-settled={zoom}
       onKeyDown={handleKeyDown}
     >
       {showTabBar && (
@@ -2846,7 +3039,7 @@ export function TextEditor({
         markdownView={markdownView}
         onNew={newDocument}
         onNewMarkdown={newMarkdownDocument}
-        onNewWindow={() => void window.api.window.newWindow()}
+        onNewWindow={() => void desktopApi.app.newWindow()}
         onOpen={() => void openDocument()}
         onOpenRecent={(path) => void openRecentDocument(path)}
         onSave={() => void saveDocument(false)}
@@ -2977,71 +3170,64 @@ export function TextEditor({
 
       <div
         ref={editorViewportRef}
-        className="relative flex min-h-0 min-w-0 w-full max-w-full flex-1 self-stretch overflow-hidden bg-white dark:bg-[#1e1e1e]"
+        className="relative min-h-0 min-w-0 w-full max-w-full flex-1 self-stretch overflow-hidden bg-white dark:bg-[#1e1e1e]"
         data-testid="text-editor-viewport"
       >
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-          {markdownView === 'formatted' ? (
-            <article
-              ref={previewRef}
-              className="notepad-markdown-preview absolute inset-0 box-border h-full min-h-0 min-w-0 max-h-full max-w-full overflow-y-scroll bg-white px-5 py-4 text-[#1f1f1f] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden dark:bg-[#1e1e1e] dark:text-[#f2f2f2]"
-              style={{
-                inlineSize: '100%',
-                blockSize: '100%',
-                overflowWrap: 'anywhere',
-                fontFamily,
-                fontSize: `${fontSize * (96 / 72)}px`,
-                fontWeight,
-                fontStyle,
-                fontStretch: fontStretchValue(fontStretch),
-                lineHeight: 1.55,
-                zoom,
-              }}
-              onInput={handlePreviewInput}
-              onMouseDown={handlePreviewMouseDown}
-              onMouseMove={handlePreviewMouseMove}
-              onMouseUp={handlePreviewMouseUp}
-              onKeyDown={handlePreviewKeyDown}
-              onPaste={handlePreviewPaste}
-              onBlur={handlePreviewBlur}
-              tabIndex={-1}
-              aria-label={t('notepad.formattedEditorAria')}
-              data-testid="text-editor-formatted-view"
-            />
-          ) : (
-            <textarea
-              ref={textareaRef}
-              value={text}
-              wrap={wordWrap ? 'soft' : 'off'}
-              onChange={handleChange}
-              onSelect={syncSelection}
-              onClick={syncSelection}
-              onKeyUp={syncSelection}
-              onBlur={syncSelection}
-              spellCheck={activeSpellCheck}
-              autoCorrect={activeSpellCheck && autoCorrect ? 'on' : 'off'}
-              className={`absolute inset-0 box-border h-full min-h-0 min-w-0 max-h-full max-w-full resize-none border-0 bg-white px-4 py-3 text-[#1f1f1f] outline-none focus:outline-none focus:ring-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden dark:bg-[#1e1e1e] dark:text-[#f2f2f2] ${wordWrap ? 'whitespace-pre-wrap overflow-y-scroll overflow-x-hidden' : 'whitespace-pre overflow-y-scroll overflow-x-auto'}`}
-              style={{
-                inlineSize: '100%',
-                blockSize: '100%',
-                overflowWrap: wordWrap ? 'anywhere' : 'normal',
-                tabSize: 4,
-                fontFamily,
-                fontSize: `${fontSize * (96 / 72)}px`,
-                fontWeight,
-                fontStyle,
-                fontStretch: fontStretchValue(fontStretch),
-                lineHeight: 1.55,
-                zoom,
-              }}
-              aria-label={t('notepad.textEditorAria')}
-              data-testid="text-editor-input"
-            />
-          )}
-        </div>
-        <NotepadScrollbar
-          scrollElement={markdownView === 'formatted' ? previewRef.current : textareaRef.current}
-        />
+        {markdownView === 'formatted' ? (
+          <article
+            ref={previewRef}
+            className="notepad-markdown-preview absolute inset-0 box-border h-full min-h-0 min-w-0 max-h-full max-w-full overflow-auto bg-white px-5 py-4 text-[#1f1f1f] dark:bg-[#1e1e1e] dark:text-[#f2f2f2]"
+            style={{
+              inlineSize: 'var(--notepad-content-width, 100%)',
+              blockSize: '100%',
+              overflowWrap: 'anywhere',
+              fontFamily,
+              fontSize: `var(--notepad-editor-font-size, ${fontSize * NOTEPAD_FONT_POINT_TO_PIXEL * zoom}px)`,
+              fontWeight,
+              fontStyle,
+              fontStretch: fontStretchValue(fontStretch),
+              lineHeight: 1.55,
+            }}
+            onInput={handlePreviewInput}
+            onMouseDown={handlePreviewMouseDown}
+            onMouseMove={handlePreviewMouseMove}
+            onMouseUp={handlePreviewMouseUp}
+            onKeyDown={handlePreviewKeyDown}
+            onPaste={handlePreviewPaste}
+            onBlur={handlePreviewBlur}
+            tabIndex={-1}
+            aria-label={t('notepad.formattedEditorAria')}
+            data-testid="text-editor-formatted-view"
+          />
+        ) : (
+          <textarea
+            ref={textareaRef}
+            value={text}
+            wrap={wordWrap ? 'soft' : 'off'}
+            onChange={handleChange}
+            onSelect={syncSelection}
+            onClick={syncSelection}
+            onKeyUp={syncSelection}
+            onBlur={syncSelection}
+            spellCheck={activeSpellCheck}
+            autoCorrect={activeSpellCheck && autoCorrect ? 'on' : 'off'}
+            className={`absolute inset-0 box-border h-full min-h-0 min-w-0 max-h-full max-w-full resize-none border-0 bg-white px-4 py-3 text-[#1f1f1f] outline-none focus:outline-none focus:ring-0 dark:bg-[#1e1e1e] dark:text-[#f2f2f2] ${wordWrap ? 'whitespace-pre-wrap overflow-x-hidden' : 'whitespace-pre overflow-x-auto'}`}
+            style={{
+              inlineSize: 'var(--notepad-content-width, 100%)',
+              blockSize: '100%',
+              overflowWrap: wordWrap ? 'anywhere' : 'normal',
+              tabSize: 4,
+              fontFamily,
+              fontSize: `var(--notepad-editor-font-size, ${fontSize * NOTEPAD_FONT_POINT_TO_PIXEL * zoom}px)`,
+              fontWeight,
+              fontStyle,
+              fontStretch: fontStretchValue(fontStretch),
+              lineHeight: 1.55,
+            }}
+            aria-label={t('notepad.textEditorAria')}
+            data-testid="text-editor-input"
+          />
+        )}
       </div>
 
       {statusBar && (
@@ -3105,13 +3291,13 @@ export function TextEditor({
           ) : (
             <span className="min-w-[56px] flex-[1_1_200px] truncate border-l border-black/10 px-3 text-center dark:border-white/10" title={t('notepad.plainText')}>{t('notepad.plainText')}</span>
           )}
-          <span className="min-w-[50px] flex-[0_1_68px] truncate border-l border-black/10 px-2 text-center dark:border-white/10">{zoomPercent}%</span>
+          <span ref={zoomStatusRef} className="min-w-[50px] flex-[0_1_68px] truncate border-l border-black/10 px-2 text-center dark:border-white/10">{zoomPercent}%</span>
           <span className="min-w-0 flex-[0.9_1_168px] truncate border-l border-black/10 px-2 text-center dark:border-white/10" title={lineEndingLabel(lineEnding)}>{lineEndingLabel(lineEnding)}</span>
           <span className="min-w-[38px] flex-[0_1_86px] truncate border-l border-black/10 px-2 text-center dark:border-white/10" title={encodingLabel(encoding)}>{encodingLabel(encoding)}</span>
         </div>
       )}
 
-      <pre className="notepad-print-document" aria-hidden="true">{printableText}</pre>
+      <pre className="notepad-print-document" aria-hidden="true">{printText}</pre>
       <div className="notepad-print-header" aria-hidden="true">{expandPrintTemplate(pageSetup.header, displayName)}</div>
       <div className="notepad-print-footer" aria-hidden="true">{expandPrintTemplate(pageSetup.footer, displayName)}</div>
       <style>{`@page { size: ${printSize}; margin: ${printMargins}; }`}</style>

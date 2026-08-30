@@ -3,7 +3,7 @@
  *
  * SuperDoc 1.44 自带的溢出算法有两张硬编码降级清单：容器 < 768px 时强制把
  * zoom / fontFamily / fontSize / redo 收进溢出菜单，< 1430px 时收
- * linkedStyles / clearFormatting / copyFormat / ruler / formattingMarks——
+ * linkedStyles / clearFormatting / copyFormat / formattingMarks——
  * 结果是「字体字号先消失、右端按钮反而常驻」，与期望相反，且配置无法改变。
  *
  * 这里在实例层包装 onToolbarResize，并订阅 toolbar-items-changed。首次安装或
@@ -59,7 +59,6 @@ const VISUAL_ORDER = [
   'indentright',
   'lineHeight',
   'linkedStyles',
-  'ruler',
   'formattingMarks',
   'copyFormat',
   'clearFormatting',

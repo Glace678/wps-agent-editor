@@ -1,3 +1,4 @@
+import { desktopApi, toUint8Array } from '@/platform'
 import {
   CODE_FILE_EXTENSIONS,
   CODE_SPECIAL_FILE_NAMES,
@@ -6,9 +7,12 @@ import {
 
 export const WORD_FILE_EXTENSIONS = Object.freeze(['docx', 'doc', 'odt'])
 export const SPREADSHEET_FILE_EXTENSIONS = Object.freeze(['xlsx', 'xls', 'csv', 'ods'])
-export const PRESENTATION_FILE_EXTENSIONS = Object.freeze(['pptx', 'ppt'])
+export const PRESENTATION_FILE_EXTENSIONS = Object.freeze(['pptx', 'ppt', 'odp'])
 export const PDF_FILE_EXTENSIONS = Object.freeze(['pdf'])
 export const TEXT_FILE_EXTENSIONS = Object.freeze(['txt', 'md', 'markdown', 'log'])
+export const IMAGE_FILE_EXTENSIONS = Object.freeze([
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'heic', 'ico', 'tif', 'tiff',
+])
 
 /** Every extension and special filename routed to an editor by getDocKind. */
 export const SUPPORTED_FILE_EXTENSIONS = Object.freeze([
@@ -20,43 +24,18 @@ export const SUPPORTED_FILE_EXTENSIONS = Object.freeze([
   ...CODE_FILE_EXTENSIONS,
 ].filter((extension, index, extensions) => extensions.indexOf(extension) === index))
 
+export function isImageFile(filePath: string): boolean {
+  const ext = getExtension(filePath)
+  return IMAGE_FILE_EXTENSIONS.includes(ext)
+}
+
 export const SUPPORTED_SPECIAL_FILE_NAMES = CODE_SPECIAL_FILE_NAMES
 
-export function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes.buffer
-}
-
-export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  // 分块拼接，避免大文件栈溢出
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  return btoa(binary)
-}
-
-function toArrayBuffer(data: Uint8Array | ArrayBuffer | string): ArrayBuffer {
-  if (typeof data === 'string') {
-    return base64ToArrayBuffer(data)
-  }
-  if (data instanceof ArrayBuffer) {
-    return data
-  }
-  if (
-    data.buffer instanceof ArrayBuffer
-    && data.byteOffset === 0
-    && data.byteLength === data.buffer.byteLength
-  ) {
-    return data.buffer
-  }
-  // Uint8Array / Buffer-like view：拷贝为独立 ArrayBuffer，避免 shared/detached 问题
-  const copy = new Uint8Array(data.byteLength)
-  copy.set(data)
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+  const bytes = toUint8Array(data)
+  // 拷贝为独立 ArrayBuffer，避免 shared/detached/worker transfer 问题。
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
   return copy.buffer
 }
 
@@ -73,21 +52,25 @@ export interface WordFileBuffer {
   converter: 'libreoffice' | 'word' | 'wps' | null
   nativeConversionFailed: boolean
   normalizedLegacyImageCount: number
+  normalizedTableCount: number
+  removedUnderlineRunCount: number
 }
 
 export async function readWordBuffer(filePath: string): Promise<WordFileBuffer> {
-  const result = await window.api.lw.readWord(filePath)
+  const result = await desktopApi.documents.prepareWord(filePath)
   return {
     buffer: toArrayBuffer(result.data),
     convertedFromLegacy: result.convertedFromLegacy,
     converter: result.converter,
     nativeConversionFailed: result.nativeConversionFailed,
     normalizedLegacyImageCount: result.normalizedLegacyImageCount,
+    normalizedTableCount: result.normalizedTableCount,
+    removedUnderlineRunCount: result.removedUnderlineRunCount,
   }
 }
 
 export async function readPresentationBuffer(filePath: string): Promise<PresentationFileBuffer> {
-  const result = await window.api.lw.readPresentation(filePath)
+  const result = await desktopApi.documents.preparePresentation(filePath)
   return {
     buffer: toArrayBuffer(result.data),
     convertedFromLegacy: result.convertedFromLegacy,
@@ -96,29 +79,30 @@ export async function readPresentationBuffer(filePath: string): Promise<Presenta
   }
 }
 
+/** Read XLSX directly or convert XLS/ODS through an available system Office suite. */
+export async function readSpreadsheetBuffer(filePath: string): Promise<ArrayBuffer> {
+  const extension = getExtension(filePath)
+  if (extension === 'csv') return readFileBuffer(filePath)
+  return toArrayBuffer(await desktopApi.documents.prepareSpreadsheet(filePath))
+}
+
 /** 读取文件为 ArrayBuffer（主进程已改为二进制传输，不再走 base64） */
 export async function readFileBuffer(filePath: string): Promise<ArrayBuffer> {
-  const { data } = await window.api.lw.readFile(filePath)
-  return toArrayBuffer(data)
+  return toArrayBuffer(await desktopApi.documents.readFile(filePath))
 }
 
 /** 读取为 Uint8Array，适合直接交给 pdf.js 等库 */
 export async function readFileBytes(filePath: string): Promise<Uint8Array> {
-  const { data } = await window.api.lw.readFile(filePath)
-  if (typeof data === 'string') {
-    return new Uint8Array(base64ToArrayBuffer(data))
-  }
-  if (data instanceof ArrayBuffer) {
-    return new Uint8Array(data)
-  }
+  const data = await desktopApi.documents.readFile(filePath)
   // 再拷贝一份，防止 worker transfer 弄脏原始缓冲
-  const copy = new Uint8Array(data.byteLength)
-  copy.set(data)
+  const bytes = toUint8Array(data)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
   return copy
 }
 
 export async function saveFileBuffer(filePath: string, buffer: ArrayBuffer): Promise<void> {
-  await window.api.lw.saveFile(filePath, arrayBufferToBase64(buffer))
+  await desktopApi.documents.saveBinary(filePath, new Uint8Array(buffer))
 }
 
 /** 从完整路径安全提取扩展名（不含点），兼容 Windows 路径 */
@@ -131,7 +115,7 @@ export function getExtension(filePath: string): string {
 
 export function getDocKind(filePath: string): 'word' | 'excel' | 'slide' | 'pdf' | 'text' | 'code' | 'unknown' {
   const ext = getExtension(filePath)
-  // SuperDoc 对 OOXML .docx 支持最好；旧版 .doc 仍路由到 Word 编辑器并显示明确错误
+  // SuperDoc 编辑 OOXML；旧格式先由 Rust 调用系统 Office 转换器生成 OOXML。
   if (WORD_FILE_EXTENSIONS.includes(ext)) return 'word'
   if (SPREADSHEET_FILE_EXTENSIONS.includes(ext)) return 'excel'
   if (PRESENTATION_FILE_EXTENSIONS.includes(ext)) return 'slide'

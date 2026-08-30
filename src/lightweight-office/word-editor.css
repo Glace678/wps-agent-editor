@@ -40,16 +40,71 @@
   --sd-ui-border: #2a2a2a;
 }
 
-/* 暗色下拉/悬浮层令牌（对照 Excel 暗色弹层）。挂根级以覆盖 body 传送门菜单。 */
+/* 浅色/默认下拉与悬浮层令牌（挂根级以覆盖 body 传送门弹层） */
+:root {
+  --sd-ui-tooltip-bg: #18181b;
+  --sd-ui-tooltip-text: #ffffff;
+  --sd-ui-tooltip-border: #3f3f46;
+  --sd-ui-tooltip-radius: 5px;
+  --sd-ui-tooltip-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* 暗色下拉/悬浮层令牌（对照 Excel 暗色弹层）。挂根级以覆盖 body 传送门菜单与悬浮提示。 */
 .dark {
-  --sd-ui-dropdown-bg: #000;
-  --sd-ui-dropdown-border: #2a2a2a;
+  --sd-ui-dropdown-bg: #181818;
+  --sd-ui-dropdown-border: #383838;
   --sd-ui-dropdown-text: #f5f5f5;
-  --sd-ui-dropdown-hover-bg: #171717;
-  --sd-ui-dropdown-hover-text: #f5f5f5;
-  --sd-ui-dropdown-active-bg: #242424;
-  --sd-ui-dropdown-selected-text: #f5f5f5;
-  --sd-ui-dropdown-shadow: 0 8px 24px rgb(0 0 0 / 70%);
+  --sd-ui-dropdown-hover-bg: #282828;
+  --sd-ui-dropdown-hover-text: #ffffff;
+  --sd-ui-dropdown-active-bg: #333333;
+  --sd-ui-dropdown-selected-text: #ffffff;
+  --sd-ui-dropdown-shadow: 0 10px 30px rgb(0 0 0 / 80%), 0 0 0 1px rgb(255 255 255 / 10%);
+
+  --sd-ui-tooltip-bg: #242427;
+  --sd-ui-tooltip-text: #ffffff;
+  --sd-ui-tooltip-border: #52525b;
+  --sd-ui-tooltip-radius: 5px;
+  --sd-ui-tooltip-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+/*
+ * Word 工具栏悬浮提示（Tooltip）及小三角箭头：
+ * SuperDoc 将 Tooltip Teleport 到 <body>，挂根级选择器以覆盖其默认低对比度样式。
+ * 显式设定背景、高对比度清晰边框、高亮描边与投影，杜绝在文档顶部悬浮时与正文或暗色顶部栏重合融合。
+ */
+body .sd-tooltip-content {
+  background-color: var(--sd-ui-tooltip-bg, #18181b) !important;
+  color: var(--sd-ui-tooltip-text, #ffffff) !important;
+  font-family: var(--sd-ui-font-family, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1.25 !important;
+  padding: 5px 9px !important;
+  border-radius: var(--sd-ui-tooltip-radius, 5px) !important;
+  border: 1px solid var(--sd-ui-tooltip-border, #3f3f46) !important;
+  box-shadow: var(--sd-ui-tooltip-shadow, 0 6px 20px rgba(0, 0, 0, 0.35)) !important;
+  z-index: 10060 !important;
+  letter-spacing: 0.01em;
+  pointer-events: none !important;
+}
+
+body .sd-tooltip-arrow {
+  background-color: var(--sd-ui-tooltip-bg, #18181b) !important;
+  border-right: 1px solid var(--sd-ui-tooltip-border, #3f3f46) !important;
+  border-bottom: 1px solid var(--sd-ui-tooltip-border, #3f3f46) !important;
+  border-top: none !important;
+  border-left: none !important;
+}
+
+.dark body .sd-tooltip-content {
+  background-color: var(--sd-ui-tooltip-bg, #242427) !important;
+  border-color: var(--sd-ui-tooltip-border, #52525b) !important;
+}
+
+.dark body .sd-tooltip-arrow {
+  background-color: var(--sd-ui-tooltip-bg, #242427) !important;
+  border-right-color: var(--sd-ui-tooltip-border, #52525b) !important;
+  border-bottom-color: var(--sd-ui-tooltip-border, #52525b) !important;
 }
 
 .word-editor-panel .superdoc-wrapper {
@@ -318,7 +373,7 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
 
 /*
  * 缩放不在这里做：外部 CSS zoom/transform 会破坏 SuperDoc PresentationEditor
- * 的指针坐标换算（点击错位 → 无法编辑），标尺也会随之错乱。
+ * 的指针坐标换算（点击错位 → 无法编辑）。
  * 缩放、双页布局一律走原生 API（superdoc.setZoom / setLayoutMode），
  * 见 WordEditor.tsx / WordDocumentLayout.tsx。
  */
@@ -333,6 +388,22 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
 .word-editor-panel .superdoc--contained .superdoc__sub-document {
   overflow-y: auto !important;
   overflow-x: auto;
+}
+
+/*
+ * SuperDoc writes the scaled document height to this viewport's min-height,
+ * but leaves height as auto. Below 100% zoom, the unscaled pages child then
+ * expands the viewport back to its original height and creates a black,
+ * scrollable tail after the last page. Make the engine's scaled min-height
+ * authoritative in vertical and book layouts alike.
+ */
+.word-editor-panel .presentation-editor__viewport {
+  height: 0 !important;
+}
+
+/* 缩放期间把页面宿主提升到合成层，减少末尾重绘闪烁 */
+.word-editor-panel[data-word-zooming='true'] .presentation-editor__pages {
+  will-change: transform;
 }
 
 /*
@@ -376,109 +447,10 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   margin: 0 !important;
 }
 
-/* 隐藏页面最上方的标尺（保留相关样式代码，按需启用） */
-.word-editor-panel .ruler-host {
-  display: none !important;
-}
-
-/* SuperDoc centers its single-page ruler host. In a two-page spread that puts the
- * ruler over the gutter, so anchor it to the left-hand page instead. */
-.word-editor-panel
-  .word-document-layout[data-word-layout-mode='book']
-  .ruler-host {
-  justify-content: flex-start;
-}
-
-/*
- * 双页模式下右页的标尺是主标尺的静态克隆（见 WordDocumentLayout.tsx 的
- * syncBookRulerMirror）：刻度与页边距随主标尺同步重建，但不带 Vue 监听。
- * 页边距手柄与光标指示线只在主标尺上生效，克隆上隐藏，避免「可拖却不动」
- * 的假交互。
- */
-.word-editor-panel .word-ruler-mirror {
-  pointer-events: none;
-}
-
-.word-editor-panel .word-ruler-mirror .margin-handle,
-.word-editor-panel .word-ruler-mirror .vertical-indicator {
-  display: none;
-}
-
 /* Bottom-right Word view and zoom controls. The bar remains outside the
  * SuperDoc scroll surface so its dimensions never affect pointer mapping. */
 .word-editor-panel .word-document-layout {
   overflow: hidden;
-}
-
-/* Ctrl+wheel 期间页面只走合成层预览，停止后再由 SuperDoc 完整重绘一次。 */
-.word-editor-panel
-  .word-document-layout[data-word-zoom-preview]
-  .super-editor-container {
-  min-width: var(--word-zoom-preview-editor-min-width) !important;
-  width: var(--word-zoom-preview-editor-outer-width) !important;
-}
-
-.word-editor-panel
-  .word-document-layout[data-word-zoom-preview]
-  .super-editor,
-.word-editor-panel
-  .word-document-layout[data-word-zoom-preview]
-  .super-editor__element {
-  width: var(--word-zoom-preview-editor-content-width) !important;
-}
-
-.word-editor-panel
-  .word-document-layout[data-word-zoom-preview]
-  .ruler-host {
-  pointer-events: none;
-}
-
-/*
- * SuperDoc 通过 transform: scale() 实现原生页面缩放。Windows Chromium 在
- * 某些倍率（典型是 90%）会先以 ClearType 子像素方式栅格化宋体，再缩小整层，
- * 产生明显红蓝彩边；80% 又可能走灰度栅格，因而同一字体粗细截然不同。
- *
- * 低于 100% 的稳态下保留合成提示，让 Chromium 在缩放坐标系中统一使用
- * 灰度栅格。规则由 settled 倍率门控：回到或高于 100% 会自然撤销，避免
- * 放大场景复用低分辨率图层。滚轮预览仍由 applyWordZoomPreview() 写内联提示。
- */
-.word-editor-panel
-  .word-document-layout[data-word-shrink-zoom='true']
-  .presentation-editor__pages {
-  will-change: transform;
-}
-
-/* 原生 setZoom 重排/合成层切换期间的最后可见帧。只复制视口内页面，
-   不参与布局和命中；新页面稳定后极短淡出，遮住 Chromium 的黑帧。 */
-.word-editor-panel .word-zoom-frame-hold {
-  position: absolute;
-  z-index: 55;
-  overflow: hidden;
-  pointer-events: none;
-  contain: strict;
-  opacity: 1;
-}
-
-.word-editor-panel .word-zoom-frame-hold[data-releasing='true'] {
-  opacity: 0;
-  transition: opacity 48ms linear;
-}
-
-.word-editor-panel .word-zoom-frame-hold__page {
-  position: absolute;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.word-editor-panel [data-word-zoom-frame-copy] {
-  pointer-events: none !important;
-  user-select: none !important;
-}
-
-.word-editor-panel
-  .word-zoom-frame-hold__page-copy
-  .superdoc-text-run:not([data-bookmark-marker]) {
-  color: inherit;
 }
 
 .word-status-bar {
@@ -492,217 +464,13 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   width: 100%;
   min-width: 0;
   height: 29px;
-  color: #535a68;
-  background: #ffffff;
-  border-top: 1px solid #e0e0e0;
+  color: #d7d7d7;
+  background: #181818;
+  border-top: 1px solid #2c2c2c;
   font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
   font-size: 12px;
   line-height: 1;
   letter-spacing: 0;
-}
-
-.word-agent-overlay {
-  position: absolute;
-  inset: 0 0 29px;
-  z-index: 56;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.word-agent-virtual-cursor {
-  --word-agent-color: #2563eb;
-  position: absolute;
-  left: 0;
-  top: 0;
-  display: flex;
-  align-items: flex-start;
-  transform: translate3d(var(--agent-pointer-x), var(--agent-pointer-y), 0);
-  transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1), opacity 140ms ease;
-  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.24));
-  will-change: transform;
-}
-
-.word-agent-virtual-cursor > svg {
-  width: 19px;
-  height: 19px;
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--word-agent-color) 78%, #111827);
-  fill: var(--word-agent-color);
-  stroke-width: 1.65;
-}
-
-.word-agent-virtual-cursor > span {
-  max-width: 150px;
-  margin: 11px 0 0 2px;
-  overflow: hidden;
-  padding: 3px 6px;
-  border: 1px solid color-mix(in srgb, var(--word-agent-color) 75%, #111827);
-  border-radius: 4px;
-  color: #fff;
-  background: color-mix(in srgb, var(--word-agent-color) 86%, #111827);
-  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.2);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.word-agent-change-target {
-  position: absolute;
-  min-width: 12px;
-  min-height: 18px;
-  border: 1px solid rgba(37, 99, 235, 0.72);
-  border-radius: 3px;
-  background: rgba(37, 99, 235, 0.1);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.72);
-  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease,
-    border-color 140ms ease, background-color 140ms ease, opacity 180ms ease;
-}
-
-.dark .word-agent-change-target {
-  box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.72);
-}
-
-.word-agent-overlay[data-visual='text-delete'] .word-agent-change-target,
-.word-agent-overlay[data-visual='text-replace'][data-phase='before'] .word-agent-change-target {
-  border-color: rgba(220, 38, 38, 0.86);
-  background: rgba(239, 68, 68, 0.14);
-  text-decoration: line-through;
-  text-decoration-color: #dc2626;
-  text-decoration-thickness: 2px;
-}
-
-.word-agent-overlay[data-visual='text-insert'][data-phase='after'] .word-agent-change-target,
-.word-agent-overlay[data-visual='text-replace'][data-phase='after'] .word-agent-change-target {
-  border-color: rgba(22, 163, 74, 0.88);
-  background: rgba(34, 197, 94, 0.17);
-  box-shadow: inset 3px 0 0 #16a34a, 0 0 0 2px rgba(255, 255, 255, 0.72);
-}
-
-.word-agent-overlay[data-visual='text-delete'][data-phase='after'] .word-agent-change-target {
-  animation: word-agent-delete-fade 420ms ease-out forwards;
-}
-
-.word-agent-overlay[data-visual='text-insert'][data-phase='after'] .word-agent-change-target,
-.word-agent-overlay[data-visual='text-replace'][data-phase='after'] .word-agent-change-target {
-  animation: word-agent-insert-reveal 360ms ease-out both;
-}
-
-.dark .word-agent-overlay[data-phase='after'] .word-agent-change-target {
-  box-shadow: inset 3px 0 0 #4ade80, 0 0 0 2px rgba(17, 24, 39, 0.72);
-}
-
-.word-agent-delete-trace,
-.word-agent-insert-trace {
-  position: absolute;
-  inset: 0 auto auto 0;
-  max-width: min(420px, 70vw);
-  overflow: hidden;
-  color: transparent;
-  font-size: 12px;
-  line-height: 18px;
-  text-overflow: clip;
-  white-space: nowrap;
-}
-
-.word-agent-delete-trace {
-  text-decoration: line-through;
-  text-decoration-color: #dc2626;
-  text-decoration-thickness: 2px;
-}
-
-.word-agent-insert-trace {
-  border-left: 3px solid #16a34a;
-}
-
-.word-agent-property-trace {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 4px);
-  max-width: 180px;
-  overflow: hidden;
-  padding: 2px 5px;
-  border: 1px solid rgba(71, 85, 105, 0.28);
-  border-radius: 3px;
-  color: #334155;
-  background: rgba(255, 255, 255, 0.96);
-  font-size: 9px;
-  line-height: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dark .word-agent-property-trace {
-  color: #e2e8f0;
-  background: rgba(30, 41, 59, 0.96);
-}
-
-.word-agent-change-sweep {
-  position: absolute;
-  inset: 0;
-  display: none;
-  border-left: 3px solid rgba(14, 116, 144, 0.9);
-  background: rgba(6, 182, 212, 0.08);
-  transform: scaleX(0);
-  transform-origin: left center;
-}
-
-.word-agent-overlay[data-visual^='table-'] .word-agent-change-sweep,
-.word-agent-overlay[data-visual='image'] .word-agent-change-sweep,
-.word-agent-overlay[data-visual='page-region'] .word-agent-change-sweep,
-.word-agent-overlay[data-visual='object-anchor'] .word-agent-change-sweep {
-  display: block;
-  animation: word-agent-sweep 420ms ease-out forwards;
-}
-
-.word-agent-overlay[data-visual='image'] .word-agent-change-target {
-  border: 2px solid #0284c7;
-  background: rgba(14, 165, 233, 0.08);
-}
-
-.word-agent-overlay[data-visual='page-region'] .word-agent-change-target,
-.word-agent-change-target[data-fine-grained='false'] {
-  border-style: dashed;
-  background: rgba(14, 116, 144, 0.07);
-}
-
-@keyframes word-agent-sweep {
-  from { transform: scaleX(0); opacity: 0.45; }
-  to { transform: scaleX(1); opacity: 1; }
-}
-
-@keyframes word-agent-delete-fade {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-
-@keyframes word-agent-insert-reveal {
-  from { opacity: 0.35; clip-path: inset(0 100% 0 0); }
-  to { opacity: 1; clip-path: inset(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .word-agent-virtual-cursor,
-  .word-agent-change-target {
-    transition: opacity 80ms linear;
-  }
-
-  .word-agent-change-sweep {
-    animation: none !important;
-    transform: scaleX(1);
-  }
-
-
-  .word-agent-overlay[data-phase='after'] .word-agent-change-target {
-    animation: none !important;
-  }
-}
-
-.dark .word-status-bar {
-  color: #d7d7d7;
-  background: #181818;
-  border-top-color: #2c2c2c;
 }
 
 .word-status-controls {
@@ -713,123 +481,6 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   max-width: 100%;
   height: 28px;
   margin-left: auto;
-}
-
-.word-agent-status {
-  display: flex;
-  flex: 1 1 360px;
-  min-width: 0;
-  max-width: 620px;
-  height: 28px;
-  align-items: center;
-  gap: 7px;
-  overflow: hidden;
-  padding-inline: 9px 4px;
-}
-
-.word-agent-status-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-}
-
-.word-agent-status[data-phase='paused'] .word-agent-status-dot,
-.word-agent-status[data-phase='interrupted'] .word-agent-status-dot,
-.word-agent-status[data-phase='awaiting-approval'] .word-agent-status-dot {
-  background: #d97706;
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
-}
-
-.word-agent-status[data-phase='completed'] .word-agent-status-dot {
-  background: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14);
-}
-
-.word-agent-status-name,
-.word-agent-status-action,
-.word-agent-status-count {
-  overflow: hidden;
-  line-height: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.word-agent-status-name {
-  flex: 0 1 auto;
-  max-width: 110px;
-  color: #1f2937;
-  font-weight: 650;
-}
-
-.dark .word-agent-status-name {
-  color: #f3f4f6;
-}
-
-.word-agent-status-action {
-  flex: 0 1 180px;
-  color: #4b5563;
-}
-
-.dark .word-agent-status-action {
-  color: #cbd5e1;
-}
-
-.word-agent-status-count {
-  flex: 0 0 auto;
-  color: #64748b;
-  font-variant-numeric: tabular-nums;
-}
-
-.word-agent-progress-track {
-  position: relative;
-  width: clamp(34px, 10cqw, 100px);
-  height: 2px;
-  flex: 0 1 100px;
-  overflow: hidden;
-  background: rgba(100, 116, 139, 0.24);
-}
-
-.word-agent-progress-track > span {
-  display: block;
-  height: 100%;
-  background: #2563eb;
-  transition: width 180ms ease;
-}
-
-.word-agent-status-actions {
-  display: flex;
-  flex: 0 0 auto;
-  height: 28px;
-  align-items: center;
-}
-
-.word-agent-control {
-  width: 28px;
-}
-
-@container (max-width: 720px) {
-  .word-agent-status-action,
-  .word-agent-progress-track {
-    display: none;
-  }
-
-  .word-agent-status {
-    flex-basis: 180px;
-    gap: 5px;
-  }
-}
-
-@container (max-width: 500px) {
-  .word-agent-status-name {
-    max-width: 72px;
-  }
-
-  .word-agent-status-count {
-    display: none;
-  }
 }
 
 .word-status-icon-button,
@@ -856,14 +507,6 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
 .word-zoom-trigger:hover,
 .word-status-icon-button[data-active='true'],
 .word-zoom-trigger[aria-expanded='true'] {
-  color: #111827;
-  background: rgba(0, 0, 0, 0.07);
-}
-
-.dark .word-status-icon-button:hover,
-.dark .word-zoom-trigger:hover,
-.dark .word-status-icon-button[data-active='true'],
-.dark .word-zoom-trigger[aria-expanded='true'] {
   color: #fff;
   background: #343434;
 }
@@ -871,24 +514,14 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
 .word-status-icon-button:focus-visible,
 .word-zoom-trigger:focus-visible,
 .word-zoom-slider:focus-visible {
-  outline: 1px solid #0078d4;
+  outline: 1px solid #6aa7ff;
   outline-offset: -2px;
-}
-
-.dark .word-status-icon-button:focus-visible,
-.dark .word-zoom-trigger:focus-visible,
-.dark .word-zoom-slider:focus-visible {
-  outline-color: #6aa7ff;
 }
 
 .word-status-icon-button:disabled {
   cursor: default;
-  color: #9ca3af;
-  background: transparent;
-}
-
-.dark .word-status-icon-button:disabled {
   color: #666;
+  background: transparent;
 }
 
 .word-status-icon-button svg {
@@ -902,10 +535,6 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   width: 1px;
   height: 18px;
   margin: 0 3px;
-  background: #e0e0e0;
-}
-
-.dark .word-status-separator {
   background: #444;
 }
 
@@ -936,32 +565,21 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   box-sizing: border-box;
   width: 154px;
   padding: 12px 10px 10px;
-  color: #1f2937;
-  background: #ffffff;
-  border: 1px solid #d4d7de;
+  color: #f1f1f1;
+  background: #303030;
+  border: 1px solid #454545;
   border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 48%);
   font-size: 13px;
   line-height: 1.25;
   letter-spacing: 0;
 }
 
-.dark .word-zoom-popup {
-  color: #f1f1f1;
-  background: #303030;
-  border-color: #454545;
-  box-shadow: 0 10px 28px rgb(0 0 0 / 48%);
-}
-
 .word-zoom-popup-title {
   margin-bottom: 7px;
-  color: #4b5563;
+  color: #d8d8d8;
   font-size: 12px;
   font-weight: 500;
-}
-
-.dark .word-zoom-popup-title {
-  color: #d8d8d8;
 }
 
 .word-zoom-options {
@@ -980,10 +598,6 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
 }
 
 .word-zoom-option:hover {
-  background: #f1f3f7;
-}
-
-.dark .word-zoom-option:hover {
   background: #414141;
 }
 
@@ -992,19 +606,11 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: #0078d4;
-}
-
-.dark .word-zoom-option input {
   accent-color: #2787e8;
 }
 
 .word-zoom-shortcut {
   margin-left: -4px;
-  color: #6b7280;
-}
-
-.dark .word-zoom-shortcut {
   color: #c9c9c9;
 }
 
@@ -1014,14 +620,9 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   gap: 7px;
   margin-top: 7px;
   padding-top: 10px;
-  color: #374151;
-  border-top: 1px solid #e5e7eb;
-  font-size: 12px;
-}
-
-.dark .word-zoom-custom-row {
   color: #d4d4d4;
-  border-top-color: #464646;
+  border-top: 1px solid #464646;
+  font-size: 12px;
 }
 
 .word-zoom-number-field {
@@ -1030,23 +631,13 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   align-items: center;
   width: 88px;
   height: 28px;
-  color: #1f2937;
-  background: #f8fafc;
-  border: 1px solid #c8cdd6;
+  color: #d7d7d7;
+  background: #3a3a3a;
+  border: 1px solid #505050;
   border-radius: 4px;
 }
 
-.dark .word-zoom-number-field {
-  color: #d7d7d7;
-  background: #3a3a3a;
-  border-color: #505050;
-}
-
 .word-zoom-number-field:focus-within {
-  border-color: #0078d4;
-}
-
-.dark .word-zoom-number-field:focus-within {
   border-color: #6aa7ff;
 }
 
@@ -1056,16 +647,12 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   width: 100%;
   height: 26px;
   padding: 0 3px 0 7px;
-  color: #1f2937;
+  color: #fff;
   background: transparent;
   border: 0;
   outline: 0;
   font: inherit;
   font-variant-numeric: tabular-nums;
-}
-
-.dark .word-zoom-number-field input {
-  color: #fff;
 }
 
 .word-zoom-number-field > span {
@@ -1091,16 +678,6 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   height: 2px;
   background: linear-gradient(
     to right,
-    #0078d4 0,
-    #0078d4 var(--word-zoom-progress),
-    #d1d5db var(--word-zoom-progress),
-    #d1d5db 100%
-  );
-}
-
-.dark .word-zoom-slider::-webkit-slider-runnable-track {
-  background: linear-gradient(
-    to right,
     #4a94ed 0,
     #4a94ed var(--word-zoom-progress),
     #555 var(--word-zoom-progress),
@@ -1113,15 +690,9 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   width: 11px;
   height: 11px;
   margin-top: -4.5px;
-  background: #ffffff;
-  border: 1px solid #9ca3af;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.dark .word-zoom-slider::-webkit-slider-thumb {
   background: #dedede;
-  border-color: #aaa;
+  border: 1px solid #aaa;
+  border-radius: 50%;
   box-shadow: 0 1px 2px rgb(0 0 0 / 45%);
 }
 

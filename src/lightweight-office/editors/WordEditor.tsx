@@ -1,37 +1,31 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import '../../../node_modules/superdoc/dist/style.css'
+import '../word-editor.css'
 import { SuperDocEditor } from '@superdoc-dev/react'
+import { MousePointer2 } from 'lucide-react'
 import DOMPurify from 'dompurify'
-import type { Editor, SuperDocInstance, SuperDocTransactionEvent } from '@superdoc-dev/react'
+import type { Editor, SuperDocInstance } from '@superdoc-dev/react'
 import { useEditorStore } from '@/stores/editor.store'
-import { useAgentStore } from '@/stores/agent.store'
 import { useDocumentZoom } from '@/components/layout/modules/DocumentZoom'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readWordBuffer, saveFileBuffer } from '../utils/file-io'
 import { prepareWordBytes, resolveSavePathForWord } from '../utils/doc-compat'
+import { desktopApi } from '@/platform/desktop'
 import { loadSystemFontFaces, type SystemFontFace } from '../utils/system-fonts'
 import { createFullWordEditorModules } from '../word-toolbar'
 import { installWordToolbarTooltipLocalization } from '../word-toolbar-i18n'
 import { installWordToolbarOverflowPolicy, type SuperToolbarLike } from '../word-toolbar-overflow'
 import { installWordFontPickerSearch } from '../word-font-search'
 import { installWordFontSizeApplyOnBlur } from '../word-font-size-input'
-import {
-  applyWordZoomPreview,
-  cancelWordZoomPreview,
-  finishWordZoomPreview,
-  hasWordZoomPreview,
-  holdWordZoomFrame,
-  releaseWordZoomFrame,
-} from '../utils/word-zoom-preview'
 import { WordDocumentLayout } from '../components/WordDocumentLayout'
-import { WordAgentOverlay, type WordAgentOverlayVisual } from '../components/WordAgentOverlay'
 import {
   WordAlternateView,
   WordViewStatusBar,
   type WordViewMode,
   type WordViewSnapshot,
 } from '../components/WordViewStatusBar'
-import type { AgentUserDocumentActivity, DocumentEvent, WordPlaybackState } from '@/types/document'
+import type { DocumentEvent } from '@/types/document'
 
 interface WordEditorProps {
   filePath: string
@@ -81,80 +75,29 @@ function getWordOutlineText(editor: Editor, nodeId: string, summary: string): st
   return ''
 }
 
-function nextPaint(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
-}
-
-function visibleWordPages(root: HTMLElement): number[] {
-  const viewport = root.querySelector<HTMLElement>('.superdoc__sub-document') ?? root
-  const viewportRect = viewport.getBoundingClientRect()
-  return Array.from(root.querySelectorAll<HTMLElement>('.superdoc-page[data-page-index]'))
-    .filter((page) => {
-      const rect = page.getBoundingClientRect()
-      return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom
-    })
-    .map((page) => Number(page.dataset.pageIndex ?? 0) + 1)
-    .filter((page) => Number.isFinite(page) && page > 0)
-}
-
-function semanticTextChange(before: string, after: string) {
-  let start = 0
-  const shared = Math.min(before.length, after.length)
-  while (start < shared && before.charCodeAt(start) === after.charCodeAt(start)) start += 1
-  let beforeEnd = before.length
-  let afterEnd = after.length
-  while (
-    beforeEnd > start
-    && afterEnd > start
-    && before.charCodeAt(beforeEnd - 1) === after.charCodeAt(afterEnd - 1)
-  ) {
-    beforeEnd -= 1
-    afterEnd -= 1
-  }
-  return {
-    before: before.slice(start, beforeEnd).slice(0, 2_000),
-    after: after.slice(start, afterEnd).slice(0, 2_000),
-    contextBefore: before.slice(Math.max(0, start - 120), start),
-    contextAfter: before.slice(beforeEnd, Math.min(before.length, beforeEnd + 120)),
-  }
-}
-
 export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegisterSave }: WordEditorProps) {
   const { language, t } = useTranslation()
   const setCurrentFile = useEditorStore((s) => s.setCurrentFile)
-  const activeAgentRunId = useAgentStore((s) => s.activeRunId)
-  const { zoom, settledZoom, setZoomPercent } = useDocumentZoom()
+  const { zoom, setZoomPercent } = useDocumentZoom()
   const instanceRef = useRef<SuperDocInstance | null>(null)
   const [superdocInstance, setSuperdocInstance] = useState<SuperDocInstance | null>(null)
   const [totalPages, setTotalPages] = useState<number | null>(null)
   const savePathRef = useRef(filePath)
   const [document, setDocument] = useState<File | null>(null)
   const [error, setError] = useState<'document' | 'legacy' | null>(null)
+  const [errorDetail, setErrorDetail] = useState('')
   const [showLegacyNotice, setShowLegacyNotice] = useState(false)
   const [loadingMode, setLoadingMode] = useState<'word' | 'legacy'>('word')
   const [wordEditorModules, setWordEditorModules] = useState<ReturnType<typeof createFullWordEditorModules> | null>(null)
   const [wordFontFaces, setWordFontFaces] = useState<SystemFontFace[]>([])
   const isInitializedRef = useRef(false)
   const editorRootRef = useRef<HTMLDivElement | null>(null)
-  const [agentVisual, setAgentVisual] = useState<WordAgentOverlayVisual | null>(null)
-  const [wordPlayback, setWordPlayback] = useState<WordPlaybackState | null>(null)
-  const playbackRef = useRef<WordPlaybackState | null>(null)
-  const lastAgentTargetRef = useRef<DocumentEvent | null>(null)
-  const programmaticScrollRef = useRef(false)
-  const programmaticScrollTimerRef = useRef<number | null>(null)
-  const userActivityTimerRef = useRef<number | null>(null)
-  const viewportActivityTimerRef = useRef<number | null>(null)
-  const selectionActivityTimerRef = useRef<number | null>(null)
-  const typingBurstRef = useRef<{
-    eventId: string
-    before: string
-    after: string
-    surface?: string
-  } | null>(null)
-  const lastDocumentTextRef = useRef('')
+  const [agentPointer, setAgentPointer] = useState<{ label: string; left: number; top: number } | null>(null)
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null)
   const [viewMode, setViewMode] = useState<WordViewMode>('page')
   const [eyeCare, setEyeCare] = useState(false)
+  const [isZooming, setIsZooming] = useState(false)
+  const zoomingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [viewSnapshot, setViewSnapshot] = useState<WordViewSnapshot>({ html: '', outline: [] })
 
   const refreshWordViewSnapshot = useCallback((editor = editorInstance) => {
@@ -181,328 +124,43 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     if (viewMode !== 'page') refreshWordViewSnapshot()
   }, [refreshWordViewSnapshot, viewMode])
 
-  const locateAgentEvent = useCallback(async (event: DocumentEvent, forceFollow = false) => {
+  const locateAgentText = (text: string | undefined): { left: number; top: number } | null => {
     const root = editorRootRef.current
-    const editor = editorInstance
-    if (!root || !editor) return
-    lastAgentTargetRef.current = event
-
-    const from = event.range?.start.offset ?? event.position?.offset
-    const to = event.range?.end?.offset ?? from
-    const follows = forceFollow || (event.playback?.followAgent ?? playbackRef.current?.followAgent ?? true)
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (typeof from === 'number' && follows && editor.presentationEditor) {
-      programmaticScrollRef.current = true
-      if (programmaticScrollTimerRef.current !== null) clearTimeout(programmaticScrollTimerRef.current)
-      await editor.presentationEditor.scrollToPositionAsync(from, {
-        block: 'center',
-        behavior: reducedMotion ? 'auto' : 'smooth',
-        ifNeeded: false,
-        suppressSelectionSyncScroll: true,
-      })
-      const scroller = root.querySelector<HTMLElement>('.superdoc__sub-document')
-      if (scroller) scroller.scrollTop += scroller.clientHeight * 0.1
-      programmaticScrollTimerRef.current = window.setTimeout(() => {
-        programmaticScrollRef.current = false
-        programmaticScrollTimerRef.current = null
-      }, reducedMotion ? 80 : 650)
-      await nextPaint()
-    } else if (typeof event.page === 'number' && follows && editor.presentationEditor) {
-      programmaticScrollRef.current = true
-      await editor.presentationEditor.scrollToPage(event.page, reducedMotion ? 'auto' : 'smooth')
-      programmaticScrollTimerRef.current = window.setTimeout(() => {
-        programmaticScrollRef.current = false
-        programmaticScrollTimerRef.current = null
-      }, reducedMotion ? 80 : 650)
-      await nextPaint()
-    } else if (event.blockId && follows && editor.presentationEditor) {
-      programmaticScrollRef.current = true
-      await editor.presentationEditor.scrollToElement(event.blockId)
-      programmaticScrollTimerRef.current = window.setTimeout(() => {
-        programmaticScrollRef.current = false
-        programmaticScrollTimerRef.current = null
-      }, reducedMotion ? 80 : 650)
-      await nextPaint()
-    }
-
+    if (!root || !text) return null
     const rootRect = root.getBoundingClientRect()
-    let target: WordAgentOverlayVisual['target'] | null = null
-    let fineGrained = false
-    if (typeof from === 'number') {
-      const rangeRects = editor.presentationEditor?.getRangeRects(
-        from,
-        Math.max(from + 1, typeof to === 'number' ? to : from + 1),
-        root,
-      ) ?? []
-      if (rangeRects.length > 0) {
-        const left = Math.min(...rangeRects.map((rect) => rect.left))
-        const top = Math.min(...rangeRects.map((rect) => rect.top))
-        const right = Math.max(...rangeRects.map((rect) => rect.right))
-        const bottom = Math.max(...rangeRects.map((rect) => rect.bottom))
-        target = { left, top, width: Math.max(12, right - left), height: Math.max(18, bottom - top) }
-        fineGrained = true
-      } else {
-        const coords = editor.coordsAtPos(from)
-        if (coords) {
-          target = {
-            left: coords.left - rootRect.left,
-            top: coords.top - rootRect.top,
-            width: Math.max(12, coords.right - coords.left),
-            height: Math.max(18, coords.bottom - coords.top),
-          }
-          fineGrained = true
+    const walker = globalThis.document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let current: Node | null = walker.nextNode()
+    while (current) {
+      const content = current.textContent ?? ''
+      const index = content.indexOf(text)
+      if (index >= 0) {
+        const range = globalThis.document.createRange()
+        range.setStart(current, index)
+        range.setEnd(current, index + text.length)
+        const rect = range.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          return { left: rect.left - rootRect.left, top: rect.top - rootRect.top }
         }
       }
+      current = walker.nextNode()
     }
-
-    if (!target) {
-      const viewport = root.querySelector<HTMLElement>('.superdoc__sub-document') ?? root
-      const viewportRect = viewport.getBoundingClientRect()
-      const pages = Array.from(root.querySelectorAll<HTMLElement>('.superdoc-page'))
-      const requestedPage = typeof event.page === 'number'
-        ? root.querySelector<HTMLElement>(`.superdoc-page[data-page-index='${event.page - 1}']`)
-        : null
-      const page = requestedPage ?? pages
-        .filter((candidate) => {
-          const rect = candidate.getBoundingClientRect()
-          return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom
-        })
-        .sort((a, b) => {
-          const middle = viewportRect.top + viewportRect.height * 0.4
-          return Math.abs(a.getBoundingClientRect().top - middle) - Math.abs(b.getBoundingClientRect().top - middle)
-        })[0]
-      const pageRect = page?.getBoundingClientRect()
-      target = pageRect
-        ? {
-            left: pageRect.left - rootRect.left + 14,
-            top: pageRect.top - rootRect.top + 14,
-            width: Math.max(30, pageRect.width - 28),
-            height: Math.max(30, pageRect.height - 28),
-          }
-        : { left: root.clientWidth * 0.18, top: root.clientHeight * 0.22, width: root.clientWidth * 0.64, height: 44 }
-    }
-
-    const eventPhase = event.phase === 'before'
-      || event.phase === 'commit'
-      || event.phase === 'after'
-      || event.phase === 'clear'
-      || event.phase === 'locate'
-      ? event.phase
-      : event.type === 'operation-applied'
-        ? 'after'
-        : event.type === 'operation-prepared'
-          ? 'before'
-          : 'locate'
-    const agent = useAgentStore.getState().agents.find((candidate) => candidate.id === event.agentId)
-    const pointerLeft = Math.max(
-      4,
-      Math.min(Math.max(4, root.clientWidth - 174), Math.max(8, target.left + Math.min(target.width, 34))),
-    )
-    const pointerTop = Math.min(root.clientHeight - 48, Math.max(8, target.top + Math.min(target.height, 20)))
-    const visual = event.visual ?? 'object-anchor'
-    setAgentVisual({
-      planId: event.planId,
-      stepId: event.stepId,
-      agentName: event.agentName || agent?.name || 'Agent',
-      agentColor: agent?.color || '#2563eb',
-      phase: eventPhase,
-      visual,
-      pointer: { left: pointerLeft, top: pointerTop },
-      target,
-      action: ['format', 'paragraph', 'table-cell', 'table-row', 'table-column', 'image', 'page-region', 'object-anchor'].includes(visual)
-        ? event.action
-        : undefined,
-      beforeText: event.beforeText,
-      afterText: event.afterText,
-      fineGrained,
-    })
-  }, [editorInstance])
+    return null
+  }
 
   useEffect(() => {
     const unsubscribe = documentBridge.subscribeDocumentEvents((event: DocumentEvent) => {
-      if (event.engine !== 'superdoc') return
-      if (event.playback) {
-        playbackRef.current = event.playback
-        setWordPlayback(event.playback)
-      }
-      if (event.type === 'playback-started') {
-        setAgentVisual((current) => current?.planId === event.planId ? current : null)
-      }
-      const isPlanStepEvent = Boolean(event.planId && event.stepId)
-      const visualEvent = isPlanStepEvent && (
-        event.type === 'cursor-moved'
-        || event.type === 'operation-prepared'
-        || event.type === 'operation-applied'
-        || (event.type === 'playback-progress' && event.phase === 'clear')
-      )
-      if (isPlanStepEvent && event.type === 'operation-applied' && event.visual === 'text-delete') {
-        setAgentVisual((current) => current ? { ...current, phase: 'after' } : current)
-      } else if (visualEvent) {
-        void locateAgentEvent(event)
-      }
-      if (event.type === 'playback-completed' || event.type === 'run-cancelled') {
-        const completedPlanId = event.planId
-        window.setTimeout(() => {
-          setAgentVisual((current) => current?.planId === completedPlanId ? null : current)
-        }, 500)
-        window.setTimeout(() => {
-          if (playbackRef.current?.planId === completedPlanId) {
-            playbackRef.current = null
-            setWordPlayback(null)
-          }
-        }, 1_400)
-      }
+      if (event.engine !== 'superdoc' || !event.operationId) return
+      if (event.type !== 'operation-prepared' && event.type !== 'operation-applied') return
+      const located = locateAgentText(event.text)
+      const root = editorRootRef.current
+      setAgentPointer({
+        label: event.agentName || 'Agent',
+        left: located?.left ?? (root ? root.clientWidth / 2 : 0),
+        top: located?.top ?? (root ? root.clientHeight / 2 : 0),
+      })
+      window.setTimeout(() => setAgentPointer(null), 1800)
     })
     return unsubscribe
-  }, [locateAgentEvent])
-
-  const buildUserActivity = useCallback((
-    kind: AgentUserDocumentActivity['kind'],
-    eventId: string = crypto.randomUUID(),
-  ): AgentUserDocumentActivity => {
-    const root = editorRootRef.current
-    const selection = editorInstance?.doc.selection.current({ includeText: true })
-    const segments = selection?.target?.segments ?? []
-    return {
-      eventId,
-      runId: useAgentStore.getState().activeRunId ?? undefined,
-      documentId: savePathRef.current,
-      documentRevision: documentBridge.getState().revision,
-      documentApiRevision: editorInstance?.doc.info({}).revision,
-      timestamp: Date.now(),
-      kind,
-      visiblePages: root ? visibleWordPages(root) : [],
-      focusedBlockIds: [...new Set(segments.map((segment) => segment.blockId))].slice(0, 50),
-      selectionText: selection?.text?.slice(0, 2_000),
-      selectionTarget: selection?.target
-        ? { ...selection.target, segments: segments.slice(0, 50) }
-        : undefined,
-    }
-  }, [editorInstance])
-
-  const scheduleSelectionActivity = useCallback(() => {
-    if (selectionActivityTimerRef.current !== null) clearTimeout(selectionActivityTimerRef.current)
-    selectionActivityTimerRef.current = window.setTimeout(() => {
-      selectionActivityTimerRef.current = null
-      documentBridge.reportUserActivity(buildUserActivity('selection'))
-    }, 250)
-  }, [buildUserActivity])
-
-  useEffect(() => {
-    const root = editorRootRef.current
-    if (!root || !editorInstance) return
-    const onScroll = () => {
-      if (programmaticScrollRef.current || !useAgentStore.getState().activeRunId) return
-      if (viewportActivityTimerRef.current !== null) clearTimeout(viewportActivityTimerRef.current)
-      viewportActivityTimerRef.current = window.setTimeout(() => {
-        viewportActivityTimerRef.current = null
-        documentBridge.reportUserActivity(buildUserActivity('viewport'))
-      }, 250)
-    }
-    const onPointerUp = () => {
-      if (useAgentStore.getState().activeRunId) scheduleSelectionActivity()
-    }
-    root.addEventListener('scroll', onScroll, true)
-    root.addEventListener('pointerup', onPointerUp, true)
-    return () => {
-      root.removeEventListener('scroll', onScroll, true)
-      root.removeEventListener('pointerup', onPointerUp, true)
-    }
-  }, [buildUserActivity, editorInstance, scheduleSelectionActivity])
-
-  useEffect(() => {
-    if (!activeAgentRunId || !editorInstance) return
-    const eventId = crypto.randomUUID()
-    const reportViewport = () => documentBridge.reportUserActivity(buildUserActivity('viewport', eventId))
-    reportViewport()
-    scheduleSelectionActivity()
-    const retryTimer = window.setTimeout(() => {
-      if (useAgentStore.getState().activeRunId === activeAgentRunId) reportViewport()
-    }, 350)
-    return () => clearTimeout(retryTimer)
-  }, [activeAgentRunId, buildUserActivity, editorInstance, scheduleSelectionActivity])
-
-  useEffect(() => {
-    if (activeAgentRunId || !playbackRef.current) return
-    setAgentVisual(null)
-    playbackRef.current = null
-    setWordPlayback(null)
-  }, [activeAgentRunId])
-
-  const publishTypingBurst = useCallback((burst: NonNullable<typeof typingBurstRef.current>) => {
-    const activity = buildUserActivity('edit', burst.eventId)
-    documentBridge.reportUserActivity({
-      ...activity,
-      ...semanticTextChange(burst.before, burst.after),
-    })
-  }, [buildUserActivity])
-
-  const handleWordTransaction = useCallback((event: SuperDocTransactionEvent) => {
-    let nextText = lastDocumentTextRef.current
-    try {
-      nextText = event.editor.doc.getText({})
-    } catch {
-      /* The editor may be closing while a final transaction is emitted. */
-    }
-    if (!isInitializedRef.current) {
-      lastDocumentTextRef.current = nextText
-      return
-    }
-    if (event.transaction.selectionSet && !event.transaction.docChanged && playbackRef.current) {
-      scheduleSelectionActivity()
-    }
-    if (!event.transaction.docChanged || documentBridge.isApplyingAgentMutation()) {
-      lastDocumentTextRef.current = nextText
-      return
-    }
-
-    const before = typingBurstRef.current?.before ?? lastDocumentTextRef.current
-    const eventId = typingBurstRef.current?.eventId ?? crypto.randomUUID()
-    const burst = { eventId, before, after: nextText, surface: event.surface }
-    const isNewBurst = !typingBurstRef.current
-    typingBurstRef.current = burst
-    if (isNewBurst) publishTypingBurst(burst)
-    if (userActivityTimerRef.current !== null) clearTimeout(userActivityTimerRef.current)
-    userActivityTimerRef.current = window.setTimeout(() => {
-      const completedBurst = typingBurstRef.current
-      typingBurstRef.current = null
-      userActivityTimerRef.current = null
-      if (completedBurst) publishTypingBurst(completedBurst)
-    }, 800)
-    lastDocumentTextRef.current = nextText
-  }, [publishTypingBurst, scheduleSelectionActivity])
-
-  const pauseWordPlayback = useCallback(() => {
-    const next = documentBridge.controlWordPlayback({ type: 'pause' })
-    if (next) {
-      playbackRef.current = next
-      setWordPlayback(next)
-    }
-  }, [])
-
-  const resumeWordPlayback = useCallback(() => {
-    const next = documentBridge.controlWordPlayback({ type: 'resume' })
-    if (next) {
-      playbackRef.current = next
-      setWordPlayback(next)
-    }
-  }, [])
-
-  const locateWordPlayback = useCallback(() => {
-    const next = documentBridge.controlWordPlayback({ type: 'locate' })
-    if (next) {
-      playbackRef.current = next
-      setWordPlayback(next)
-    }
-    if (lastAgentTargetRef.current) void locateAgentEvent(lastAgentTargetRef.current, true)
-  }, [locateAgentEvent])
-
-  const skipWordPlaybackAnimations = useCallback(() => {
-    const next = documentBridge.controlWordPlayback({ type: 'skip-animations', enabled: true })
-    if (next) {
-      playbackRef.current = next
-      setWordPlayback(next)
-    }
   }, [])
 
   useEffect(() => {
@@ -542,15 +200,11 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     let cancelled = false
     setDocument(null)
     setError(null)
+    setErrorDetail('')
     setShowLegacyNotice(false)
     instanceRef.current = null
     setSuperdocInstance(null)
     setEditorInstance(null)
-    setAgentVisual(null)
-    setWordPlayback(null)
-    playbackRef.current = null
-    lastAgentTargetRef.current = null
-    lastDocumentTextRef.current = ''
     setTotalPages(null)
     setViewMode('page')
     setViewSnapshot({ html: '', outline: [] })
@@ -570,10 +224,12 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
           converter: wordFile.converter,
           nativeConversionFailed: wordFile.nativeConversionFailed,
           normalizedLegacyImageCount: wordFile.normalizedLegacyImageCount,
+          normalizedTableCount: wordFile.normalizedTableCount,
+          removedUnderlineRunCount: wordFile.removedUnderlineRunCount,
         })
         if (cancelled) return
 
-        const prepared = await prepareWordBytes(filePath, buffer)
+        const prepared = await prepareWordBytes(filePath, buffer, wordFile.convertedFromLegacy)
         if (cancelled) return
 
         savePathRef.current = resolveSavePathForWord(filePath)
@@ -588,18 +244,19 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
         )
       } catch (err) {
         console.error('[WordEditor] 加载错误:', err)
-        if (!cancelled) setError(isLegacy ? 'legacy' : 'document')
+        if (!cancelled) {
+          const isMissingConverter = err instanceof Error
+            && 'code' in err
+            && err.code === 'dependency-missing'
+          setErrorDetail(isMissingConverter && err instanceof Error ? err.message : '')
+          setError(isLegacy ? 'legacy' : 'document')
+        }
       }
     }
 
     load()
     return () => {
       cancelled = true
-      if (programmaticScrollTimerRef.current !== null) clearTimeout(programmaticScrollTimerRef.current)
-      if (userActivityTimerRef.current !== null) clearTimeout(userActivityTimerRef.current)
-      if (viewportActivityTimerRef.current !== null) clearTimeout(viewportActivityTimerRef.current)
-      if (selectionActivityTimerRef.current !== null) clearTimeout(selectionActivityTimerRef.current)
-      typingBurstRef.current = null
       const inst = instanceRef.current as {
         __wordToolbarResizeCleanup?: () => void
         __wordToolbarOverflowCleanup?: () => void
@@ -624,122 +281,41 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     [filePath],
   )
 
-  const previewCleanupFrameRef = useRef<number | null>(null)
-
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!superdocInstance) return
-    const root = editorRootRef.current
-    if (!root) return
-
-    if (previewCleanupFrameRef.current !== null) {
-      cancelAnimationFrame(previewCleanupFrameRef.current)
-      previewCleanupFrameRef.current = null
-    }
-
-    // 滚轮手势进行中：zoom 与 settledZoom 不同，仅做 GPU 合成层预览
-    if (Math.abs(zoom - settledZoom) >= 0.005) {
-      applyWordZoomPreview(root, zoom, settledZoom)
-      return
-    }
-
-    const percent = Math.round(settledZoom * 100)
-    let currentSuperdocPercent = 100
+    const percent = Math.round(zoom * 100)
     try {
-      currentSuperdocPercent = Math.round(superdocInstance.getZoom())
-    } catch {
-      // fallback
-    }
-    const hadPreview = hasWordZoomPreview(root)
-    const needsSetZoom = currentSuperdocPercent !== percent
-
-    if (!needsSetZoom && !hadPreview) return
-
-    // 即时缩放（快捷键/按钮/预设）无活跃预览时，先建立 CSS 预览桥接：
-    // SuperDoc 的 setZoom 内部重排期间文档可能出现一帧空白。预览桥接在
-    // 重排期间持续展示正确的视觉缩放，把空白帧遮盖住。
-    if (needsSetZoom && !hadPreview) {
-      applyWordZoomPreview(
-        root,
-        settledZoom,
-        currentSuperdocPercent > 0 ? currentSuperdocPercent / 100 : settledZoom,
-      )
-    }
-
-    // 把手势的最后一帧留在原生页面上方。SuperDoc/Chromium 在更换
-    // transform 合成层与单双页 DOM 时可能短暂清空原图层，冻结帧
-    // 会一直保留到原生页面稳定，因此黑底不会穿出。
-    if (hadPreview || needsSetZoom) holdWordZoomFrame(root)
-
-    try {
-      if (needsSetZoom) {
+      if (Math.round(superdocInstance.getZoom()) !== percent) {
         superdocInstance.setZoom(percent)
-      }
-      // 将预览同步到恒等缩放（scale = settledZoom/settledZoom = 1:1）。
-      // 此时 SuperDoc 已开始以目标倍率渲染，预览几何与引擎一致。
-      if (hadPreview || needsSetZoom) {
-        applyWordZoomPreview(root, settledZoom, settledZoom)
       }
     } catch (err) {
       console.warn('[WordEditor] setZoom 失败:', err)
     }
+  }, [superdocInstance, zoom])
 
-    if (hadPreview || needsSetZoom) {
-      // SuperDoc 的 Vue 响应式更新经微任务 + 渲染帧异步完成。三帧 rAF
-      // 确保 Vue DOM 更新与浏览器绘制全部完成后，再撤除预览桥接的 CSS 变量
-      // 与容器尺寸覆盖，消除「预览已撤、引擎布局未到」的闪烁空窗。
-      previewCleanupFrameRef.current = requestAnimationFrame(() => {
-        previewCleanupFrameRef.current = requestAnimationFrame(() => {
-          previewCleanupFrameRef.current = requestAnimationFrame(() => {
-            previewCleanupFrameRef.current = null
-            finishWordZoomPreview(root)
-          })
-        })
-      })
-    }
-  }, [superdocInstance, settledZoom, zoom])
-
+  // 缩放期间给页面宿主加上 will-change，缓解末尾闪烁；延迟 280ms 移除。
   useEffect(() => {
-    const root = editorRootRef.current
-    if (!root) return
-    const onUserIntentCapture = (event: Event) => {
-      if (
-        (event instanceof WheelEvent || event instanceof KeyboardEvent)
-        && (event.ctrlKey || event.metaKey)
-      ) return
-      if (previewCleanupFrameRef.current !== null) {
-        cancelAnimationFrame(previewCleanupFrameRef.current)
-        previewCleanupFrameRef.current = null
-      }
-      if (hasWordZoomPreview(root)) {
-        finishWordZoomPreview(root)
-      }
-      releaseWordZoomFrame(root)
-    }
-    root.addEventListener('pointerdown', onUserIntentCapture, true)
-    root.addEventListener('mousedown', onUserIntentCapture, true)
-    root.addEventListener('touchstart', onUserIntentCapture, true)
-    root.addEventListener('wheel', onUserIntentCapture, true)
-    root.addEventListener('keydown', onUserIntentCapture, true)
+    setIsZooming(true)
+    if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current)
+    zoomingTimerRef.current = setTimeout(() => setIsZooming(false), 280)
     return () => {
-      root.removeEventListener('pointerdown', onUserIntentCapture, true)
-      root.removeEventListener('mousedown', onUserIntentCapture, true)
-      root.removeEventListener('touchstart', onUserIntentCapture, true)
-      root.removeEventListener('wheel', onUserIntentCapture, true)
-      root.removeEventListener('keydown', onUserIntentCapture, true)
-      if (previewCleanupFrameRef.current !== null) {
-        cancelAnimationFrame(previewCleanupFrameRef.current)
-        previewCleanupFrameRef.current = null
-      }
-      cancelWordZoomPreview(root)
+      if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current)
     }
-  }, [])
+  }, [zoom])
 
   useEffect(() => {
     onRegisterSave(async () => {
       const instance = instanceRef.current
       if (!instance) return
       const blob = await instance.export({ triggerDownload: false })
-      const target = savePathRef.current
+      let target = savePathRef.current
+      if (!desktopApi.files.getGrantId(target)) {
+        const defaultName = target.split(/[/\\]/).pop() || 'document.docx'
+        const selected = await desktopApi.files.selectSaveFile(defaultName)
+        if (!selected) return
+        target = selected.path
+        savePathRef.current = target
+      }
       await saveFileBuffer(target, await blob.arrayBuffer())
       // 从 .doc 打开后保存为 .docx，并切换当前路径
       if (target !== filePath) {
@@ -756,6 +332,11 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
         {error === 'legacy' && (
           <p className="max-w-md text-center text-muted-foreground">
             {t('wordEditor.legacyDocCorrupt')}
+          </p>
+        )}
+        {errorDetail && (
+          <p className="max-w-md break-words text-center text-xs text-muted-foreground">
+            {errorDetail}
           </p>
         )}
       </div>
@@ -780,6 +361,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       className="word-editor-panel relative h-full min-h-0 w-full flex-1"
       data-word-view-mode={viewMode}
       data-word-eye-care={eyeCare ? 'true' : 'false'}
+      data-word-zooming={isZooming ? 'true' : 'false'}
     >
       {showLegacyNotice && (
         <div className="word-editor-chrome shrink-0 border-b bg-amber-500/10 px-3 py-1.5 text-xs text-amber-800 dark:text-amber-200">
@@ -795,16 +377,9 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
           document={document}
           documentMode="editing"
           role="editor"
-          // 标尺配置（当前隐藏页面上方标尺，保留代码供后续需要时恢复开启）
-          rulers={false}
           zoom={zoomConfig}
           onEditorCreate={({ editor }) => {
             setEditorInstance(editor)
-            try {
-              lastDocumentTextRef.current = editor.doc.getText({})
-            } catch {
-              lastDocumentTextRef.current = ''
-            }
           }}
           onPaginationUpdate={(event: { totalPages?: number }) => {
             // 构造期回调不会漏掉 onReady 前后的首轮分页事件。
@@ -823,11 +398,6 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
             instanceRef.current = event.superdoc
             setSuperdocInstance(event.superdoc)
             documentBridge.setWord(event.superdoc, savePathRef.current)
-            try {
-              lastDocumentTextRef.current = (event.superdoc.activeEditor as Editor).doc.getText({})
-            } catch {
-              /* Initial text will be captured by the first transaction. */
-            }
             onReady()
             // 延迟启用 dirty 检测，避免初始化时的更新触发
             setTimeout(() => {
@@ -835,7 +405,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
             }, 500)
 
             // 溢出策略：窄容器时保留左侧 UI（撤销/重做、缩放、字体字号、格式），
-            // 右端项（标尺、格式标记、文档模式等）优先收进「⋯」——覆盖 SuperDoc
+            // 右端项（格式标记、文档模式等）优先收进「⋯」——覆盖 SuperDoc
             // 内置的「小屏先藏字体字号」降级清单。
             const toolbar = (event.superdoc as { toolbar?: SuperToolbarLike } | null)?.toolbar
             ;(event.superdoc as { __wordToolbarOverflowCleanup?: () => void }).__wordToolbarOverflowCleanup =
@@ -884,10 +454,10 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
           onEditorUpdate={() => {
             if (viewMode !== 'page') refreshWordViewSnapshot()
             if (isInitializedRef.current) {
+              documentBridge.markUserEdit()
               onDirty()
             }
           }}
-          onTransaction={handleWordTransaction}
           onException={(event) => {
             console.error('[WordEditor] editor exception:', event.error)
             setError(getExtension(filePath) === 'doc' ? 'legacy' : 'document')
@@ -903,13 +473,19 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
         onEyeCareChange={setEyeCare}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        playback={wordPlayback}
-        onPlaybackPause={pauseWordPlayback}
-        onPlaybackResume={resumeWordPlayback}
-        onPlaybackLocate={locateWordPlayback}
-        onPlaybackSkipAnimations={skipWordPlaybackAnimations}
       />
-      {viewMode === 'page' && <WordAgentOverlay visual={agentVisual} />}
+      {viewMode === 'page' && agentPointer && (
+        <div
+          className="pointer-events-none absolute z-30"
+          style={{ left: agentPointer.left, top: agentPointer.top }}
+          data-testid="agent-live-word-cursor"
+        >
+          <MousePointer2 className="absolute -left-1 -top-1 h-4 w-4 fill-fuchsia-500 text-fuchsia-700 drop-shadow" />
+          <span className="absolute left-1 top-0 whitespace-nowrap rounded bg-fuchsia-600 px-1.5 py-0.5 text-[10px] font-medium text-white shadow">
+            {agentPointer.label}
+          </span>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
@@ -47,8 +48,8 @@ export function AgentModelPicker({
     setError(null)
 
     void Promise.all([
-      window.api.provider.list(),
-      window.api.auth.getAll().catch(() => ({} as Record<string, AuthStatus>)),
+      desktopApi.providers.list(),
+      desktopApi.providers.auth.getAll().catch(() => ({} as Record<string, AuthStatus>)),
     ]).then(async ([list, authStatus]) => {
       let configured = list.filter(
         (provider) => provider.isLocal === true
@@ -61,7 +62,7 @@ export function AgentModelPicker({
         : undefined
       if (ollama) {
         try {
-          const detected = await window.api.provider.detectOllama(ollama.api)
+          const detected = await desktopApi.providers.detectOllama(ollama.api)
           if (detected.available) {
             configured = configured.map((provider) => provider.id === 'ollama'
               ? { ...provider, models: detected.models.map((id) => ({ id, name: id })) }

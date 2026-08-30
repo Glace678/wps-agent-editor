@@ -93,13 +93,7 @@ export function CollaborationTimeline({
                 event.type === 'task-created' ||
                 event.type === 'task-assigned' ||
                 event.type === 'agent-spawned'
-              const isDocumentEvent = event.type.startsWith('document-')
-                || event.type.startsWith('word-playback-')
-                || event.type === 'user-document-activity'
-                || event.type === 'conflict'
-              const isApproval = event.type === 'approval-required'
-                || event.type === 'approval-invalidated'
-                || event.type === 'approval-resolved'
+              const isDocumentEvent = event.type.startsWith('document-') || event.type === 'conflict'
               const isCancelled = event.type === 'run-cancelled'
               const title =
                 event.type === 'run-start'
@@ -112,7 +106,7 @@ export function CollaborationTimeline({
                   ? `${agentLabel} -> ${event.toAgentName || ''}`
                   : isAnswer
                   ? `${agentLabel} -> ${event.toAgentName || ''}`
-                  : event.type === 'agent-message'
+                  : event.type === 'agent-message' || event.type === 'agent-stream'
                   ? agentLabel
                   : event.type === 'agent-tool'
                   ? `${agentLabel} / ${event.tool || 'tool'}`
@@ -122,12 +116,6 @@ export function CollaborationTimeline({
                   ? `${agentLabel} / ${t('agentUi.completed')}`
                   : event.type === 'run-complete'
                   ? t('agentUi.completed')
-                  : event.type === 'approval-required'
-                  ? t('wordAgent.approvalTitle')
-                  : event.type === 'approval-invalidated'
-                  ? t('wordAgent.approvalExpired')
-                  : event.type === 'approval-resolved'
-                  ? t('wordAgent.continueEditing')
                   : isCancelled
                   ? t('codeEditor.stopDebug')
                   : isDocumentEvent
@@ -144,13 +132,11 @@ export function CollaborationTimeline({
                 ? preview(event.content)
                 : event.type === 'agent-tool'
                 ? preview(JSON.stringify(event.result))
-                : isApproval
-                ? preview(event.approval?.summary)
                 : isDocumentEvent
                 ? preview(event.result ? JSON.stringify(event.result) : event.message)
                 : preview(event.content)
 
-              const isConversation = isQuestion || isAnswer || event.type === 'agent-message'
+              const isConversation = isQuestion || isAnswer || event.type === 'agent-message' || event.type === 'agent-stream'
               if (isConversation) {
                 const alignRight = isQuestion
                 return (
@@ -208,13 +194,13 @@ export function CollaborationTimeline({
                       <CircleAlert className="h-3 w-3 shrink-0 text-destructive" />
                     ) : isHandoff ? (
                       <ArrowRight className="h-3 w-3 shrink-0 text-blue-500" />
-                    ) : isDocumentEvent || isApproval ? (
+                    ) : isDocumentEvent ? (
                       <FileEdit className="h-3 w-3 shrink-0 text-fuchsia-500" />
                     ) : event.type === 'agent-tool' ? (
                       <Wrench className="h-3 w-3 shrink-0 text-amber-500" />
                     ) : isQuestion || isAnswer ? (
                       <MessageSquare className="h-3 w-3 shrink-0 text-cyan-500" />
-                    ) : event.type === 'agent-message' ? (
+                    ) : event.type === 'agent-message' || event.type === 'agent-stream' ? (
                       <MessageSquare className="h-3 w-3 shrink-0 text-emerald-500" />
                     ) : event.type === 'agent-complete' || event.type === 'run-complete' ? (
                       <Check className="h-3 w-3 shrink-0 text-emerald-500" />

@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useState, useCallback } from 'react'
 import { Key, PanelRightClose, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -17,13 +18,21 @@ import { TaskStatus } from './TaskStatus'
 import { ProviderSettings } from './ProviderSettings'
 import { CollaborationTimeline } from './CollaborationTimeline'
 import { CollaborationConfigDialog } from './CollaborationConfigDialog'
-import { AgentApprovalBanner } from './AgentApprovalBanner'
-import { ArtifactReviewPanel } from './ArtifactReviewPanel'
-import { ArtifactHistoryPanel } from './ArtifactHistoryPanel'
 import type { AgentAttachment, AgentConfig, AgentReasoningSelection, ChatMessage } from '@/types/agent'
-import { DEFAULT_DOCUMENT_OPERATION_PROMPT } from '@/lib/document-operation-prompt'
-import type { AgentApprovalRequest } from '@/types/document'
 import type { ProviderDefinition } from '@/types/provider'
+import type { ConversationMessage } from '@/types/generated'
+
+let codexAutoImportStarted = false
+
+function persistedMessages(messages: ChatMessage[]): ConversationMessage[] {
+  return messages
+    .filter((message) => !message.streamingRunId && message.content.trim())
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+    }))
+}
 
 interface AgentSidebarProps {
   /** 折叠右侧 Agent 助手侧栏 */
@@ -33,11 +42,14 @@ interface AgentSidebarProps {
 export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   const { language, t } = useTranslation()
   const {
-    agents, activeAgentId, messages, isRunning, taskStatus, activeRunId, isStopping,
-    setAgents, setActiveAgentId, addMessage, setIsRunning, setActiveRunId, setIsStopping, setTaskStatus,
-    ensureConversationId,
+    agents, activeAgentId, messages, conversationIds, conversationSummaries,
+    codexImportResult, isImportingCodex, isRunning, taskStatus, activeRunId, isStopping,
+    setAgents, setActiveAgentId, addMessage, appendAssistantStream, completeAssistantStream,
+    setIsRunning, setActiveRunId, setIsStopping, setTaskStatus,
+    ensureConversationId, clearMessages, loadConversation,
+    setConversationSummaries, upsertConversationSummary,
+    setCodexImportResult, setIsImportingCodex,
     collaborationEvents, addCollaborationEvent, clearCollaborationEvents,
-    pendingApproval, approvalStatus, setPendingApproval, setApprovalStatus, setWordPlayback,
   } = useAgentStore()
   const [editingAgent, setEditingAgent] = useState<AgentConfig | null>(null)
   const [showConfig, setShowConfig] = useState(false)
@@ -47,9 +59,39 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   const [providers, setProviders] = useState<ProviderDefinition[]>([])
   const [isCollaborationCollapsed, setIsCollaborationCollapsed] = useState(false)
 
+  const refreshConversations = useCallback(async () => {
+    const summaries = await desktopApi.agents.conversations.list()
+    setConversationSummaries(summaries)
+    return summaries
+  }, [setConversationSummaries])
+
+  const handleImportCodex = useCallback(async () => {
+    if (useAgentStore.getState().isImportingCodex) return
+    setIsImportingCodex(true)
+    try {
+      const result = await desktopApi.agents.conversations.importCodex()
+      setCodexImportResult(result)
+      await refreshConversations()
+    } finally {
+      setIsImportingCodex(false)
+    }
+  }, [refreshConversations, setCodexImportResult, setIsImportingCodex])
+
+  const persistConversation = useCallback(async (
+    conversationId: string,
+    history: ChatMessage[],
+  ) => {
+    const record = await desktopApi.agents.conversations.save({
+      id: conversationId,
+      messages: persistedMessages(history),
+    })
+    upsertConversationSummary(record.summary)
+    return record
+  }, [upsertConversationSummary])
+
   useEffect(() => {
     let cancelled = false
-    void window.api.agent.list().then((list) => {
+    void desktopApi.agents.list().then((list) => {
       if (!cancelled) setAgents(list.map((agent) => localizeAgentDefaults(agent, language)))
     })
     return () => { cancelled = true }
@@ -57,7 +99,21 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
 
   useEffect(() => {
     let cancelled = false
-    void window.api.provider.list().then((list) => {
+    void refreshConversations().catch((error) => {
+      if (!cancelled) console.error('[AgentSidebar] Failed to load conversations:', error)
+    })
+    if (!codexAutoImportStarted) {
+      codexAutoImportStarted = true
+      void handleImportCodex().catch((error) => {
+        if (!cancelled) console.error('[AgentSidebar] Automatic Codex import failed:', error)
+      })
+    }
+    return () => { cancelled = true }
+  }, [handleImportCodex, refreshConversations])
+
+  useEffect(() => {
+    let cancelled = false
+    void desktopApi.providers.list().then((list) => {
       if (!cancelled) setProviders(list)
     }).catch(() => {
       if (!cancelled) setProviders([])
@@ -67,31 +123,20 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
 
   useEffect(() => {
     if (!AGENT_COLLABORATION_ENABLED) return
-    const unsubscribe = window.api.agent.onEvent?.((event) => {
+    const unsubscribe = desktopApi.agents.onEvent((event) => {
       addCollaborationEvent(event)
-      if (event.playback) setWordPlayback(event.playback)
-      if (event.type === 'approval-required' && event.approval) {
-        setPendingApproval(event.approval)
-        setApprovalStatus('idle')
-      } else if (event.type === 'approval-invalidated') {
-        const current = useAgentStore.getState().pendingApproval
-        if (!current || !event.approval || current.approvalId === event.approval.approvalId) {
-          setPendingApproval(null)
-          setApprovalStatus('expired')
-        }
-      } else if (event.type === 'approval-resolved') {
-        setPendingApproval(null)
-        setApprovalStatus('idle')
+      if (event.type === 'agent-stream' && event.agentId && event.content) {
+        appendAssistantStream(event.agentId, event.runId, event.content)
       }
     })
     return () => unsubscribe?.()
-  }, [addCollaborationEvent, setApprovalStatus, setPendingApproval, setWordPlayback])
+  }, [addCollaborationEvent, appendAssistantStream])
 
   const activeAgent = agents.find((a) => a.id === activeAgentId)
 
   const handleSend = useCallback(async (content: string, attachments: AgentAttachment[]) => {
     if (!activeAgentId) return
-    const userMessage: ChatMessage = { role: 'user', content, attachments }
+    const userMessage: ChatMessage = { role: 'user', content, attachments, timestamp: Date.now() }
     addMessage(activeAgentId, userMessage)
     clearCollaborationEvents()
     setIsRunning(true)
@@ -100,23 +145,33 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     setIsStopping(false)
     setTaskStatus(t('agentUi.processing'))
 
+    const history = [...(messages[activeAgentId] || []), userMessage]
+    const conversationId = ensureConversationId(activeAgentId)
     try {
-      const history = [...(messages[activeAgentId] || []), userMessage]
-      const conversationId = ensureConversationId(activeAgentId)
-      const result = await window.api.agent.chat(activeAgentId, history, conversationId, runId)
+      await persistConversation(conversationId, history)
+      const result = await desktopApi.agents.chat(activeAgentId, history, conversationId, runId)
 
       if ('error' in result) {
         if (useAgentStore.getState().isStopping) {
           setTaskStatus(t('codeEditor.stopDebug'))
         } else {
-          addMessage(activeAgentId, { role: 'assistant', content: t('agentUi.error', { error: result.error }) })
+          const assistantMessage: ChatMessage = {
+            role: 'assistant',
+            content: t('agentUi.error', { error: result.error }),
+            timestamp: Date.now(),
+          }
+          completeAssistantStream(activeAgentId, runId, assistantMessage)
+          await persistConversation(conversationId, [...history, assistantMessage])
         }
       } else {
-        addMessage(activeAgentId, {
+        const assistantMessage: ChatMessage = {
           role: 'assistant',
           content: result.response,
           cacheUsage: result.cacheUsage,
-        })
+          timestamp: Date.now(),
+        }
+        completeAssistantStream(activeAgentId, runId, assistantMessage)
+        await persistConversation(conversationId, [...history, assistantMessage])
         if (result.toolCalls.length > 0) {
           setTaskStatus(t('agentUi.documentOperationsCompleted', { count: result.toolCalls.length }))
         } else {
@@ -128,7 +183,15 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       if (useAgentStore.getState().isStopping) {
         setTaskStatus(t('codeEditor.stopDebug'))
       } else {
-        addMessage(activeAgentId, { role: 'assistant', content: t('agentUi.requestFailedGeneric') })
+        const assistantMessage: ChatMessage = {
+          role: 'assistant',
+          content: t('agentUi.requestFailedGeneric'),
+          timestamp: Date.now(),
+        }
+        completeAssistantStream(activeAgentId, runId, assistantMessage)
+        void persistConversation(conversationId, [...history, assistantMessage]).catch((error) => {
+          console.error('[AgentSidebar] Failed to persist failed conversation:', error)
+        })
         setTaskStatus(t('agentUi.failed'))
       }
     } finally {
@@ -136,7 +199,22 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [activeAgentId, addMessage, clearCollaborationEvents, ensureConversationId, messages, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [activeAgentId, addMessage, clearCollaborationEvents, completeAssistantStream, ensureConversationId, messages, persistConversation, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+
+  const handleLoadConversation = useCallback(async (conversationId: string) => {
+    if (!activeAgentId || isRunning) return
+    const conversation = await desktopApi.agents.conversations.get(conversationId)
+    loadConversation(activeAgentId, conversation)
+    clearCollaborationEvents()
+    setTaskStatus(t('agentUi.conversationLoaded', { title: conversation.summary.title }))
+  }, [activeAgentId, clearCollaborationEvents, isRunning, loadConversation, setTaskStatus, t])
+
+  const handleNewConversation = useCallback(() => {
+    if (!activeAgentId || isRunning) return
+    clearMessages(activeAgentId)
+    clearCollaborationEvents()
+    setTaskStatus('')
+  }, [activeAgentId, clearCollaborationEvents, clearMessages, isRunning, setTaskStatus])
 
   const handleMultiAgent = useCallback(async (task: string, agentIds: string[], rootAgentId: string) => {
     if (!AGENT_COLLABORATION_ENABLED) return
@@ -153,7 +231,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     setTaskStatus(t('agentUi.collaborating'))
 
     try {
-      const results = await window.api.agent.runTask(
+      const results = await desktopApi.agents.runTask(
         agentIds,
         task,
         runId,
@@ -166,7 +244,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
         return
       }
       for (const result of results) {
-        addMessage(result.agentId, {
+        completeAssistantStream(result.agentId, runId, {
           role: 'assistant',
           content: result.response,
           cacheUsage: result.cacheUsage,
@@ -183,42 +261,17 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [addMessage, clearCollaborationEvents, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [clearCollaborationEvents, completeAssistantStream, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
 
   const handleStop = useCallback(() => {
     if (!activeRunId || isStopping) return
     setIsStopping(true)
     setTaskStatus(t('agentUi.processing'))
-    void window.api.agent.cancel(activeRunId).catch((error) => {
+    void desktopApi.agents.cancel(activeRunId).catch((error) => {
       console.error('[AgentSidebar] cancel request failed:', error)
       setIsStopping(false)
     })
   }, [activeRunId, isStopping, setIsStopping, setTaskStatus, t])
-
-  const respondToApproval = useCallback(async (
-    approval: AgentApprovalRequest,
-    decision: 'continue' | 'end',
-  ) => {
-    setApprovalStatus('submitting')
-    try {
-      const result = await window.api.agent.respondApproval({
-        approvalId: approval.approvalId,
-        runId: approval.runId,
-        planId: approval.planId,
-        planVersion: approval.planVersion,
-        documentRevision: approval.documentRevision,
-        documentApiRevision: approval.documentApiRevision,
-        decision,
-      })
-      if (!result.success) {
-        setPendingApproval(null)
-        setApprovalStatus('expired')
-      }
-    } catch (error) {
-      console.error('[AgentSidebar] approval response failed:', error)
-      setApprovalStatus('idle')
-    }
-  }, [setApprovalStatus, setPendingApproval])
 
   const handleNewAgent = useCallback(() => {
     const newAgent: AgentConfig = {
@@ -226,7 +279,6 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       name: t('agents.newAgent'),
       role: t('agents.customAssistant'),
       systemPrompt: t('agents.customAssistantPrompt'),
-      documentOperationPrompt: DEFAULT_DOCUMENT_OPERATION_PROMPT,
       providerId: 'deepseek',
       model: 'deepseek-chat',
       reasoning: { kind: 'auto' },
@@ -253,18 +305,9 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   }, [handleMultiAgent, handleNewAgent])
 
   const handleSaveAgent = useCallback(async (agent: AgentConfig) => {
-    const updated = await window.api.agent.save(agent)
+    const updated = await desktopApi.agents.save(agent)
     setAgents(updated.map((item) => localizeAgentDefaults(item, language)))
     if (!activeAgentId) setActiveAgentId(agent.id)
-  }, [activeAgentId, language, setActiveAgentId, setAgents])
-
-  const handleDeleteAgent = useCallback(async (agentId: string) => {
-    const updated = await window.api.agent.delete(agentId)
-    const localizedAgents = updated.map((item) => localizeAgentDefaults(item, language))
-    setAgents(localizedAgents)
-    if (activeAgentId === agentId) {
-      setActiveAgentId(localizedAgents[0]?.id ?? null)
-    }
   }, [activeAgentId, language, setActiveAgentId, setAgents])
 
   const handleSelectModel = useCallback(async (providerId: string, model: string) => {
@@ -359,6 +402,10 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
           model={activeAgent?.model ?? ''}
           reasoning={activeAgent?.reasoning}
           messages={messages[activeAgentId ?? ''] || []}
+          conversations={conversationSummaries}
+          activeConversationId={activeAgentId ? conversationIds[activeAgentId] : undefined}
+          isImportingCodex={isImportingCodex}
+          codexImportResult={codexImportResult}
           isRunning={isRunning}
           onStop={handleStop}
           onSend={handleSend}
@@ -373,22 +420,13 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
             setEditingAgent(activeAgent)
             setShowConfig(true)
           }}
-          onClearHistory={() => {
-            if (activeAgentId) {
-              useAgentStore.getState().clearMessages(activeAgentId)
-            }
-          }}
-           beforeComposer={(
-             <>
-              <ArtifactReviewPanel />
-              <ArtifactHistoryPanel />
-              <AgentApprovalBanner
-                approval={pendingApproval}
-                status={approvalStatus}
-                onContinue={(approval) => { void respondToApproval(approval, 'continue') }}
-                onEnd={(approval) => { void respondToApproval(approval, 'end') }}
-              />
-               {AGENT_COLLABORATION_ENABLED && (
+          onClearHistory={handleNewConversation}
+          onNewConversation={handleNewConversation}
+          onImportCodex={handleImportCodex}
+          onLoadConversation={handleLoadConversation}
+          beforeComposer={(
+            <>
+              {AGENT_COLLABORATION_ENABLED && (
                 <CollaborationTimeline
                   events={collaborationEvents}
                   collapsed={isCollaborationCollapsed}
@@ -429,7 +467,6 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
             isRunning={isRunning}
             providers={providers}
             onClose={() => setShowCollaborationConfig(false)}
-            onDeleteAgent={handleDeleteAgent}
             onStart={(task, agentIds, rootAgentId) => {
               setShowCollaborationConfig(false)
               void handleMultiAgent(task, agentIds, rootAgentId)

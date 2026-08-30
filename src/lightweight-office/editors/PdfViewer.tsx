@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  ensurePdfJsRuntimePolyfills,
+  getPdfWorkerPolyfillSource,
+} from '../utils/typed-array-polyfill'
 import * as pdfjsLib from 'pdfjs-dist'
 import officialWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useTranslation } from '@/lib/i18n/runtime'
@@ -6,10 +10,25 @@ import { useDocumentZoom } from '@/components/layout/modules/DocumentZoom'
 import { cn } from '@/lib/utils'
 import { documentBridge } from '../agent/document-bridge'
 import { readFileBytes } from '../utils/file-io'
-import { configurePdfJsWorker } from '../utils/pdfjs-worker'
 import { PdfToolbar, type PdfFitMode, type PdfPageLayout } from '../components/PdfToolbar'
 
-configurePdfJsWorker(pdfjsLib, officialWorkerUrl)
+ensurePdfJsRuntimePolyfills()
+
+/**
+ * Worker 与主线程隔离：用 blob 模块先注入 polyfill，再 import 官方 worker。
+ */
+function installPolyfilledWorkerSrc(workerUrl: string): string {
+  const absolute =
+    typeof window !== 'undefined'
+      ? new URL(workerUrl, window.location.href).href
+      : workerUrl
+
+  const source = `${getPdfWorkerPolyfillSource()}\nimport ${JSON.stringify(absolute)};\n`
+  const blob = new Blob([source], { type: 'text/javascript' })
+  return URL.createObjectURL(blob)
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = installPolyfilledWorkerSrc(officialWorkerUrl)
 
 /** 页面显示宽度上限（与旧 max-w-4xl 一致），也是容器测不到宽度时的兜底 */
 const MAX_PAGE_CSS_WIDTH = 896
@@ -706,7 +725,7 @@ export function PdfViewer({ filePath, onReady }: PdfViewerProps) {
         }).promise
 
         if (session.disposed) {
-          await pdf.destroy()
+          await pdf.loadingTask.destroy()
           return
         }
         session.pdf = pdf
@@ -855,7 +874,7 @@ export function PdfViewer({ filePath, onReady }: PdfViewerProps) {
       const pdf = session.pdf
       session.pdf = null
       if (pdf) {
-        pdf.destroy().catch(() => {})
+        pdf.loadingTask.destroy().catch(() => {})
       }
       if (sessionRef.current === session) sessionRef.current = null
     }

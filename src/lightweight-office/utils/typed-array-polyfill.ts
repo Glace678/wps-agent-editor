@@ -1,5 +1,5 @@
 /**
- * pdfjs-dist 5.x 依赖若干 ES2025 API，Electron 34 (Chromium ~132) 尚未全部实现。
+ * pdfjs-dist 依赖若干较新的 TypedArray API，部分系统 WebView 尚未全部实现。
  * 缺失时常见错误：
  *   - a.toHex is not a function
  *   - getOrInsertComputed is not a function

@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file libssl-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+            libxdo-dev patchelf
+      - run: npm ci
+      - run: node scripts/check-version.mjs
+      - run: npm run check:sensitive
+      - run: node scripts/release/test-release-contract.mjs
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run check:i18n
+      - run: npm run check:providers
+      - run: npm run test:web-canaries
+      - run: npm run check:generated
+      - run: npm run typecheck
+      - run: npm run build:web
+      - run: node scripts/release/check-bundle-inputs.mjs
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  package:
+    if: github.event_name == 'pull_request'
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: windows, arch: x86, target: i686-pc-windows-msvc, bundles: nsis }
+          - { runner: windows-2022, platform: windows, arch: x86_64, target: x86_64-pc-windows-msvc, bundles: nsis }
+          - { runner: windows-11-arm, platform: windows, arch: aarch64, target: aarch64-pc-windows-msvc, bundles: nsis }
+          - { runner: macos-15-intel, platform: macos, arch: x86_64, target: x86_64-apple-darwin, bundles: dmg, deployment_target: '10.15' }
+          - { runner: macos-15, platform: macos, arch: aarch64, target: aarch64-apple-darwin, bundles: dmg, deployment_target: '11.0' }
+          - { runner: ubuntu-22.04, platform: linux, arch: x86_64, target: x86_64-unknown-linux-gnu, bundles: appimage }
+          - { runner: ubuntu-22.04-arm, platform: linux, arch: aarch64, target: aarch64-unknown-linux-gnu, bundles: appimage }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      WAE_BUILD_TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file libssl-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+            libxdo-dev patchelf
+      - run: npm ci
+      - run: npm run prepare:sidecar -- --target ${{ matrix.target }}
+      - name: Build and audit renderer
+        run: |
+          npm run build:web
+          node scripts/release/check-bundle-inputs.mjs --target ${{ matrix.target }}
+      - name: Generate unsigned PR-only bundle config
+        shell: bash
+        run: node scripts/release/tauri-pr-config.mjs "$RUNNER_TEMP/tauri-pr.json"
+      - name: Build unsigned test bundle
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.temp }}/tauri-pr.json"
+      - name: Collect and enforce primary package size
+        run: |
+          node scripts/release/collect-pr-artifact.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle pr-artifact
+          node scripts/release/check-artifacts.mjs pr-artifact
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-pr-${{ matrix.platform }}-${{ matrix.arch }}
+          path: pr-artifact/*
+          if-no-files-found: error
+          retention-days: 7

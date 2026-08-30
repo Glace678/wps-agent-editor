@@ -18,10 +18,6 @@ import {
   Globe2,
   ListTree,
   Minus,
-  FastForward,
-  LocateFixed,
-  Pause,
-  Play,
   Plus,
 } from 'lucide-react'
 import { useDocumentZoom } from '@/components/layout/modules/DocumentZoom'
@@ -32,7 +28,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
-import type { WordPlaybackState } from '@/types/document'
 
 export type WordViewMode = 'page' | 'outline' | 'reading' | 'web'
 
@@ -59,11 +54,6 @@ interface WordViewStatusBarProps {
   onEyeCareChange: (enabled: boolean) => void
   viewMode: WordViewMode
   onViewModeChange: (mode: WordViewMode) => void
-  playback?: WordPlaybackState | null
-  onPlaybackPause?: () => void
-  onPlaybackResume?: () => void
-  onPlaybackLocate?: () => void
-  onPlaybackSkipAnimations?: () => void
 }
 
 type ZoomChoice = '200' | '100' | '75' | 'page-width' | 'text-width' | 'whole-page' | 'custom'
@@ -217,20 +207,14 @@ export function WordViewStatusBar({
   onEyeCareChange,
   viewMode,
   onViewModeChange,
-  playback,
-  onPlaybackPause,
-  onPlaybackResume,
-  onPlaybackLocate,
-  onPlaybackSkipAnimations,
 }: WordViewStatusBarProps) {
   const { t } = useTranslation()
-  const { percent, previewZoomPercent, setZoomPercent } = useDocumentZoom()
+  const { percent, setZoomPercent } = useDocumentZoom()
   const radioName = useId()
   const menuRef = useRef<HTMLDivElement>(null)
   const expectedPercentRef = useRef<number | null>(null)
-  const sliderGestureRef = useRef<'pointer' | 'keyboard' | null>(null)
-  const sliderPreviewPercentRef = useRef(percent)
   const applyFitRef = useRef<(choice: FitZoomChoice) => void>(() => {})
+  const sliderFrameRef = useRef<number | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [zoomChoice, setZoomChoice] = useState<ZoomChoice>(() => fixedChoice(percent))
   const [customPercent, setCustomPercent] = useState(String(percent))
@@ -240,26 +224,10 @@ export function WordViewStatusBar({
 
   const applyPercent = (value: number, choice = fixedChoice(clampPercent(value))) => {
     const next = clampPercent(value)
-    sliderPreviewPercentRef.current = next
     expectedPercentRef.current = next
     setZoomChoice(choice)
     setCustomPercent(String(next))
     setZoomPercent(next)
-  }
-
-  const previewSliderPercent = (value: number) => {
-    const next = clampPercent(value)
-    sliderPreviewPercentRef.current = next
-    expectedPercentRef.current = next
-    setZoomChoice(fixedChoice(next))
-    setCustomPercent(String(next))
-    previewZoomPercent(next)
-  }
-
-  const finishSliderGesture = () => {
-    if (sliderGestureRef.current === null) return
-    sliderGestureRef.current = null
-    applyPercent(sliderPreviewPercentRef.current)
   }
 
   const applyFit = (choice: FitZoomChoice) => {
@@ -272,7 +240,6 @@ export function WordViewStatusBar({
   applyFitRef.current = applyFit
 
   useEffect(() => {
-    if (sliderGestureRef.current === null) sliderPreviewPercentRef.current = percent
     const expected = expectedPercentRef.current
     if (expected !== null && Math.abs(expected - percent) <= 1) {
       expectedPercentRef.current = null
@@ -351,78 +318,6 @@ export function WordViewStatusBar({
   return (
     <TooltipProvider delayDuration={450}>
       <div className="word-status-bar" data-testid="word-status-bar" dir="ltr">
-        {playback && playback.phase !== 'idle' && (
-          <div className="word-agent-status" data-phase={playback.phase} data-testid="word-agent-status">
-            <span className="word-agent-status-dot" aria-hidden="true" />
-            <span className="word-agent-status-name">{playback.agentName || t('wordAgent.agent')}</span>
-            <span className="word-agent-status-action">
-              {playback.phase === 'paused'
-                ? t('wordAgent.paused')
-                : playback.phase === 'interrupted'
-                  ? t('wordAgent.replanning')
-                  : playback.currentAction || t('wordAgent.editing')}
-            </span>
-            <span className="word-agent-status-count">
-              {t('wordAgent.progressCount', { completed: playback.completed, total: playback.total })}
-            </span>
-            <span className="word-agent-progress-track" aria-hidden="true">
-              <span style={{ width: `${playback.total > 0 ? (playback.completed / playback.total) * 100 : 0}%` }} />
-            </span>
-            <div className="word-agent-status-actions">
-              {playback.phase === 'paused' ? (
-                <ControlTooltip label={t('wordAgent.resume')}>
-                  <button
-                    type="button"
-                    className="word-status-icon-button word-agent-control"
-                    aria-label={t('wordAgent.resume')}
-                    onClick={onPlaybackResume}
-                    data-testid="word-agent-resume"
-                  >
-                    <Play aria-hidden="true" />
-                  </button>
-                </ControlTooltip>
-              ) : playback.phase === 'running' ? (
-                <ControlTooltip label={t('wordAgent.pause')}>
-                  <button
-                    type="button"
-                    className="word-status-icon-button word-agent-control"
-                    aria-label={t('wordAgent.pause')}
-                    onClick={onPlaybackPause}
-                    data-testid="word-agent-pause"
-                  >
-                    <Pause aria-hidden="true" />
-                  </button>
-                </ControlTooltip>
-              ) : null}
-              {!playback.followAgent && (
-                <ControlTooltip label={t('wordAgent.locate')}>
-                  <button
-                    type="button"
-                    className="word-status-icon-button word-agent-control"
-                    aria-label={t('wordAgent.locate')}
-                    onClick={onPlaybackLocate}
-                    data-testid="word-agent-locate"
-                  >
-                    <LocateFixed aria-hidden="true" />
-                  </button>
-                </ControlTooltip>
-              )}
-              {!playback.skipAnimations && playback.phase !== 'completed' && (
-                <ControlTooltip label={t('wordAgent.skipAnimations')}>
-                  <button
-                    type="button"
-                    className="word-status-icon-button word-agent-control"
-                    aria-label={t('wordAgent.skipAnimations')}
-                    onClick={onPlaybackSkipAnimations}
-                    data-testid="word-agent-skip-animations"
-                  >
-                    <FastForward aria-hidden="true" />
-                  </button>
-                </ControlTooltip>
-              )}
-            </div>
-          </div>
-        )}
         <div className="word-status-controls">
           <ControlTooltip label={t('wordLayout.eyeCare')}>
             <button
@@ -567,37 +462,13 @@ export function WordViewStatusBar({
             data-testid="word-zoom-slider"
             aria-label={t('wordLayout.displayScale')}
             aria-valuetext={`${percent}%`}
-            onPointerDown={() => {
-              sliderGestureRef.current = 'pointer'
-              sliderPreviewPercentRef.current = percent
-            }}
-            onPointerUp={finishSliderGesture}
-            onPointerCancel={finishSliderGesture}
-            onKeyDown={(event) => {
-              if (
-                sliderGestureRef.current !== 'pointer'
-                && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']
-                  .includes(event.key)
-              ) {
-                sliderGestureRef.current = 'keyboard'
-                sliderPreviewPercentRef.current = percent
-              }
-            }}
-            onKeyUp={(event) => {
-              if (
-                sliderGestureRef.current === 'keyboard'
-                && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']
-                  .includes(event.key)
-              ) {
-                finishSliderGesture()
-              }
-            }}
-            onBlur={finishSliderGesture}
             onChange={(event) => {
               const index = Number(event.target.value)
-              const next = ZOOM_SLIDER_VALUES[index] ?? 100
-              if (sliderGestureRef.current === null) applyPercent(next)
-              else previewSliderPercent(next)
+              if (sliderFrameRef.current !== null) return
+              sliderFrameRef.current = requestAnimationFrame(() => {
+                sliderFrameRef.current = null
+                applyPercent(ZOOM_SLIDER_VALUES[index] ?? 100)
+              })
             }}
           />
 

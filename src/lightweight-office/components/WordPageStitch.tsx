@@ -121,6 +121,7 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
   const overlayRef = useRef<HTMLDivElement>(null)
   const [bands, setBands] = useState<Band[]>([])
   const [stitched, setStitched] = useState(false)
+  const [ready, setReady] = useState(false)
   const stitchedRef = useRef(stitched)
   stitchedRef.current = stitched
   /** 首次拼接前记录原始配置，拆分时按原值恢复 */
@@ -142,7 +143,7 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
       .filter((p) => Number.isFinite(p.index))
       .sort((a, b) => a.index - b.index)
     const overlayRect = overlay.getBoundingClientRect()
-    // 页面矩形不受滚动裁剪影响，需按滚动视口裁剪，避免命中带盖到工具栏/标尺
+    // 页面矩形不受滚动裁剪影响，需按滚动视口裁剪，避免命中带盖到工具栏
     const { clipEl } = resolveHostBoxes(host, container)
     const viewRect = (clipEl ?? host).getBoundingClientRect()
     const next: Band[] = []
@@ -204,6 +205,17 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
   // 进入对开时引擎已把 virtualization 关掉、间距回到默认，拼接状态同步归零
   useEffect(() => {
     if (!active) setStitched(false)
+  }, [active])
+
+  // 刚从 book 切回 vertical 时引擎正在重建单列 DOM，延迟激活命中带计算，
+  // 避免在过渡关键帧抢布局资源造成卡顿。
+  useEffect(() => {
+    if (!active) {
+      setReady(false)
+      return
+    }
+    const timer = setTimeout(() => setReady(true), 180)
+    return () => clearTimeout(timer)
   }, [active])
 
   // 拼接态标记挂在布局容器上，供 word-editor.css 去掉页面投影
@@ -337,7 +349,7 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
     [superdoc, showHint, t, scheduleRefresh],
   )
 
-  if (!active) return null
+  if (!active || !ready) return null
 
   const hint = t(stitched ? 'wordLayout.seamHint' : 'wordLayout.gapHint')
   return (

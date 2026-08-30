@@ -1,0 +1,68 @@
+[package]
+name = "wps-agent-editor"
+version = "2.0.0"
+description = "Cross-platform document editor with local agent support"
+authors = ["WPS Agent Editor"]
+license = "AGPL-3.0-only"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "wps_agent_editor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+png = "0.18"
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+arboard = { version = "3.6", default-features = false, features = ["image-data"] }
+bytes = "1"
+dirs = "6"
+encoding_rs = "0.8"
+eventsource-stream = "0.2"
+fontdb = "0.23"
+futures-util = "0.3"
+hex = "0.4"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+log = "0.4"
+parking_lot = "0.12"
+pdf-extract = "=0.8.2"
+percent-encoding = "2"
+png = "0.18"
+portable-pty = "0.9"
+quick-xml = "0.41"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+sha2 = "0.10"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7"
+trash = "5"
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+url = { version = "2", features = ["serde"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+which = "8"
+zip = { version = "4.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+ts-rs = { version = "10.1.0", features = ["no-serde-warnings", "serde-json-impl"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,11 +1,14 @@
-import '../utils/formula-compatibility'
+import { desktopApi } from '@/platform'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import '../../../node_modules/@fortune-sheet/react/dist/index.css'
+import '../fortune-sheet-theme.css'
 import { Workbook } from '@fortune-sheet/react'
 import type { WorkbookInstance } from '@fortune-sheet/react'
 import type { Cell, Sheet } from '@fortune-sheet/core'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { useEditorStore } from '@/stores/editor.store'
 import { documentBridge } from '../agent/document-bridge'
-import { readFileBuffer, saveFileBuffer } from '../utils/file-io'
+import { getExtension, readSpreadsheetBuffer, saveFileBuffer } from '../utils/file-io'
 import { configureFortuneRendering } from '../utils/fortune-rendering'
 import {
   excelSheetsShareContentReferences,
@@ -31,7 +34,6 @@ import {
   EXCEL_TOOLBAR_POPUP_EDGE_INSET,
 } from '../utils/excel-toolbar-popup-boundary'
 import { mountExcelCircularColorPicker } from '../components/ExcelCircularColorPicker'
-import { ExcelFunctionSuggestions } from '../components/ExcelFunctionSuggestions'
 
 configureFortuneRendering()
 
@@ -894,8 +896,10 @@ export function resolveExcelCellEditorColors(
 
 export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegisterSave }: ExcelEditorProps) {
   const { language, t } = useTranslation()
+  const setCurrentFile = useEditorStore((state) => state.setCurrentFile)
   const shellRef = useRef<HTMLDivElement>(null)
   const workbookRef = useRef<WorkbookInstance | null>(null)
+  const savePathRef = useRef(filePath)
   const readyRef = useRef(false)
   /** Ignore Fortune churn until the workbook has settled after open. */
   const suppressDirtyRef = useRef(true)
@@ -994,11 +998,14 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     dirtyReportedRef.current = false
     cancelPendingDirtyCheck()
     documentBridge.clear()
+    savePathRef.current = getExtension(filePath) === 'xlsx'
+      ? filePath
+      : filePath.replace(/\.[^./\\]+$/i, '.xlsx')
 
     async function load() {
       try {
         console.log('[ExcelEditor] 开始加载文件:', filePath)
-        const buffer = await readFileBuffer(filePath)
+        const buffer = await readSpreadsheetBuffer(filePath)
         console.log('[ExcelEditor] 文件读取成功，大小:', buffer.byteLength, 'bytes')
         if (cancelled) return
         const loaded = await xlsxBufferToSheets(buffer)
@@ -1029,14 +1036,23 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       sheetsRef.current = snapshot
       lastContentSnapshotRef.current = snapshot
       const buffer = await sheetsToXlsxBuffer(snapshot)
-      await saveFileBuffer(filePath, buffer)
+      let target = savePathRef.current
+      if (!desktopApi.files.getGrantId(target)) {
+        const defaultName = target.split(/[/\\]/).pop() || 'workbook.xlsx'
+        const selected = await desktopApi.files.selectSaveFile(defaultName)
+        if (!selected) return
+        target = selected.path
+        savePathRef.current = target
+      }
+      await saveFileBuffer(target, buffer)
+      if (target !== filePath) setCurrentFile(target)
       // Saved state becomes the new clean baseline (clears the tab dirty dot).
       cancelPendingDirtyCheck()
       baselineFingerprintRef.current = fingerprintExcelSheets(snapshot)
       dirtyReportedRef.current = false
       onSaveSuccess()
     })
-  }, [cancelPendingDirtyCheck, filePath, onRegisterSave, onSaveSuccess])
+  }, [cancelPendingDirtyCheck, filePath, onRegisterSave, onSaveSuccess, setCurrentFile])
 
   useEffect(() => {
     const shell = shellRef.current
@@ -1448,7 +1464,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       )
 
       try {
-        const result = await window.api.lw.copyImageToClipboard(previewImage.src)
+        const result = await desktopApi.documents.copyImageToClipboard(previewImage.src)
         if (!dialog.isConnected) return
         previewImage.dataset.fortuneClipboardState = 'copied'
         dialog.dataset.fortuneClipboardStatus = 'copied'
@@ -2200,7 +2216,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       })
       shell.querySelectorAll<HTMLElement>('.fortune-toolbar-combo-popup').forEach(decoratePicker)
       shell.querySelectorAll<HTMLElement>('#fortune-custom-color, #fortune-change-color').forEach((container) => {
-        mountExcelCircularColorPicker(container, { language })
+        mountExcelCircularColorPicker(container)
       })
     }
 
@@ -2256,13 +2272,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
   const handleWorkbookRef = useCallback((api: WorkbookInstance | null) => {
     workbookRef.current = api
-    if (!api) return
-    // Fortune recreates its imperative API whenever its internal context
-    // changes. Keep the Agent bridge pointed at the latest API closure; the
-    // first mount-time closure does not yet have a valid currentSheetId.
-    documentBridge.setExcel(api, filePath)
-    if (readyRef.current) return
+    if (!api || readyRef.current) return
     readyRef.current = true
+    documentBridge.setExcel(api, filePath)
     // Wait for Fortune's post-mount normalization, then lock the clean baseline.
     // (Single rAF was too short — click/selection still looked "dirty".)
     window.setTimeout(() => {
@@ -2304,10 +2316,6 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       data-manages-document-zoom
       data-testid="excel-editor-shell"
     >
-      <ExcelFunctionSuggestions
-        shellRef={shellRef}
-        language={language}
-      />
       <Workbook
         key={`${filePath}:${workbookLanguage}`}
         ref={handleWorkbookRef}

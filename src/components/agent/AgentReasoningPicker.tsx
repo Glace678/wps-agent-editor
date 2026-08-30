@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useMemo, useState } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronDown, Loader2 } from 'lucide-react'
@@ -48,7 +49,7 @@ export function AgentReasoningPicker({
     let cancelled = false
     setProfile(null)
     setError(null)
-    void window.api.provider.get(providerId).then((provider) => {
+    void desktopApi.providers.get(providerId).then((provider) => {
       if (!cancelled) setProfile(resolveAgentReasoningProfile(provider, model))
     }).catch(() => {
       if (!cancelled) setProfile({

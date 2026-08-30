@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import type {
   Alignment as ExcelAlignment,
@@ -374,72 +373,235 @@ function asArrayBuffer(value: ArrayBuffer | Uint8Array): ArrayBuffer {
   return Uint8Array.from(value).buffer
 }
 
-export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> {
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
-  const styledWorkbook = await loadStyledWorkbook(buffer)
-  const themeColors = parseThemeColors(styledWorkbook?.model.themes)
-  return wb.SheetNames.map((name, order) => {
-    const ws = wb.Sheets[name]
-    const styledSheet = styledWorkbook?.getWorksheet(name)
-    const ref = ws['!ref']
-    const celldata: NonNullable<Sheet['celldata']> = []
-    let maxR = 0
-    let maxC = 0
+type SpreadsheetValue = string | number | boolean | Date
 
-    if (ref) {
-      const range = XLSX.utils.decode_range(ref)
-      maxR = range.e.r
-      maxC = range.e.c
-      for (let r = range.s.r; r <= range.e.r; r++) {
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          const addr = XLSX.utils.encode_cell({ r, c })
-          const cell = ws[addr]
-          if (cell == null || (cell.v === undefined && cell.f === undefined && cell.w === undefined)) continue
+function normalizeExcelValue(value: unknown, depth = 0): SpreadsheetValue | undefined {
+  if (depth > 2 || value === null || value === undefined) return undefined
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value
+  }
+  if (value instanceof Date) return value
+  if (typeof value !== 'object') return String(value)
 
-          const styledCell = styledSheet?.getCell(r + 1, c + 1)
-          const richTextRuns = styledCell
-            ? toFortuneInlineStringRuns(styledCell, themeColors)
-            : undefined
-          const richTextValue = richTextRuns?.map((run) => String(run.v ?? '')).join('')
-          const numberFormat = styledCell?.numFmt?.trim() || 'General'
-          const cellType = cell.t === 'n'
-            ? 'n'
-            : cell.t === 'b'
-              ? 'b'
-              : cell.t === 'd'
-                ? 'd'
-                : 'g'
+  const record = value as Record<string, unknown>
+  if (Array.isArray(record.richText)) {
+    return record.richText
+      .map((run) => {
+        if (!run || typeof run !== 'object') return ''
+        return String((run as Record<string, unknown>).text ?? '')
+      })
+      .join('')
+  }
+  if ('result' in record) return normalizeExcelValue(record.result, depth + 1)
+  if (typeof record.text === 'string') return record.text
+  if (typeof record.hyperlink === 'string') return record.hyperlink
+  if (typeof record.error === 'string') return record.error
+  return String(value)
+}
 
-          celldata.push({
-            r,
-            c,
-            v: {
-              v: (richTextValue ?? cell.v) as string | number | boolean,
-              m: String(cell.w ?? richTextValue ?? cell.v ?? ''),
-              f: typeof cell.f === 'string' ? cell.f : undefined,
-              ct: richTextRuns
-                ? { fa: numberFormat, t: 'inlineStr', s: richTextRuns }
-                : { fa: numberFormat, t: cellType },
-              ...(styledCell
-                ? toFortuneStyle(styledCell, themeColors)
-                : {
-                    ff: DEFAULT_SPREADSHEET_FONT,
-                    fs: DEFAULT_SPREADSHEET_FONT_SIZE,
-                  }),
-            },
-          })
-        }
-      }
+function normalizeExcelCellValue(cell: ExcelCell): SpreadsheetValue | undefined {
+  return normalizeExcelValue(cell.value)
+}
+
+function decodeCsvBuffer(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  if (
+    bytes.length >= 8
+    && bytes[0] === 0xd0
+    && bytes[1] === 0xcf
+    && bytes[2] === 0x11
+    && bytes[3] === 0xe0
+    && bytes[4] === 0xa1
+    && bytes[5] === 0xb1
+    && bytes[6] === 0x1a
+    && bytes[7] === 0xe1
+  ) {
+    throw new Error('Legacy .xls files require WPS, LibreOffice, or Microsoft Excel conversion.')
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(bytes.subarray(2))
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    const swapped = Uint8Array.from(bytes.subarray(2))
+    for (let index = 0; index + 1 < swapped.length; index += 2) {
+      const first = swapped[index]
+      swapped[index] = swapped[index + 1]
+      swapped[index + 1] = first
     }
+    return new TextDecoder('utf-16le').decode(swapped)
+  }
+  const offset = bytes.length >= 3
+    && bytes[0] === 0xef
+    && bytes[1] === 0xbb
+    && bytes[2] === 0xbf
+    ? 3
+    : 0
+  return new TextDecoder('utf-8').decode(bytes.subarray(offset))
+}
+
+function detectCsvDelimiter(text: string): ',' | ';' | '\t' {
+  const counts = new Map<',' | ';' | '\t', number>([[',', 0], [';', 0], ['\t', 0]])
+  let quoted = false
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index]
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') index++
+      else quoted = !quoted
+      continue
+    }
+    if (!quoted && (character === '\r' || character === '\n')) break
+    if (!quoted && counts.has(character as ',' | ';' | '\t')) {
+      const delimiter = character as ',' | ';' | '\t'
+      counts.set(delimiter, (counts.get(delimiter) ?? 0) + 1)
+    }
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? ','
+}
+
+function parseCsv(text: string, delimiter: ',' | ';' | '\t'): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+
+  const appendRow = () => {
+    row.push(field)
+    field = ''
+    if (rows.length >= 100_000) throw new Error('CSV row limit exceeded (100000).')
+    if (row.length > 16_384) throw new Error('CSV column limit exceeded (16384).')
+    rows.push(row)
+    row = []
+  }
+
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index]
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') {
+        field += '"'
+        index++
+      } else {
+        quoted = !quoted
+      }
+    } else if (!quoted && character === delimiter) {
+      row.push(field)
+      field = ''
+    } else if (!quoted && (character === '\r' || character === '\n')) {
+      if (character === '\r' && text[index + 1] === '\n') index++
+      appendRow()
+    } else {
+      field += character
+    }
+  }
+
+  if (quoted) throw new Error('CSV contains an unterminated quoted field.')
+  if (field.length > 0 || row.length > 0) appendRow()
+  return rows
+}
+
+function normalizeCsvValue(value: string): string | number | boolean {
+  const trimmed = value.trim()
+  if (trimmed === 'true') return true
+  if (trimmed === 'false') return false
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(trimmed)) {
+    const significantDigits = trimmed.replace(/[^0-9]/g, '').replace(/^0+/, '').length
+    const numeric = Number(trimmed)
+    if (significantDigits <= 15 && Number.isFinite(numeric)) return numeric
+  }
+  return value
+}
+
+function csvBufferToSheets(buffer: ArrayBuffer): Sheet[] {
+  const bytes = new Uint8Array(buffer)
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    throw new Error('Unsupported spreadsheet package. Convert ODS to XLSX with WPS or LibreOffice.')
+  }
+
+  const text = decodeCsvBuffer(buffer)
+  const rows = parseCsv(text, detectCsvDelimiter(text))
+  const celldata: NonNullable<Sheet['celldata']> = []
+  let maxColumns = 0
+  rows.forEach((row, rowIndex) => {
+    maxColumns = Math.max(maxColumns, row.length)
+    row.forEach((rawValue, columnIndex) => {
+      if (rawValue === '') return
+      const value = normalizeCsvValue(rawValue)
+      celldata.push({
+        r: rowIndex,
+        c: columnIndex,
+        v: {
+          v: value,
+          m: rawValue,
+          ct: { fa: 'General', t: typeof value === 'number' ? 'n' : typeof value === 'boolean' ? 'b' : 'g' },
+          ff: DEFAULT_SPREADSHEET_FONT,
+          fs: DEFAULT_SPREADSHEET_FONT_SIZE,
+        },
+      })
+    })
+  })
+
+  return [{
+    name: 'Sheet1',
+    id: ensureSheetId(0),
+    celldata,
+    order: 0,
+    status: 1,
+    row: Math.max(rows.length + 49, 84),
+    column: Math.max(maxColumns + 9, 60),
+  } satisfies Sheet]
+}
+
+export async function xlsxBufferToSheets(buffer: ArrayBuffer): Promise<Sheet[]> {
+  const styledWorkbook = await loadStyledWorkbook(buffer)
+  if (!styledWorkbook) return csvBufferToSheets(buffer)
+
+  const themeColors = parseThemeColors(styledWorkbook?.model.themes)
+  return styledWorkbook.worksheets.map((styledSheet, order) => {
+    const celldata: NonNullable<Sheet['celldata']> = []
+    styledSheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      row.eachCell({ includeEmpty: false }, (styledCell, columnNumber) => {
+        const formula = styledCell.formula || undefined
+        const value = normalizeExcelCellValue(styledCell)
+        if (value === undefined && formula === undefined) return
+
+        const richTextRuns = toFortuneInlineStringRuns(styledCell, themeColors)
+        const richTextValue = richTextRuns?.map((run) => String(run.v ?? '')).join('')
+        const normalizedValue = richTextValue ?? value ?? ''
+        const numberFormat = styledCell.numFmt?.trim() || 'General'
+        const cellType = normalizedValue instanceof Date
+          ? 'd'
+          : typeof normalizedValue === 'number'
+            ? 'n'
+            : typeof normalizedValue === 'boolean'
+              ? 'b'
+              : 'g'
+
+        celldata.push({
+          r: rowNumber - 1,
+          c: columnNumber - 1,
+          v: {
+            v: normalizedValue instanceof Date
+              ? normalizedValue.toISOString()
+              : normalizedValue,
+            m: styledCell.text || String(normalizedValue),
+            f: formula,
+            ct: richTextRuns
+              ? { fa: numberFormat, t: 'inlineStr', s: richTextRuns }
+              : { fa: numberFormat, t: cellType },
+            ...toFortuneStyle(styledCell, themeColors),
+          },
+        })
+      })
+    })
 
     return {
-      name: name || `Sheet${order + 1}`,
+      name: styledSheet.name || `Sheet${order + 1}`,
       id: ensureSheetId(order),
       celldata,
       order,
       status: order === 0 ? 1 : 0,
-      row: Math.max(maxR + 50, 84),
-      column: Math.max(maxC + 10, 60),
+      hide: styledSheet.state === 'hidden' || styledSheet.state === 'veryHidden' ? 1 : 0,
+      row: Math.max(styledSheet.actualRowCount + 49, 84),
+      column: Math.max(styledSheet.actualColumnCount + 9, 60),
     } satisfies Sheet
   })
 }

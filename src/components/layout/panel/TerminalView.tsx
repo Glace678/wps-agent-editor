@@ -1,7 +1,9 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { useDebugStore } from '@/stores/debug.store'
 import { usePanelStore } from '@/stores/panel.store'
+import type { TerminalEvent } from '@/types/desktop-api'
 
 interface TerminalLine {
   id: string
@@ -19,9 +21,7 @@ export function TerminalView() {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!window.api) return () => {}
-    const dispose = window.api.on('lw:terminal-event', (payload) => {
-      const event = payload as { type?: string; text?: string; code?: number | null }
+    const dispose = desktopApi.process.onTerminalEvent((event: TerminalEvent) => {
       if (event?.type === 'output') {
         setLines((prev) => [...prev, { id: `t${terminalLineId++}`, kind: 'out' as const, text: String(event.text ?? '') }].slice(-2000))
       } else if (event?.type === 'exit') {
@@ -47,7 +47,7 @@ export function TerminalView() {
     setInput('')
     setRunning(true)
     setLines((prev) => [...prev, { id: `t${terminalLineId++}`, kind: 'in' as const, text: command }])
-    void window.api?.lw.terminalExec(command)
+    void desktopApi.process.terminalExec(command)
   }
 
   return (

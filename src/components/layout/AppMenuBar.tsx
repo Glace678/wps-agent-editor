@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n/runtime'
@@ -31,9 +32,7 @@ const menus: ReadonlyArray<{ top: AppMenuTop; label: TranslationKey; items: read
       ? [['run-multi-agent', 'menu.runMultiAgent', 'Ctrl+Shift+A'] as const]
       : []),
   ] },
-  { top: 'help', label: 'menu.help', items: [
-    ['open-onlyoffice-docs', 'menu.onlyOfficeDocs'], ['show-about', 'menu.aboutTitle'],
-  ] },
+  { top: 'help', label: 'menu.help', items: [['show-about', 'menu.aboutTitle']] },
 ]
 
 const contentClass = 'z-[10000] min-w-[210px] rounded-xl border border-border bg-popover p-1.5 text-[13px] text-popover-foreground shadow-lg'
@@ -58,7 +57,7 @@ export function AppMenuBar({ className }: { className?: string }) {
   }
   useEffect(() => () => clearCloseTimer(), [])
 
-  if (window.api.platform === 'darwin') return null
+  if (desktopApi.app.platform === 'darwin') return null
 
   const handleOpenChange = (top: AppMenuTop, open: boolean) => {
     if (open) return setMenu(top)
@@ -74,7 +73,7 @@ export function AppMenuBar({ className }: { className?: string }) {
   }
   const handleAction = (action: AppMenuAction) => {
     setMenu(null)
-    void window.api.appMenu.perform(action)
+    void desktopApi.app.performMenuAction(action)
   }
 
   return (

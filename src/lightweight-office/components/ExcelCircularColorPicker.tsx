@@ -1,8 +1,5 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { useTranslation } from '@/lib/i18n/runtime'
-import { t as translate } from '@/lib/i18n/translate'
-import type { LanguageCode, TranslationKey } from '@/lib/i18n/types'
 
 export interface RGB {
   r: number
@@ -119,7 +116,6 @@ const WHEEL_RADIUS = WHEEL_SIZE / 2 - 4
 
 export interface ExcelCircularColorPickerProps {
   initialColor?: string
-  language?: LanguageCode
   onSelectColor?: (color: string) => void
   onConfirm?: (color: string) => void
   onReset?: () => void
@@ -127,15 +123,10 @@ export interface ExcelCircularColorPickerProps {
 
 export function ExcelCircularColorPicker({
   initialColor = '#7092BE',
-  language: propLanguage,
   onSelectColor,
   onConfirm,
   onReset,
 }: ExcelCircularColorPickerProps) {
-  const { language: appLanguage } = useTranslation()
-  const currentLanguage = propLanguage || appLanguage
-  const t = (key: TranslationKey) => translate(key, currentLanguage)
-
   const initialRgb = useMemo(() => {
     return hexToRgb(initialColor) || { r: 112, g: 146, b: 190 }
   }, [initialColor])
@@ -364,7 +355,7 @@ export function ExcelCircularColorPicker({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
       role="region"
-      aria-label={t('excelEditor.colorPicker')}
+      aria-label="颜色选择器"
     >
       {/* Top action bar with Reset and Confirm buttons */}
       <div className="excel-color-header">
@@ -374,7 +365,7 @@ export function ExcelCircularColorPicker({
           onClick={() => onReset?.()}
           tabIndex={0}
         >
-          {t('excelEditor.resetColor')}
+          重置颜色
         </button>
         <button
           type="button"
@@ -382,7 +373,7 @@ export function ExcelCircularColorPicker({
           onClick={() => onConfirm?.(currentHex)}
           tabIndex={0}
         >
-          {t('excelEditor.confirmColor')}
+          确定
         </button>
       </div>
 
@@ -445,13 +436,13 @@ export function ExcelCircularColorPicker({
               value={hexInput}
               onChange={handleHexChange}
               onBlur={handleHexBlur}
-              aria-label={t('excelEditor.hexColorCode')}
+              aria-label="Hex 颜色代码"
               spellCheck={false}
             />
           </div>
 
           {/* Mode Selector */}
-          <div className="excel-color-mode-select" title={t('excelEditor.colorMode')}>
+          <div className="excel-color-mode-select" title="颜色模式">
             <span>RGB</span>
             <span className="excel-color-chevron">⌵</span>
           </div>
@@ -466,9 +457,9 @@ export function ExcelCircularColorPicker({
               className="excel-color-channel-input"
               value={rgbState.r}
               onChange={(e) => handleChannelChange('r', e.target.value)}
-              aria-label={t('excelEditor.redChannel')}
+              aria-label="红色通道"
             />
-            <label htmlFor={redInputId} className="excel-color-channel-label">{t('excelEditor.red')}</label>
+            <label htmlFor={redInputId} className="excel-color-channel-label">红色</label>
           </div>
 
           {/* Green Channel */}
@@ -481,9 +472,9 @@ export function ExcelCircularColorPicker({
               className="excel-color-channel-input"
               value={rgbState.g}
               onChange={(e) => handleChannelChange('g', e.target.value)}
-              aria-label={t('excelEditor.greenChannel')}
+              aria-label="绿色通道"
             />
-            <label htmlFor={greenInputId} className="excel-color-channel-label">{t('excelEditor.green')}</label>
+            <label htmlFor={greenInputId} className="excel-color-channel-label">绿色</label>
           </div>
 
           {/* Blue Channel */}
@@ -496,9 +487,9 @@ export function ExcelCircularColorPicker({
               className="excel-color-channel-input"
               value={rgbState.b}
               onChange={(e) => handleChannelChange('b', e.target.value)}
-              aria-label={t('excelEditor.blueChannel')}
+              aria-label="蓝色通道"
             />
-            <label htmlFor={blueInputId} className="excel-color-channel-label">{t('excelEditor.blue')}</label>
+            <label htmlFor={blueInputId} className="excel-color-channel-label">蓝色</label>
           </div>
         </div>
       </div>
@@ -516,7 +507,6 @@ export function mountExcelCircularColorPicker(
   container: HTMLElement,
   options?: {
     initialColor?: string
-    language?: LanguageCode
     onSelectColor?: (color: string) => void
     onConfirm?: (color: string) => void
     onReset?: () => void
@@ -530,13 +520,6 @@ export function mountExcelCircularColorPicker(
   // Look for native input[type="color"] to get the initial color
   const nativeInput = container.querySelector<HTMLInputElement>('input[type="color"]')
   let initialColor = options?.initialColor
-  if (!initialColor) {
-    const borderOption = container.closest('.fortune-border-select-option')
-    const borderPreview = borderOption?.querySelector<HTMLElement>('.fortune-border-color-preview')
-    if (borderPreview && borderPreview.style.backgroundColor) {
-      initialColor = borderPreview.style.backgroundColor
-    }
-  }
   if (!initialColor) {
     const comboContainer = container.closest('.fortune-toobar-combo-container')
     const underlineBar = comboContainer?.parentElement?.querySelector<HTMLElement>(
@@ -572,12 +555,6 @@ export function mountExcelCircularColorPicker(
   }
 
   const handleSelect = (color: string) => {
-    const borderOption = container.closest('.fortune-border-select-option')
-    const borderPreview = borderOption?.querySelector<HTMLElement>('.fortune-border-color-preview')
-    if (borderPreview) {
-      borderPreview.style.backgroundColor = color
-    }
-
     if (nativeInput) {
       const nativeSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
@@ -613,7 +590,6 @@ export function mountExcelCircularColorPicker(
   root.render(
     <ExcelCircularColorPicker
       initialColor={initialColor}
-      language={options?.language}
       onSelectColor={handleSelect}
       onConfirm={handleConfirm}
       onReset={handleReset}

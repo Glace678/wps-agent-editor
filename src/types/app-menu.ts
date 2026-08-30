@@ -19,7 +19,6 @@ export const APP_MENU_ACTIONS = [
   'toggle-fullscreen',
   'new-agent',
   'run-multi-agent',
-  'open-onlyoffice-docs',
   'show-about',
 ] as const
 

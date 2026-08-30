@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useRef, useEffect, useState, type DragEvent, type ReactNode } from 'react'
 import {
   AlertCircle,
@@ -21,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { ChatMessage, AgentAttachment, AgentReasoningSelection } from '@/types/agent'
+import type { CodexImportResult, ConversationSummary } from '@/types/generated'
 import { useAgentStore } from '@/stores/agent.store'
 import { FileIcon } from '@/components/file-manager/FileIcon'
 import {
@@ -42,6 +44,10 @@ interface AgentChatProps {
   model: string
   reasoning: AgentReasoningSelection | undefined
   messages: ChatMessage[]
+  conversations: ConversationSummary[]
+  activeConversationId?: string
+  isImportingCodex: boolean
+  codexImportResult: CodexImportResult | null
   isRunning: boolean
   onStop: () => void
   onSend: (content: string, attachments: AgentAttachment[]) => void
@@ -49,7 +55,10 @@ interface AgentChatProps {
   onSelectReasoning: (selection: AgentReasoningSelection) => Promise<void>
   onConfigureProviders: () => void
   onEditAgent: () => void
-  onClearHistory?: () => void
+  onClearHistory: () => Promise<void> | void
+  onNewConversation: () => void
+  onImportCodex: () => Promise<void> | void
+  onLoadConversation: (conversationId: string) => Promise<void> | void
   beforeComposer?: ReactNode
 }
 
@@ -127,6 +136,10 @@ export function AgentChat({
   model,
   reasoning,
   messages,
+  conversations,
+  activeConversationId,
+  isImportingCodex,
+  codexImportResult,
   isRunning,
   onStop,
   onSend,
@@ -135,6 +148,9 @@ export function AgentChat({
   onConfigureProviders,
   onEditAgent,
   onClearHistory,
+  onNewConversation,
+  onImportCodex,
+  onLoadConversation,
   beforeComposer,
 }: AgentChatProps) {
   const { language, t } = useTranslation()
@@ -188,10 +204,14 @@ export function AgentChat({
     setIsPickingFiles(true)
     setAttachmentError(null)
     try {
-      const paths = await selectAgentAttachmentPaths(window.api.file)
+      const selections = await selectAgentAttachmentPaths(desktopApi.files)
       addDraftAttachments(
         agentId,
-        paths.map((filePath) => createAgentAttachment(filePath, 'picker')),
+        selections.map((selection) => createAgentAttachment(
+          selection.path,
+          'picker',
+          selection.grantId,
+        )),
       )
     } catch (error) {
       console.error('[AgentChat] Failed to open attachment picker:', error)
@@ -242,14 +262,16 @@ export function AgentChat({
         {/* History Panel Overlay */}
         {showHistory && (
           <AgentChatHistory
-            messages={messages}
-            agentName={agentName}
-            agentColor={currentAgent?.color}
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            currentMessageCount={messages.length}
+            isImportingCodex={isImportingCodex}
+            importResult={codexImportResult}
             onClose={() => setShowHistory(false)}
-            onClear={() => {
-              onClearHistory?.()
-              setShowHistory(false)
-            }}
+            onClear={onClearHistory}
+            onNew={onNewConversation}
+            onImportCodex={onImportCodex}
+            onSelect={onLoadConversation}
           />
         )}
 

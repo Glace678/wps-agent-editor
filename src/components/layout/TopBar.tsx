@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { Sun, Moon } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from '@/lib/i18n/runtime'
@@ -14,7 +15,7 @@ import {
 
 export function TopBar() {
   const { t } = useTranslation()
-  const showAppMenu = window.api.platform !== 'darwin'
+  const showAppMenu = desktopApi.app.platform !== 'darwin'
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference)
   const [isDark, setIsDark] = useState(() => resolveDarkTheme(theme))
 

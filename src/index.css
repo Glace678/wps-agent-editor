@@ -70,14 +70,7 @@
   }
 }
 
-/* OnlyOffice iframe 容器 */
-.onlyoffice-container iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
-}
-
-/* 文档区缩放目标（PDF/Excel/文本/OnlyOffice 等）；Word 正文单独在 word-editor.css 处理 */
+/* 文档区缩放目标；Word 正文单独在 word-editor.css 处理。 */
 .document-zoom-target {
   zoom: var(--document-zoom, 1);
   transform-origin: top left;

@@ -1,13 +1,5 @@
 import type { ProviderReasoningEffort } from './provider'
-import type {
-  AgentApprovalRequest,
-  AgentApprovalResponse,
-  AgentUserDocumentActivity,
-  DocumentEngine,
-  DocumentPosition,
-  DocumentRange,
-  WordPlaybackState,
-} from './document'
+import type { DocumentEngine, DocumentPosition, DocumentRange } from './document'
 
 export type AgentReasoningSelection =
   | { kind: 'auto' }
@@ -16,16 +8,11 @@ export type AgentReasoningSelection =
   | { kind: 'effort'; value: ProviderReasoningEffort }
   | { kind: 'budget'; tokens: number }
 
-/** Legacy persisted values are accepted by the main-process migration only. */
-export type LegacyAgentReasoningEffort = 'auto' | 'low' | 'medium' | 'high'
-
 export interface AgentConfig {
   id: string
   name: string
   role: string
   systemPrompt: string
-  /** User-editable strategy for splitting and ordering document draft operations. */
-  documentOperationPrompt: string
   providerId: string
   /** Explicit model used by this Agent. Saved Agent requests never infer a default. */
   model: string
@@ -40,6 +27,7 @@ export type AgentAttachmentSource = 'browse' | 'recent' | 'tab' | 'picker'
 /** A user-selected local file. File contents are loaded only in the main process. */
 export interface AgentAttachment {
   path: string
+  grantId: string
   name: string
   source: AgentAttachmentSource
 }
@@ -50,6 +38,8 @@ export interface ChatMessage {
   timestamp?: number
   attachments?: AgentAttachment[]
   cacheUsage?: AgentCacheUsage
+  /** Renderer-only correlation key while an assistant response is streaming. */
+  streamingRunId?: string
 }
 
 /** Provider-reported prompt-cache usage. A rate is never estimated as measured. */
@@ -84,6 +74,7 @@ export type AgentCollaborationEventType =
   | 'agent-question'
   | 'agent-answer'
   | 'agent-message'
+  | 'agent-stream'
   | 'agent-tool'
   | 'handoff'
   | 'agent-complete'
@@ -94,18 +85,8 @@ export type AgentCollaborationEventType =
   | 'document-operation-rejected'
   | 'document-operation-undone'
   | 'document-revision-changed'
-  | 'document-plan-prepared'
-  | 'word-playback-started'
-  | 'word-playback-progress'
-  | 'word-playback-paused'
-  | 'word-playback-resumed'
-  | 'word-playback-interrupted'
-  | 'word-playback-completed'
-  | 'user-document-activity'
   | 'conflict'
   | 'approval-required'
-  | 'approval-invalidated'
-  | 'approval-resolved'
   | 'run-paused'
   | 'run-cancelled'
   | 'run-complete'
@@ -114,6 +95,7 @@ export type AgentCollaborationEventType =
 /** Serializable trace event emitted by the main process while a collaboration runs. */
 export interface AgentCollaborationEvent {
   runId: string
+  windowLabel: string
   type: AgentCollaborationEventType
   timestamp: number
   agentId?: string
@@ -136,21 +118,8 @@ export interface AgentCollaborationEvent {
   baseRevision?: number
   revision?: number
   position?: DocumentPosition
-  page?: number
-  blockId?: string
   range?: DocumentRange
   action?: string
   phase?: string
   message?: string
-  eventId?: string
-  planId?: string
-  planVersion?: number
-  stepId?: string
-  completed?: number
-  total?: number
-  visual?: string
-  playback?: WordPlaybackState
-  activity?: AgentUserDocumentActivity
-  approval?: AgentApprovalRequest
-  approvalResponse?: AgentApprovalResponse
 }

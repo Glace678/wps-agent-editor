@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import {
   useCallback,
   useEffect,
@@ -8,6 +9,11 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import * as monaco from 'monaco-editor'
+import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+import CssWorker from 'monaco-editor/languages/features/css/css.worker.js?worker'
+import HtmlWorker from 'monaco-editor/languages/features/html/html.worker.js?worker'
+import JsonWorker from 'monaco-editor/languages/features/json/json.worker.js?worker'
+import TypeScriptWorker from 'monaco-editor/languages/features/typescript/ts.worker.js?worker'
 import {
   Bug,
   ChevronRight,
@@ -35,23 +41,34 @@ import { useDebugStore } from '@/stores/debug.store'
 import { usePanelStore } from '@/stores/panel.store'
 import type { DebugCommand } from '@/types/code'
 import type { DocumentEvent } from '@/types/document'
-import type { ArtifactTextMetadata } from '@/types/artifact-review'
 import { documentBridge } from '../agent/document-bridge'
 import { readFileBytes } from '../utils/file-io'
-import {
-  consumeCodeBufferSnapshot,
-  getCodeModelMetadata,
-  setCodeModelMetadata,
-} from './code-buffer-registry'
-import { codeEditorTheme, configureMonaco } from './monaco-runtime'
 import './code-debug.css'
 
+type MonacoEnvironmentGlobal = typeof globalThis & {
+  MonacoEnvironment?: {
+    getWorker: (moduleId: string, label: string) => Worker
+  }
+}
+
+;(globalThis as MonacoEnvironmentGlobal).MonacoEnvironment = {
+  getWorker(_moduleId, label) {
+    if (label === 'json') return new JsonWorker()
+    if (label === 'css' || label === 'scss' || label === 'less') return new CssWorker()
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new HtmlWorker()
+    if (label === 'typescript' || label === 'javascript') return new TypeScriptWorker()
+    return new EditorWorker()
+  },
+}
+
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>()
+let themesRegistered = false
+let languageDefaultsConfigured = false
 
 const LEGACY_CODE_FONT_SIZE_KEY = 'wps-code-editor-font-size'
+const CODE_FONT_SIZE_MIN = 8
+const CODE_FONT_SIZE_MAX = 32
 const CODE_FONT_SIZE_DEFAULT = 14
-const CODE_FONT_SIZE_MIN = CODE_FONT_SIZE_DEFAULT * 0.1
-const CODE_FONT_SIZE_MAX = CODE_FONT_SIZE_DEFAULT * 3
 const CODE_FONT_LINE_HEIGHT_RATIO = 22 / 14
 const CODE_SCROLLBAR_THUMB_HEIGHT = 48
 const IMMEDIATE_SCROLL_TYPE = 1 as monaco.editor.ScrollType
@@ -219,6 +236,78 @@ function installFixedVerticalScrollbar(
   }
 }
 
+function configureMonaco(): void {
+  if (!themesRegistered) {
+    monaco.editor.defineTheme('wps-code-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'keyword', foreground: '075DB7', fontStyle: 'bold' },
+        { token: 'type', foreground: '087E8B' },
+        { token: 'type.identifier', foreground: '087E8B' },
+        { token: 'string', foreground: '187A2F' },
+        { token: 'number', foreground: 'B24A00' },
+        { token: 'comment', foreground: '6A737D', fontStyle: 'italic' },
+        { token: 'regexp', foreground: 'A31575' },
+      ],
+      colors: {
+        'editor.background': '#FFFFFF',
+        'editor.foreground': '#202124',
+        'editor.lineHighlightBackground': '#F3F6F8',
+        'editor.selectionBackground': '#ADD6FF',
+        'editor.inactiveSelectionBackground': '#DCEBFA',
+        'editorGutter.background': '#F8F9FA',
+        'editorLineNumber.foreground': '#7A818A',
+        'editorLineNumber.activeForeground': '#202124',
+        'editorIndentGuide.background1': '#D9DEE3',
+      },
+    })
+    monaco.editor.defineTheme('wps-code-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'keyword', foreground: '65A9FF', fontStyle: 'bold' },
+        { token: 'type', foreground: '4EC9B0' },
+        { token: 'type.identifier', foreground: '4EC9B0' },
+        { token: 'string', foreground: '9CDC8C' },
+        { token: 'number', foreground: 'F2A65A' },
+        { token: 'comment', foreground: '8B949E', fontStyle: 'italic' },
+        { token: 'regexp', foreground: 'D16D9E' },
+      ],
+      colors: {
+        'editor.background': '#181A1F',
+        'editor.foreground': '#DDE1E6',
+        'editor.lineHighlightBackground': '#22252B',
+        'editor.selectionBackground': '#264F78',
+        'editor.inactiveSelectionBackground': '#303A46',
+        'editorGutter.background': '#15171B',
+        'editorLineNumber.foreground': '#7D8590',
+        'editorLineNumber.activeForeground': '#E6EDF3',
+        'editorIndentGuide.background1': '#30343B',
+      },
+    })
+    themesRegistered = true
+  }
+
+  if (!languageDefaultsConfigured) {
+    const options: monaco.typescript.CompilerOptions = {
+      allowNonTsExtensions: true,
+      allowJs: true,
+      checkJs: false,
+      target: monaco.typescript.ScriptTarget.ESNext,
+      module: monaco.typescript.ModuleKind.ESNext,
+      moduleResolution: monaco.typescript.ModuleResolutionKind.NodeJs,
+      jsx: monaco.typescript.JsxEmit.ReactJSX,
+      noEmit: true,
+    }
+    monaco.typescript.typescriptDefaults.setCompilerOptions(options)
+    monaco.typescript.javascriptDefaults.setCompilerOptions(options)
+    monaco.typescript.typescriptDefaults.setEagerModelSync(true)
+    monaco.typescript.javascriptDefaults.setEagerModelSync(true)
+    languageDefaultsConfigured = true
+  }
+}
+
 function decodeSource(bytes: Uint8Array): string {
   if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     return new TextDecoder('utf-8').decode(bytes.subarray(3))
@@ -295,13 +384,6 @@ export function CodeEditor({
   const editorHostRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const modelRef = useRef<monaco.editor.ITextModel | null>(null)
-  const metadataRef = useRef<ArtifactTextMetadata>({
-    encoding: 'utf-8',
-    hasBom: false,
-    eol: 'lf',
-    languageId: language?.language ?? 'plaintext',
-    dirty: false,
-  })
   const onDirtyRef = useRef(onDirty)
   const onReadyRef = useRef(onReady)
   const onShellNextTabRef = useRef(onShellNextTab)
@@ -381,9 +463,7 @@ export function CodeEditor({
   const saveCurrent = useCallback(async () => {
     const model = modelRef.current
     if (!model) return
-    await window.api.lw.saveText(filePath, model.getValue(), 'utf-8')
-    metadataRef.current = { ...metadataRef.current, dirty: false }
-    setCodeModelMetadata(model.uri.toString(), metadataRef.current)
+    await desktopApi.documents.saveText(filePath, model.getValue(), 'utf-8')
     onSaveSuccess()
   }, [filePath, onSaveSuccess])
 
@@ -491,7 +571,7 @@ export function CodeEditor({
     setIsRunning(true)
     try {
       await saveCurrent()
-      const result = await window.api.lw.runCode(filePath)
+      const result = await desktopApi.process.runCode(filePath)
       const lines = [
         result.command ? `> ${result.command}` : '',
         result.stdout,
@@ -547,7 +627,7 @@ export function CodeEditor({
     useDebugStore.getState().setStatus('starting')
     usePanelStore.getState().openTab('debug-console')
     setStatus(t('codeEditor.debugStarting'))
-    const result = await window.api.lw.debugStart(filePath, breakpoints)
+    const result = await desktopApi.process.debugStart(filePath, breakpoints)
     if (result.ok) {
       useDebugStore.getState().startSession(filePath, result.kind ?? 'node')
       setStatus(t('codeEditor.debugRunning'))
@@ -561,13 +641,13 @@ export function CodeEditor({
   }, [debuggable, filePath, saveCurrent, t])
 
   const stopDebug = useCallback(() => {
-    void window.api.lw.debugStop()
+    void desktopApi.process.debugStop()
     useDebugStore.getState().endSession()
     setStatus(t('codeEditor.debugSessionEnded'))
   }, [t])
 
   const debugCommand = useCallback((command: DebugCommand) => {
-    void window.api.lw.debugCommand(command)
+    void desktopApi.process.debugCommand(command)
   }, [])
 
   const toggleDebug = useCallback(() => {
@@ -687,36 +767,9 @@ export function CodeEditor({
         if (!model) {
           const bytes = await readFileBytes(filePath)
           if (cancelled) return
-          const source = decodeSource(bytes)
-          const crlfCount = source.match(/\r\n/g)?.length ?? 0
-          const lfCount = (source.match(/\n/g)?.length ?? 0) - crlfCount
-          metadataRef.current = {
-            encoding: 'utf-8',
-            hasBom: bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf,
-            eol: crlfCount > 0 && lfCount > 0 ? 'mixed' : crlfCount > 0 ? 'crlf' : 'lf',
-            languageId: language.language,
-            dirty: false,
-          }
-          model = monaco.editor.createModel(source, language.language, uri)
-          setCodeModelMetadata(uri.toString(), metadataRef.current)
+          model = monaco.editor.createModel(decodeSource(bytes), language.language, uri)
         } else {
           monaco.editor.setModelLanguage(model, language.language)
-          metadataRef.current = getCodeModelMetadata(uri.toString()) ?? {
-            encoding: 'utf-8',
-            hasBom: false,
-            eol: model.getEOL() === '\r\n' ? 'crlf' : 'lf',
-            languageId: language.language,
-            dirty: false,
-          }
-        }
-        const pendingSnapshot = consumeCodeBufferSnapshot(filePath)
-        if (pendingSnapshot) {
-          if (model.getValue() !== pendingSnapshot.text) model.setValue(pendingSnapshot.text)
-          metadataRef.current = {
-            ...pendingSnapshot.metadata,
-            languageId: language.language,
-          }
-          setCodeModelMetadata(uri.toString(), metadataRef.current)
         }
         if (cancelled) return
 
@@ -724,7 +777,7 @@ export function CodeEditor({
         documentBridge.setPlainText(model.getValue(), filePath, 'system')
         editor = monaco.editor.create(host, {
           model,
-          theme: codeEditorTheme(),
+          theme: getDarkTheme() ? 'wps-code-dark' : 'wps-code-light',
           automaticLayout: true,
           contextmenu: false,
           fontFamily: 'Cascadia Code, Consolas, monospace',
@@ -755,13 +808,6 @@ export function CodeEditor({
           getPosition: () => editor?.getPosition() ?? null,
           getLineCount: () => model.getLineCount(),
           getLineMaxColumn: (lineNumber) => model.getLineMaxColumn(lineNumber),
-          getOffsetAt: (position) => model.getOffsetAt(position),
-          getPositionAt: (offset) => model.getPositionAt(offset),
-          getTextMetadata: () => ({
-            ...metadataRef.current,
-            eol: model.getEOL() === '\r\n' ? 'crlf' : metadataRef.current.eol === 'mixed' ? 'mixed' : 'lf',
-            languageId: language.language,
-          }),
           executeEdits: (source, edits) => {
             editor?.executeEdits(source, edits)
           },
@@ -775,8 +821,6 @@ export function CodeEditor({
 
         disposables.push(
           editor.onDidChangeModelContent(() => {
-            metadataRef.current = { ...metadataRef.current, dirty: true }
-            setCodeModelMetadata(model.uri.toString(), metadataRef.current)
             documentBridge.setPlainText(model.getValue(), filePath)
             onDirtyRef.current()
           }),
@@ -911,7 +955,7 @@ export function CodeEditor({
   }, [changeFontSize, resetFontSize])
 
   useEffect(() => {
-    const applyTheme = () => monaco.editor.setTheme(codeEditorTheme())
+    const applyTheme = () => monaco.editor.setTheme(getDarkTheme() ? 'wps-code-dark' : 'wps-code-light')
     const observer = new MutationObserver(applyTheme)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     applyTheme()

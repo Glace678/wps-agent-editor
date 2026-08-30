@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bug,
@@ -47,14 +48,7 @@ export function BottomPanel() {
   const [problemCount, setProblemCount] = useState(0)
   const resizeRef = useRef<{ cleanup: (() => void) | null }>({ cleanup: null })
   useEffect(() => {
-    const disposeDebug = window.api
-      ? window.api.on('lw:debug-event', (payload) => handleDebugEvent(payload as DebugEvent))
-      : () => {}
-    const disposeTerminal = window.api ? window.api.on('lw:terminal-event', () => {}) : () => {}
-    return () => {
-      disposeDebug()
-      disposeTerminal()
-    }
+    return desktopApi.process.onDebugEvent((event) => handleDebugEvent(event as DebugEvent))
   }, [])
 
   const startResize = useCallback((startY: number) => {
@@ -217,7 +211,7 @@ export function BottomPanel() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    onClick={() => void window.api.lw.terminalKill()}
+                    onClick={() => void desktopApi.process.terminalKill()}
                     aria-label={t('bottomPanel.killTerminal')}
                   >
                     <X className="h-3.5 w-3.5" />

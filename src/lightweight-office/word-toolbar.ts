@@ -50,7 +50,6 @@ export const FULL_WORD_TOOLBAR_GROUPS = {
     'overflow',
   ],
   right: [
-    'ruler',
     'formattingMarks',
     'zoom',
     'acceptTrackedChangeBySelection',

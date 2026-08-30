@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import {
   buildTextIndex,
   PptxViewer,
@@ -152,8 +153,9 @@ function copyBinaryData(data: Uint8Array | ArrayBuffer): ArrayBuffer {
 }
 
 function resolvePresentationSavePath(filePath: string): string {
-  if (getExtension(filePath) !== 'ppt') return filePath
-  return filePath.replace(/\.ppt$/i, '.pptx')
+  return ['ppt', 'odp'].includes(getExtension(filePath))
+    ? filePath.replace(/\.(?:ppt|odp)$/i, '.pptx')
+    : filePath
 }
 
 function parseOutlineSlides(outline: string): PresentationSlideText[] {
@@ -550,10 +552,6 @@ export function PresentationViewer({
   const preferredThumbnailPaneWidthRef = useRef(thumbnailPaneWidth)
 
   useEffect(() => {
-    documentBridge.setPresentation(filePath)
-  }, [filePath])
-
-  useEffect(() => {
     presentationBufferRef.current = null
     presentationSlideXmlRef.current = []
     presentationBufferFileRef.current = filePath
@@ -567,7 +565,14 @@ export function PresentationViewer({
     onRegisterSave?.(async () => {
       const buffer = presentationBufferRef.current
       if (!buffer) return
-      const target = savePathRef.current
+      let target = savePathRef.current
+      if (!desktopApi.files.getGrantId(target)) {
+        const defaultName = target.split(/[/\\]/).pop() || 'presentation.pptx'
+        const selected = await desktopApi.files.selectSaveFile(defaultName)
+        if (!selected) return
+        target = selected.path
+        savePathRef.current = target
+      }
       await saveFileBuffer(target, buffer)
       if (target !== filePath) setCurrentFile(target)
       onSaveSuccess?.()
@@ -856,7 +861,9 @@ export function PresentationViewer({
         console.error('[PresentationViewer] Unable to open presentation:', error)
         const message = error instanceof Error ? error.message : String(error)
         setLoadError(
-          getExtension(filePath) === 'ppt' && message.includes('PRESENTATION_CONVERTER_UNAVAILABLE')
+          ['ppt', 'odp'].includes(getExtension(filePath))
+            && (message.includes('PRESENTATION_CONVERTER_UNAVAILABLE')
+              || (error instanceof Error && 'code' in error && error.code === 'dependency-missing'))
             ? 'legacy'
             : 'document',
         )
@@ -979,7 +986,7 @@ export function PresentationViewer({
     setEditBusy(true)
     setEditError('')
     try {
-      const result = await window.api.lw.editPresentation({
+      const result = await desktopApi.documents.editPresentation({
         data: new Uint8Array(buffer),
         operation,
       })
@@ -1117,8 +1124,9 @@ export function PresentationViewer({
 
   const reuseSlides = useCallback(() => {
     void (async () => {
-      const sourcePath = await window.api.file.selectFile('presentation')
-      if (!sourcePath) return
+      const selectedSource = await desktopApi.files.selectFile('presentation')
+      if (!selectedSource) return
+      const sourcePath = selectedSource.path
       await executeEditOperation({ type: 'reuseSlides', afterSlideIndex: currentSlide, sourcePath })
     })()
   }, [currentSlide, executeEditOperation])

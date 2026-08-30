@@ -1,7 +1,10 @@
 import { create } from 'zustand'
 import type { AgentAttachment, AgentCollaborationEvent, AgentConfig, ChatMessage } from '@/types/agent'
-import type { AgentApprovalRequest, WordPlaybackState } from '@/types/document'
-import type { ArtifactDraftManifest, ArtifactReviewState } from '@/types/artifact-review'
+import type {
+  CodexImportResult,
+  ConversationRecord,
+  ConversationSummary,
+} from '@/types/generated'
 import { dedupeAgentAttachments } from '@/lib/agent-attachments'
 
 interface AgentState {
@@ -9,6 +12,9 @@ interface AgentState {
   activeAgentId: string | null
   messages: Record<string, ChatMessage[]>
   conversationIds: Record<string, string>
+  conversationSummaries: ConversationSummary[]
+  codexImportResult: CodexImportResult | null
+  isImportingCodex: boolean
   isRunning: boolean
   activeRunId: string | null
   isStopping: boolean
@@ -16,18 +22,20 @@ interface AgentState {
   drafts: Record<string, string>
   attachmentDrafts: Record<string, AgentAttachment[]>
   collaborationEvents: AgentCollaborationEvent[]
-  pendingApproval: AgentApprovalRequest | null
-  approvalStatus: 'idle' | 'submitting' | 'expired'
-  wordPlayback: WordPlaybackState | null
-  artifactDraft: ArtifactDraftManifest | null
-  artifactReview: ArtifactReviewState | null
-  artifactReviewQueue: Array<{ manifest: ArtifactDraftManifest; state: ArtifactReviewState }>
 
   setAgents: (agents: AgentConfig[]) => void
   setActiveAgentId: (id: string | null) => void
   addMessage: (agentId: string, message: ChatMessage) => void
+  appendAssistantStream: (agentId: string, runId: string, content: string) => void
+  completeAssistantStream: (agentId: string, runId: string, message: ChatMessage) => void
   clearMessages: (agentId: string) => void
   ensureConversationId: (agentId: string) => string
+  loadConversation: (agentId: string, conversation: ConversationRecord) => void
+  setConversationSummaries: (summaries: ConversationSummary[]) => void
+  upsertConversationSummary: (summary: ConversationSummary) => void
+  removeConversationSummary: (conversationId: string) => void
+  setCodexImportResult: (result: CodexImportResult | null) => void
+  setIsImportingCodex: (value: boolean) => void
   setIsRunning: (v: boolean) => void
   setActiveRunId: (runId: string | null) => void
   setIsStopping: (v: boolean) => void
@@ -39,12 +47,6 @@ interface AgentState {
   clearDraftAttachments: (agentId: string) => void
   addCollaborationEvent: (event: AgentCollaborationEvent) => void
   clearCollaborationEvents: () => void
-  setPendingApproval: (approval: AgentApprovalRequest | null) => void
-  setApprovalStatus: (status: AgentState['approvalStatus']) => void
-  setWordPlayback: (playback: WordPlaybackState | null) => void
-  setArtifactReview: (manifest: ArtifactDraftManifest | null, state: ArtifactReviewState | null) => void
-  activateArtifactReview: (draftId: string) => void
-  finishArtifactReview: (draftId: string, state: ArtifactReviewState) => void
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -52,6 +54,9 @@ export const useAgentStore = create<AgentState>((set) => ({
   activeAgentId: null,
   messages: {},
   conversationIds: {},
+  conversationSummaries: [],
+  codexImportResult: null,
+  isImportingCodex: false,
   isRunning: false,
   activeRunId: null,
   isStopping: false,
@@ -59,12 +64,6 @@ export const useAgentStore = create<AgentState>((set) => ({
   drafts: {},
   attachmentDrafts: {},
   collaborationEvents: [],
-  pendingApproval: null,
-  approvalStatus: 'idle',
-  wordPlayback: null,
-  artifactDraft: null,
-  artifactReview: null,
-  artifactReviewQueue: [],
 
   setAgents: (agents) => set({ agents }),
   setActiveAgentId: (id) => set({ activeAgentId: id }),
@@ -75,6 +74,34 @@ export const useAgentStore = create<AgentState>((set) => ({
         [agentId]: [...(state.messages[agentId] || []), { ...message, timestamp: Date.now() }],
       },
     })),
+  appendAssistantStream: (agentId, runId, content) => set((state) => {
+    if (!content) return {}
+    const current = state.messages[agentId] || []
+    const index = current.findIndex((message) => message.streamingRunId === runId)
+    const next = [...current]
+    if (index < 0) {
+      next.push({
+        role: 'assistant',
+        content,
+        timestamp: Date.now(),
+        streamingRunId: runId,
+      })
+    } else {
+      next[index] = { ...next[index], content: `${next[index].content}${content}` }
+    }
+    return { messages: { ...state.messages, [agentId]: next } }
+  }),
+  completeAssistantStream: (agentId, runId, message) => set((state) => {
+    const current = state.messages[agentId] || []
+    const index = current.findIndex((entry) => entry.streamingRunId === runId)
+    const completed = { ...message, timestamp: Date.now(), streamingRunId: undefined }
+    if (index < 0) {
+      return { messages: { ...state.messages, [agentId]: [...current, completed] } }
+    }
+    const next = [...current]
+    next[index] = completed
+    return { messages: { ...state.messages, [agentId]: next } }
+  }),
   clearMessages: (agentId) =>
     set((state) => ({
       messages: { ...state.messages, [agentId]: [] },
@@ -91,6 +118,30 @@ export const useAgentStore = create<AgentState>((set) => ({
     })
     return conversationId
   },
+  loadConversation: (agentId, conversation) => set((state) => ({
+    messages: {
+      ...state.messages,
+      [agentId]: conversation.messages.map((message) => ({ ...message })),
+    },
+    conversationIds: {
+      ...state.conversationIds,
+      [agentId]: conversation.summary.id,
+    },
+  })),
+  setConversationSummaries: (conversationSummaries) => set({ conversationSummaries }),
+  upsertConversationSummary: (summary) => set((state) => ({
+    conversationSummaries: [
+      summary,
+      ...state.conversationSummaries.filter((item) => item.id !== summary.id),
+    ].sort((left, right) => right.updatedAt - left.updatedAt),
+  })),
+  removeConversationSummary: (conversationId) => set((state) => ({
+    conversationSummaries: state.conversationSummaries.filter(
+      (summary) => summary.id !== conversationId,
+    ),
+  })),
+  setCodexImportResult: (codexImportResult) => set({ codexImportResult }),
+  setIsImportingCodex: (isImportingCodex) => set({ isImportingCodex }),
   setIsRunning: (v) => set({ isRunning: v }),
   setActiveRunId: (runId) => set({ activeRunId: runId }),
   setIsStopping: (v) => set({ isStopping: v }),
@@ -125,8 +176,13 @@ export const useAgentStore = create<AgentState>((set) => ({
     attachmentDrafts: { ...state.attachmentDrafts, [agentId]: [] },
   })),
   addCollaborationEvent: (event) => set((state) => {
-    const duplicateIndex = event.eventId
-      ? state.collaborationEvents.findIndex((existing) => existing.eventId === event.eventId)
+    const duplicateIndex = event.operationId
+      ? state.collaborationEvents.findIndex((existing) => (
+        existing.runId === event.runId
+        && existing.operationId === event.operationId
+        && existing.type === event.type
+        && (event.type === 'agent-stream' || Math.abs(existing.timestamp - event.timestamp) < 2_000)
+      ))
       : -1
     if (duplicateIndex >= 0) {
       const collaborationEvents = [...state.collaborationEvents]
@@ -134,6 +190,9 @@ export const useAgentStore = create<AgentState>((set) => ({
       collaborationEvents[duplicateIndex] = {
         ...existing,
         ...event,
+        content: event.type === 'agent-stream'
+          ? `${existing.content ?? ''}${event.content ?? ''}`
+          : event.content,
         timestamp: Math.min(existing.timestamp, event.timestamp),
       }
       return { collaborationEvents }
@@ -142,53 +201,5 @@ export const useAgentStore = create<AgentState>((set) => ({
       collaborationEvents: [...state.collaborationEvents, event].slice(-500),
     }
   }),
-  clearCollaborationEvents: () => set({
-    collaborationEvents: [],
-    pendingApproval: null,
-    approvalStatus: 'idle',
-    wordPlayback: null,
-    artifactDraft: null,
-    artifactReview: null,
-    artifactReviewQueue: [],
-  }),
-  setPendingApproval: (pendingApproval) => set({ pendingApproval }),
-  setApprovalStatus: (approvalStatus) => set({ approvalStatus }),
-  setWordPlayback: (wordPlayback) => set({ wordPlayback }),
-  setArtifactReview: (artifactDraft, artifactReview) => set((current) => {
-    if (!artifactDraft || !artifactReview) {
-      return { artifactDraft: null, artifactReview: null, artifactReviewQueue: [] }
-    }
-    const nextItem = { manifest: artifactDraft, state: artifactReview }
-    const existingIndex = current.artifactReviewQueue.findIndex(({ manifest }) => manifest.draftId === artifactDraft.draftId)
-    const artifactReviewQueue = existingIndex >= 0
-      ? current.artifactReviewQueue.map((item, index) => index === existingIndex ? nextItem : item)
-      : [...current.artifactReviewQueue, nextItem]
-    const activeDraftId = current.artifactDraft?.draftId
-    if (activeDraftId && activeDraftId !== artifactDraft.draftId) {
-      const active = artifactReviewQueue.find(({ manifest }) => manifest.draftId === activeDraftId)
-      if (active && !['saved', 'discarded'].includes(active.state.phase)) {
-        return { artifactReviewQueue, artifactDraft: active.manifest, artifactReview: active.state }
-      }
-    }
-    return { artifactReviewQueue, artifactDraft, artifactReview }
-  }),
-  activateArtifactReview: (draftId) => set((current) => {
-    const item = current.artifactReviewQueue.find(({ manifest, state }) => (
-      manifest.draftId === draftId && !['saved', 'discarded'].includes(state.phase)
-    ))
-    return item ? { artifactDraft: item.manifest, artifactReview: item.state } : {}
-  }),
-  finishArtifactReview: (draftId, finishedState) => set((current) => {
-    const updated = current.artifactReviewQueue.map((item) => (
-      item.manifest.draftId === draftId ? { ...item, state: finishedState } : item
-    ))
-    const finished = updated.find(({ manifest }) => manifest.draftId === draftId)
-    const next = updated.find(({ manifest, state }) => (
-      manifest.draftId !== draftId
-      && !['saved', 'discarded'].includes(state.phase)
-      && (!finished?.manifest.batchId || manifest.batchId === finished.manifest.batchId)
-    )) ?? updated.find(({ state }) => !['saved', 'discarded'].includes(state.phase))
-    if (!next) return { artifactDraft: null, artifactReview: null, artifactReviewQueue: [] }
-    return { artifactReviewQueue: updated, artifactDraft: next.manifest, artifactReview: next.state }
-  }),
+  clearCollaborationEvents: () => set({ collaborationEvents: [] }),
 }))

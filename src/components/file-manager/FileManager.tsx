@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useCallback, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Check, FolderOpen, Home, PanelLeftClose } from 'lucide-react'
@@ -11,6 +12,7 @@ import { useEditorStore } from '@/stores/editor.store'
 import { FileTree } from './FileTree'
 import { RecentFiles } from './RecentFiles'
 import { FileSearch } from './FileSearch'
+import { isImageFile } from '@/lightweight-office/utils/file-io'
 
 const MAIN_DIRECTORY_KEY = 'wps-main-directory'
 const RECENT_DIRECTORIES_KEY = 'wps-recent-directories'
@@ -22,7 +24,8 @@ const MOUSE_BACK_BUTTON = 3
 
 function loadMainDirectory(): string | null {
   try {
-    return localStorage.getItem(MAIN_DIRECTORY_KEY)
+    const directory = localStorage.getItem(MAIN_DIRECTORY_KEY)
+    return directory && desktopApi.files.getGrantId(directory) ? directory : null
   } catch {
     return null
   }
@@ -34,7 +37,9 @@ function loadRecentDirectories(): string[] {
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string')
+      ? parsed.filter((item): item is string => (
+          typeof item === 'string' && Boolean(desktopApi.files.getGrantId(item))
+        ))
       : []
   } catch {
     return []
@@ -50,7 +55,7 @@ function saveRecentDirectories(directories: string[]): void {
 }
 
 function sameDirectoryPath(left: string, right: string): boolean {
-  return window.api.platform === 'win32'
+  return desktopApi.app.platform === 'win32'
     ? left.toLowerCase() === right.toLowerCase()
     : left === right
 }
@@ -84,8 +89,8 @@ export function FileManager({ onCollapse }: FileManagerProps) {
 
   useEffect(() => {
     let cancelled = false
-    void window.api.file.getHome().then((home) => {
-      if (!cancelled) setSystemHome(home)
+    void desktopApi.files.getHome().then((home) => {
+      if (!cancelled) setSystemHome(home.path)
     })
     return () => {
       cancelled = true
@@ -103,7 +108,7 @@ export function FileManager({ onCollapse }: FileManagerProps) {
 
   const loadDir = useCallback(async (dir: string, options?: { recordHistory?: boolean }) => {
     const requestId = ++loadRequestRef.current
-    const list = await window.api.file.list(dir)
+    const list = await desktopApi.files.list(dir)
     if (requestId !== loadRequestRef.current) return
     const previousDir = useFileStore.getState().currentDir
     if (
@@ -123,9 +128,18 @@ export function FileManager({ onCollapse }: FileManagerProps) {
 
   const openFile = useCallback(async (filePath: string) => {
     console.log('[FileManager] 打开文件:', filePath)
-    await window.api.file.open(filePath)
+    // 图片等文件交给系统默认应用打开（如系统“照片”或“画图”），
+    // 不在内置编辑器中渲染。
+    if (isImageFile(filePath)) {
+      void desktopApi.files.openExternal(filePath)
+      const recent = await desktopApi.files.getRecent()
+      setRecentFiles(recent)
+      return
+    }
+    // 立即切换文件渲染编辑器，最近文件/快照在后台记录
+    void desktopApi.files.open(filePath)
     setCurrentFile(filePath)
-    const recent = await window.api.file.getRecent()
+    const recent = await desktopApi.files.getRecent()
     setRecentFiles(recent)
   }, [setCurrentFile, setRecentFiles])
 
@@ -134,8 +148,8 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     const initialRequestId = loadRequestRef.current
 
     async function init() {
-      const home = await window.api.file.getHome()
-      const recent = await window.api.file.getRecent()
+      const home = await desktopApi.files.getHome()
+      const recent = await desktopApi.files.getRecent()
       if (cancelled) return
       setRecentFiles(recent)
       if (
@@ -143,7 +157,12 @@ export function FileManager({ onCollapse }: FileManagerProps) {
         || useFileStore.getState().currentDir
       ) return
       const savedDir = localStorage.getItem('last-browse-dir')
-      const targetDir = savedDir || (home + (window.api.platform === 'win32' ? '\\Documents' : '/Documents'))
+      const targetDir = savedDir && desktopApi.files.getGrantId(savedDir)
+        ? savedDir
+        : home.path
+      if (savedDir && targetDir !== savedDir) {
+        localStorage.removeItem('last-browse-dir')
+      }
       await loadDir(targetDir)
     }
     void init()
@@ -166,7 +185,7 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     const timer = setTimeout(async () => {
       setIsSearching(true)
       try {
-        const results = await window.api.file.search(currentDir, searchQuery)
+        const results = await desktopApi.files.search(currentDir, searchQuery)
         setSearchResults(results)
       } finally {
         setIsSearching(false)
@@ -176,11 +195,12 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   }, [searchQuery, currentDir, setSearchResults, setIsSearching])
 
   const goUp = () => {
-    const sep = window.api.platform === 'win32' ? '\\' : '/'
+    const sep = desktopApi.app.platform === 'win32' ? '\\' : '/'
     const parts = currentDir.split(sep)
     if (parts.length > 1) {
       parts.pop()
-      loadDir(parts.join(sep) || sep)
+      const parent = parts.join(sep) || sep
+      if (desktopApi.files.getGrantId(parent)) void loadDir(parent)
     }
   }
 
@@ -201,7 +221,7 @@ export function FileManager({ onCollapse }: FileManagerProps) {
 
   useEffect(() => {
     if (activeTab !== 'browse') return
-    return window.api.file.onNavigateBack(() => goBackToPreviousDir('native'))
+    return desktopApi.files.onNavigateBack(() => goBackToPreviousDir('native'))
   }, [activeTab, goBackToPreviousDir])
 
   // DOM auxclick covers platforms/drivers which expose X1 as the fourth button.
@@ -235,8 +255,8 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   }, [])
 
   const chooseHomeFolder = useCallback(async () => {
-    const folder = await window.api.file.selectFolder()
-    if (folder) applyMainDirectory(folder)
+    const folder = await desktopApi.files.selectFolder()
+    if (folder) applyMainDirectory(folder.path)
   }, [applyMainDirectory])
 
   return (
@@ -363,8 +383,8 @@ export function FileManager({ onCollapse }: FileManagerProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={async () => {
-                  const folder = await window.api.file.selectFolder()
-                  if (folder) loadDir(folder)
+                  const folder = await desktopApi.files.selectFolder()
+                  if (folder) loadDir(folder.path)
                 }} aria-label={t('appShell.openFolder')}>
                   <FolderOpen className="h-3.5 w-3.5" />
                 </Button>

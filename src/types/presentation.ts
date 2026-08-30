@@ -1,28 +1,21 @@
-export interface PresentationSlideText {
-  title: string
-  body: string
-}
+import type {
+  PresentationEditOperation as RustPresentationEditOperation,
+  PresentationEditResponseMetadata,
+  PresentationSlideText as RustPresentationSlideText,
+} from './generated'
 
-export type PresentationEditOperation =
-  | { type: 'inspect'; slideIndex: number }
-  | { type: 'add'; afterSlideIndex: number }
-  | { type: 'updateText'; slideIndex: number; title: string; body: string }
-  | { type: 'updateNodeText'; slideIndex: number; nodeId: string; text: string }
-  | { type: 'duplicate'; slideIndex: number }
-  | { type: 'delete'; slideIndex: number }
-  | { type: 'importOutline'; afterSlideIndex: number; slides: PresentationSlideText[] }
-  | { type: 'reuseSlides'; afterSlideIndex: number; sourcePath: string }
+export type PresentationSlideText = RustPresentationSlideText
+export type PresentationEditOperation = RustPresentationEditOperation
 
 export interface PresentationEditRequest {
   data: Uint8Array | ArrayBuffer
   operation: PresentationEditOperation
 }
 
-export interface PresentationEditResult {
+export interface PresentationEditResult extends Omit<
+  PresentationEditResponseMetadata,
+  'hasData' | 'converter'
+> {
   data?: Uint8Array | ArrayBuffer
-  slideCount: number
-  currentSlideIndex: number
-  slide?: PresentationSlideText
   converter: 'powerpoint' | 'wps'
-  normalizedWmfCount: number
 }

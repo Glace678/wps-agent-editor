@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import {
   useCallback,
   useEffect,
@@ -8,8 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Bot, Check, ChevronDown, Ellipsis, LoaderCircle, Play, Search, Trash2, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, Play, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { useTranslation } from '@/lib/i18n/runtime'
@@ -21,7 +21,6 @@ interface CollaborationConfigDialogProps {
   agents: AgentConfig[]
   isRunning: boolean
   onStart: (task: string, agentIds: string[], rootAgentId: string) => void
-  onDeleteAgent: (agentId: string) => Promise<void>
   onClose: () => void
   providers?: ProviderDefinition[]
 }
@@ -35,137 +34,10 @@ interface PopupPosition {
 const POPUP_GAP = 4
 const VIEWPORT_PADDING = 12
 
-interface CollaborationAgentActionsProps {
-  agent: AgentConfig
-  onDelete: (agent: AgentConfig) => void
-}
-
-function CollaborationAgentActions({ agent, onDelete }: CollaborationAgentActionsProps) {
-  const { language, t } = useTranslation()
-
-  return (
-    <DropdownMenu.Root modal={false} dir={language === 'ar' ? 'rtl' : 'ltr'}>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
-          aria-label={t('agentUi.moreActions', { agent: agent.name })}
-          title={t('agentUi.moreActions', { agent: agent.name })}
-          data-testid={`collaboration-agent-actions-${agent.id}`}
-        >
-          <Ellipsis className="h-4 w-4" />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={4}
-          className="z-[10001] min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-          data-testid={`collaboration-agent-actions-menu-${agent.id}`}
-        >
-          {/* Keep row actions isolated here so future commands can be added in groups. */}
-          <DropdownMenu.Group>
-            <DropdownMenu.Item
-              className="flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-destructive outline-none transition-colors focus:bg-destructive/10 focus:text-destructive"
-              onSelect={() => onDelete(agent)}
-              data-testid={`collaboration-agent-delete-${agent.id}`}
-            >
-              <Trash2 className="h-3.5 w-3.5 shrink-0" />
-              <span>{t('agentUi.deleteAgent')}</span>
-            </DropdownMenu.Item>
-          </DropdownMenu.Group>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  )
-}
-
-interface AgentDeleteConfirmDialogProps {
-  agent: AgentConfig
-  isDeleting: boolean
-  error: string
-  onConfirm: () => void
-  onCancel: () => void
-}
-
-function AgentDeleteConfirmDialog({
-  agent,
-  isDeleting,
-  error,
-  onConfirm,
-  onCancel,
-}: AgentDeleteConfirmDialogProps) {
-  const { t } = useTranslation()
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || isDeleting) return
-      event.preventDefault()
-      event.stopPropagation()
-      onCancel()
-    }
-    document.addEventListener('keydown', handleKeyDown, true)
-    return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [isDeleting, onCancel])
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-black/50 p-4"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !isDeleting) onCancel()
-      }}
-    >
-      <div
-        className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-card p-5 text-card-foreground shadow-2xl"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="agent-delete-title"
-        aria-describedby="agent-delete-description"
-        data-testid="agent-delete-confirm-dialog"
-      >
-        <div className="flex items-center gap-2 text-destructive">
-          <Trash2 className="h-4 w-4 shrink-0" />
-          <h3 id="agent-delete-title" className="text-sm font-semibold">
-            {t('agentUi.deleteAgentTitle')}
-          </h3>
-        </div>
-        <p id="agent-delete-description" className="break-words text-xs leading-relaxed text-muted-foreground">
-          {t('agentUi.deleteAgentMessage', { name: agent.name })}
-        </p>
-        {error && (
-          <p role="alert" className="text-xs text-destructive" data-testid="agent-delete-error">
-            {error}
-          </p>
-        )}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={isDeleting}>
-            {t('agentConfig.cancel')}
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            onClick={onConfirm}
-            disabled={isDeleting}
-            autoFocus
-            data-testid="agent-confirm-delete-button"
-          >
-            {isDeleting && <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            {isDeleting ? t('agentUi.deletingAgent') : t('agentUi.deleteAgent')}
-          </Button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
 export function CollaborationConfigDialog({
   agents,
   isRunning,
   onStart,
-  onDeleteAgent,
   onClose,
   providers: initialProviders,
 }: CollaborationConfigDialogProps) {
@@ -176,9 +48,6 @@ export function CollaborationConfigDialog({
   const [task, setTask] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [rootAgentId, setRootAgentId] = useState('')
-  const [agentToDelete, setAgentToDelete] = useState<AgentConfig | null>(null)
-  const [isDeletingAgent, setIsDeletingAgent] = useState(false)
-  const [deleteAgentError, setDeleteAgentError] = useState('')
 
   useEffect(() => {
     if (initialProviders && initialProviders.length > 0) {
@@ -186,7 +55,7 @@ export function CollaborationConfigDialog({
       return
     }
     let cancelled = false
-    void window.api?.provider?.list?.().then((list) => {
+    void desktopApi.providers.list().then((list) => {
       if (!cancelled && Array.isArray(list)) setProviders(list)
     }).catch(() => {})
     return () => { cancelled = true }
@@ -240,36 +109,6 @@ export function CollaborationConfigDialog({
       ? current.filter((id) => id !== agentId)
       : [...current, agentId])
   }
-
-  const requestAgentDelete = useCallback((agent: AgentConfig) => {
-    setDeleteAgentError('')
-    setAgentToDelete(agent)
-  }, [])
-
-  const cancelAgentDelete = useCallback(() => {
-    if (isDeletingAgent) return
-    setDeleteAgentError('')
-    setAgentToDelete(null)
-  }, [isDeletingAgent])
-
-  const confirmAgentDelete = useCallback(async () => {
-    if (!agentToDelete || isDeletingAgent) return
-    const deletedAgentId = agentToDelete.id
-    setIsDeletingAgent(true)
-    setDeleteAgentError('')
-    try {
-      await onDeleteAgent(deletedAgentId)
-      const remainingSelectedIds = selectedIds.filter((id) => id !== deletedAgentId)
-      setSelectedIds(remainingSelectedIds)
-      setRootAgentId((current) => current === deletedAgentId ? remainingSelectedIds[0] ?? '' : current)
-      setAgentToDelete(null)
-    } catch (error) {
-      console.error('[CollaborationConfigDialog] failed to delete Agent:', error)
-      setDeleteAgentError(t('agentUi.deleteAgentFailed'))
-    } finally {
-      setIsDeletingAgent(false)
-    }
-  }, [agentToDelete, isDeletingAgent, onDeleteAgent, selectedIds, t])
 
   const selectedAgents = enabledAgents.filter((agent) => selectedIds.includes(agent.id))
   const selectedAgent = selectedAgents.find((agent) => agent.id === rootAgentId)
@@ -610,50 +449,46 @@ export function CollaborationConfigDialog({
               {enabledAgents.map((agent) => {
                 const checked = selectedIds.includes(agent.id)
                 return (
-                  <div
+                  <label
                     key={agent.id}
-                    className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/40 p-2.5 transition-colors hover:border-border hover:bg-accent/40"
-                    data-testid={`collaboration-agent-row-${agent.id}`}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl border border-border/70 bg-card/40 p-2.5 transition-colors hover:border-border hover:bg-accent/40"
                   >
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                      <input
-                        data-testid={`collaboration-agent-${agent.id}`}
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleAgent(agent.id)}
-                        className="h-4 w-4 shrink-0 accent-primary"
-                      />
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/40"
-                        style={{ backgroundColor: `${agent.color}22` }}
-                      >
-                        <Bot className="h-4 w-4" style={{ color: agent.color }} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-xs font-semibold text-foreground">{agent.name}</span>
-                          <span
-                            className="max-w-[180px] shrink truncate rounded bg-muted/80 px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground"
-                            title={getCleanModelName(agent)}
-                          >
-                            {getCleanModelName(agent)}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <span className="truncate">{agent.role || t('agents.customAssistant')}</span>
-                          {getProviderLabel(agent.providerId) && (
-                            <>
-                              <span className="text-muted-foreground/40">·</span>
-                              <span className="truncate text-[10px] text-muted-foreground/70">
-                                {getProviderLabel(agent.providerId)}
-                              </span>
-                            </>
-                          )}
-                        </div>
+                    <input
+                      data-testid={`collaboration-agent-${agent.id}`}
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleAgent(agent.id)}
+                      className="h-4 w-4 shrink-0 accent-primary"
+                    />
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/40"
+                      style={{ backgroundColor: `${agent.color}22` }}
+                    >
+                      <Bot className="h-4 w-4" style={{ color: agent.color }} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-foreground">{agent.name}</span>
+                        <span
+                          className="shrink-0 max-w-[220px] truncate rounded bg-muted/80 px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground"
+                          title={getCleanModelName(agent)}
+                        >
+                          {getCleanModelName(agent)}
+                        </span>
                       </div>
-                    </label>
-                    <CollaborationAgentActions agent={agent} onDelete={requestAgentDelete} />
-                  </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <span className="truncate">{agent.role || t('agents.customAssistant')}</span>
+                        {getProviderLabel(agent.providerId) && (
+                          <>
+                            <span className="text-muted-foreground/40">·</span>
+                            <span className="truncate text-[10px] text-muted-foreground/70">
+                              {getProviderLabel(agent.providerId)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </label>
                 )
               })}
             </div>
@@ -676,15 +511,6 @@ export function CollaborationConfigDialog({
           </Button>
         </div>
       </form>
-      {agentToDelete && (
-        <AgentDeleteConfirmDialog
-          agent={agentToDelete}
-          isDeleting={isDeletingAgent}
-          error={deleteAgentError}
-          onConfirm={() => void confirmAgentDelete()}
-          onCancel={cancelAgentDelete}
-        />
-      )}
     </div>
   )
 }

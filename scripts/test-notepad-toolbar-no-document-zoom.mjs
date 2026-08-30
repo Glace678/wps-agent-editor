@@ -54,16 +54,13 @@ test('shell never CSS-zooms; PDF viewer manages its own zoom', () => {
   assert.doesNotMatch(pdfViewer, /document-zoom-target/)
 })
 
-test('text editor manages its own zoom (toolbar not via CSS zoom)', () => {
+test('text editor zooms text metrics inside a fixed editor surface', () => {
   assert.match(textEditor, /data-manages-document-zoom/)
   assert.match(textEditor, /NotepadCommandBar/)
-  // The content uses direct hardware-accelerated CSS zoom scaling with constant base font size
-  assert.match(
-    textEditor,
-    /fontSize: `\$\{fontSize \* \(96 \/ 72\)\}px`/,
-  )
-  assert.match(textEditor, /zoom,/)
-  assert.match(textEditor, /data-zoom-settled=\{zoom\}/)
+  assert.match(textEditor, /fontSize:\s*`var\(--notepad-editor-font-size/)
+  assert.match(textEditor, /applyNotepadTextZoom\(/)
+  assert.doesNotMatch(textEditor, /applyNotepadZoomPreview|applyNotepadZoomStyle/)
+  assert.doesNotMatch(textEditor, /surface\.style\.(?:zoom|transform)/)
 })
 
 test('word/excel path comment documents fixed toolbar size', () => {

@@ -1,15 +1,13 @@
+import { desktopApi } from '@/platform/desktop'
+
 export type ThemePreference = 'system' | 'light' | 'dark'
 
 export const APP_THEME_KEY = 'app-theme'
 export const APP_THEME_EVENT = 'app-theme-change'
 
 function syncNativeTheme(preference: ThemePreference): void {
-  const bridge = (window as Window & {
-    api?: { theme?: { setPreference: (value: ThemePreference) => Promise<unknown> } }
-  }).api?.theme
-  if (!bridge) return
-  void bridge.setPreference(preference).catch(() => {
-    // The browser preview does not expose Electron IPC.
+  void desktopApi.app.setTheme(preference).catch(() => {
+    // The browser preview does not expose the Tauri desktop transport.
   })
 }
 
@@ -29,7 +27,7 @@ export function setThemePreference(preference: ThemePreference): void {
   window.dispatchEvent(new CustomEvent<ThemePreference>(APP_THEME_EVENT, { detail: preference }))
 }
 
-/** Keep Electron's menus, dialogs, and window chrome in the same theme as React. */
+/** Keep native menus, dialogs, and window chrome in the same theme as React. */
 export function syncNativeThemePreference(): void {
   syncNativeTheme(getThemePreference())
 }

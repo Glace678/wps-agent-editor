@@ -1,182 +1,73 @@
-<div align="center">
-
 # WPS Agent Editor
 
-**跨平台轻量级桌面文档编辑器 · 本地优先 · 多 Agent 智能协作**
+WPS Agent Editor 2 是基于 Tauri v2、React 和 Rust 的跨平台文档编辑器与多 Agent 工作台。桌面端使用系统 WebView，不再捆绑 Electron、Chromium、Node.js 或 OnlyOffice Document Server。
 
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC_BY--NC_4.0-orange.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Release](https://img.shields.io/github/v/release/Glace678/wps-agent-editor?color=blue&label=Release)](https://github.com/Glace678/wps-agent-editor/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/Glace678/wps-agent-editor)
-[![Electron](https://img.shields.io/badge/Electron-34.x-47848F?logo=electron&logoColor=white)](https://electronjs.org/)
-[![React](https://img.shields.io/badge/React-18.x-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+## 内置能力
 
-<br />
+- Word：SuperDoc
+- Excel：Fortune Sheet
+- PDF：PDF.js
+- PowerPoint：pptx-renderer；常用 PPTX 编辑由 Rust OOXML 后端完成
+- 文本与 Markdown：内置编辑器
+- 代码：Monaco；执行和调试使用本机已安装的语言工具链
+- Agent：OpenAI、Anthropic、Google、Ollama 和 OpenAI-compatible Provider
 
-<!-- Language Navigation Bar -->
-[简体中文](./README.md) | [English](./README_EN.md) | [日本語](./README_JA.md) | [Français](./README_FR.md) | [Deutsch](./README_DE.md) | [Español](./README_ES.md) | [Português](./README_PT.md) | [Русский](./README_RU.md) | [العربية](./README_AR.md)
+旧 `.doc`、`.ppt` 与复杂媒体转换需要系统 WPS、Microsoft Office 或 LibreOffice。JavaScript/TypeScript 运行需要系统 Node.js；其他语言同样使用系统工具链。缺失依赖会返回可识别的 `dependency-missing` 错误，不会在运行时静默下载大型组件。
 
-<br />
-<sub>本文档及所有语言版本自述文件均由 Gemini 编写与维护</sub>
+## 开发
 
-</div>
+要求：
 
----
+- Node.js 22+
+- Rust stable 与对应编译目标
+- [Tauri v2 平台依赖](https://v2.tauri.app/start/prerequisites/)
 
-## 项目简介
-
-**WPS Agent Editor** 是一款专为下一代人机协同办公设计的**跨平台桌面文档编辑器**。
-
-项目深度融合了**本地优先（Local-first）轻量 Office 编辑体系**与**前沿的多智能体（Multi-Agent）自主协同网络**。无论是撰写复杂 Word 文档、处理多维 Excel 数据表格、放映 PPT 演示文稿、查阅 PDF，还是进行多语言代码开发，WPS Agent Editor 都能为您提供丝滑的本地编辑体验与强大的 AI 伴写能力。
-
----
-
-## 核心特性
-
-### 1. 全格式本地优先文档套件
-无需依赖外部重型服务端，开箱即用：
-* **文档编辑 (Word / DOCX / DOC)**：基于轻量排版引擎，支持富文本样式、段落排版、表格插入、批注与标题层级大纲。
-* **表格计算 (Excel / XLSX / XLS / CSV)**：集成高性能电子表格，内置丰富数学/统计公式、单元格样式定制、数据筛选与多工作表管理。
-* **幻灯片演示 (PowerPoint / PPTX)**：支持幻灯片结构化渲染、母版解析与全屏沉浸式放映预览模式。
-* **专业代码与文本编辑**：内置 Monaco Editor（VS Code 核心编辑器），支持 50+ 种主流编程语言语法高亮、代码折叠、正则查找替换与智能提示。
-* **PDF 阅读与解析**：支持多页平滑滚动、目录跳转、缩放自适应与加密文档解密。
-* **Markdown 即时创作**：支持 GFM 扩展语法、实时目录大纲与富文本双向同步。
-
-### 2. 多 Agent 智能协同创作网络
-打破单一 AI 对话框的局限，构建多角色协同矩阵：
-* **多模型统一接入**：原生聚合 **OpenAI (GPT-4o/o3)**、**Anthropic (Claude 3.5/3.7)**、**Google (Gemini 2.0)**、**字节跳动 (ByteDance Seed / 豆包)**、**DeepSeek** 以及 **Ollama 本地私有化模型**。
-* **专业化分工协作**：内置文档改写助手、数据透视助手、演示文稿策划助手与代码审查助手。
-* **可信文档 Diff 审批流**：Agent 的每一次改动均以直观的 Git 风格 Diff 差异高亮呈现，需用户一键审查批准后方可生效，彻底避免内容被不可逆覆盖。
-* **智能上下文缓存**：针对长文档优化 Prompt 缓存机制，极大降低 Token 开销与响应延迟。
-
-### 3. 严谨的本地安全与隐私保护
-* **系统级密钥加密**：所有 Provider API Key 均采用 Electron 原生 `safeStorage`（Windows DPAPI / macOS Keychain）底层加密存储。
-* **纯本地脱敏过滤**：敏感系统文件自动隔离与过滤，确保本地隐私数据零泄露。
-* **沙箱隔离架构**：严格的 IPC 权限白名单机制与 Sandbox Renderer，杜绝恶意脚本注入。
-
-### 4. 全球化 9 语言支持
-UI 与 Agent 系统深度本地化，支持 **9 种国际主流语言**一键即时无缝切换：
-> 简体中文 · English · 日本語 · Français · Deutsch · Español · Português · Русский · العربية
-
----
-
-## 下载安装
-
-前往 [GitHub Releases 发行版页面](https://github.com/Glace678/wps-agent-editor/releases) 获取最新安装包：
-
-* **Windows 安装包**：[`WPS.Agent.Editor.Setup.1.0.0.exe`](https://github.com/Glace678/wps-agent-editor/releases/download/v1.0.0/WPS.Agent.Editor.Setup.1.0.0.exe) *(双击安装，支持自定义安装路径)*
-* **源码运行与便携版**：支持跨平台本地编译打包。
-
----
-
-## 开发者快速开始
-
-### 运行环境准备
-* [Node.js](https://nodejs.org/) (>= 18.0.0)
-* npm 或 pnpm / yarn
-
-### 1. 克隆仓库并安装依赖
 ```bash
-git clone https://github.com/Glace678/wps-agent-editor.git
-cd wps-agent-editor
-
-# 安装项目依赖
-npm install
-
-# 安装 Electron 运行依赖
-npm run install:electron
-```
-
-### 2. 启动本地开发模式
-```bash
+npm ci
 npm run dev
 ```
-启动后，可在应用右侧的 **Provider 设置** 中配置您所需的 AI 模型 API Key 或本地 Ollama 服务地址。
 
----
-
-## 跨平台打包构建
-
-本项目支持一键生成多平台桌面客户端二进制安装包：
+仅运行浏览器界面：
 
 ```bash
-# Windows (.exe)
-npm run dist:win
-
-# macOS (.dmg / .zip)
-npm run dist:mac
-
-# Linux (.AppImage / .deb)
-npm run dist:linux
+npm run dev:web
 ```
 
----
+验证：
 
-## 系统架构
-
-```
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                        Electron Main Process (Node.js)                        │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐   │
-│  │  FileService  │  │  MenuManager  │  │ AgentOrchestr │  │  SafeStorage  │   │
-│  │  (Local FS)   │  │ (Native Menu) │  │ (LangChain.js)│  │(KeyEncryption)│   │
-│  └───────┬───────┘  └───────────────┘  └───────┬───────┘  └───────────────┘   │
-│         │ IPC Secure Channel                  │ IPC State Stream              │
-└─────────┼─────────────────────────────────────┼───────────────────────────────┘
-          │                                     │                                
-┌─────────▼─────────────────────────────────────▼───────────────────────────────┐
-│                 Renderer Process (React + TypeScript + Vite)                  │
-│ ┌─────────────────────┐ ┌────────────────────────┐ ┌────────────────────────┐ │
-│ │     FileManager     │ │  LightweightDocEditor  │ │ AgentCollaborateSpace  │ │
-│ │    (Tree/Search)    │ │ (Word/Excel/PPT/Code)  │ │(Chat/Tasks/DiffReview) │ │
-│ └─────────────────────┘ └────────────────────────┘ └────────────────────────┘ │
-└───────────────────────────────────────────────────────────────────────────────┘
+```bash
+npm run typecheck
+npm run build:web
+npm run check:rust
+npm run test:rust
 ```
 
----
+## 发布目标
 
-## 贡献者与 AI 协作者 (Contributors & AI Collaborators)
+正式 Release 构建以下签名产物：
 
-本项目在架构设计、核心逻辑编写与代码重构演进过程中，深度协同了以下 AI 智能体共同参与构建：
+- Windows 10+：x86、x86_64、ARM64 NSIS 安装程序
+- macOS：Intel 与 Apple Silicon DMG
+- Linux：x86_64 与 ARM64 AppImage
 
-<table>
-  <tr>
-    <td align="center" width="160px">
-      <a href="https://anthropic.com/claude">
-        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/claude-color.png" width="60px;" alt="Claude"/><br />
-        <sub><b>Claude</b></sub>
-      </a><br />
-      <sub>(Anthropic)</sub>
-    </td>
-    <td align="center" width="160px">
-      <a href="https://openai.com">
-        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/openai.png" width="60px;" alt="GPT"/><br />
-        <sub><b>GPT</b></sub>
-      </a><br />
-      <sub>(OpenAI)</sub>
-    </td>
-    <td align="center" width="160px">
-      <a href="https://deepmind.google/technologies/gemini/">
-        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/gemini-color.png" width="60px;" alt="Gemini"/><br />
-        <sub><b>Gemini</b></sub>
-      </a><br />
-      <sub>(Google DeepMind)</sub>
-    </td>
-    <td align="center" width="160px">
-      <a href="https://seed.bytedance.com/en/">
-        <img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/doubao-color.png" width="60px;" alt="ByteDance Seed"/><br />
-        <sub><b>Seed (豆包)</b></sub>
-      </a><br />
-      <sub>(ByteDance)</sub>
-    </td>
-  </tr>
-</table>
+每个主要下载包的 CI 上限为 100 MiB。Tag 必须与 `package.json`、Cargo 和 `tauri.conf.json` 的版本一致；稳定版还要求 Windows Authenticode、macOS Developer ID/公证及 Tauri updater Ed25519 密钥。
 
----
+Pull Request 会在七个原生目标上生成短期保留的未签名测试包。正式 tag 构建必须通过对应平台的签名、文件关联、核心文档、Agent 流式响应、安装、启动、内容检查和卸载冒烟后才能进入单一 finalize 任务；finalize 统一生成 updater 元数据、拒绝安装夹具、校验和、SBOM、源码归档与构建证明，并先发布为 prerelease。
 
-## 开源许可证 (License)
+`Signed staging release smoke` 使用精确 tag 在七个平台验证签名篡改拒绝、无效安装保持原程序、真实升级、重启、启动健康检查、失败回滚和外部版本/哈希。每个目标还会重新安装旧版，注入一次更新后启动失败，并从进程外确认旧载荷已恢复和重启。工作流默认只验收；显式选择 `promote` 且全部矩阵通过时，只有独立的最小权限 job 可以将 prerelease 提升为稳定版。`v2.0.0` 之后必须提供较旧的已发布 tag，不能跳过升级验收。
 
-本项目采用 **[Creative Commons Attribution-NonCommercial 4.0 International (CC-BY-NC 4.0)](./LICENSE)** 许可协议。
+## v2 数据策略
 
-* 允许个人免费学习、研究、分发和二次开发。
-* **严格禁止任何形式的商业盈利性使用**。
+v2 将配置写入新的 `v2/` 应用数据目录。旧 Electron 配置和用户文档不会被读取、迁移或删除；API key 需要重新录入并只存放在系统凭据库中。更新前会在 `v2/updater-health/` 创建受限备份和原子事务状态；新版本只有在 React 已挂载且完成原生 IPC 往返后才确认健康，否则独立旧版本 guardian 会恢复原安装载荷。
+
+## Codex 对话迁移
+
+Agent 面板首次启动时会扫描当前用户的 `CODEX_HOME`（未设置时使用 `~/.codex`）中的活动与归档 JSONL 会话，并以幂等方式写入 `v2/conversations/`。历史面板中的下载按钮可以随时重新扫描；已同步的文件不会重复导入，后续新增或变化的会话会增量更新。
+
+导入仅保留可续聊的用户、助手和系统消息，同时保留标题、项目路径、原始 Provider/模型和归档状态；开发者指令、内部推理、工具调用输出、Codex 凭据文件和附件原始数据不会被读取或进入对话上下文。用户主动粘贴在正文中的敏感信息会按原文保存，请在共享前自行检查。选择任意历史对话后，可以直接切换到已配置的 OpenAI、Anthropic、Google、Ollama 或 OpenAI-compatible Provider 继续工作。超长历史会在发送时自动压缩为便携上下文窗口，原始记录仍完整保存在本地。
+
+Codex 的 shell/process 会话、审批状态和正在运行的工具不会迁移；外部模型会基于已导入的可见消息和当前应用可用工具继续执行。
+
+## 许可证
+
+本项目以 GNU Affero General Public License v3.0 only 发布。参见 [LICENSE](./LICENSE) 和 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。分发二进制时必须同时提供该版本对应的完整源代码。

@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useState } from 'react'
 import type { AgentConfig } from '@/types/agent'
 import type { AuthStatus, ProviderDefinition } from '@/types/provider'
@@ -7,8 +8,6 @@ import { Separator } from '@/components/ui/separator'
 import { AgentProviderPicker } from './AgentProviderPicker'
 import { localizeAgentDefaults } from '@/lib/i18n/agent-defaults'
 import { useTranslation } from '@/lib/i18n/runtime'
-import { DEFAULT_DOCUMENT_OPERATION_PROMPT } from '@/lib/document-operation-prompt'
-import { RotateCcw } from 'lucide-react'
 
 interface AgentConfigDialogProps {
   agent: AgentConfig | null
@@ -48,8 +47,8 @@ export function AgentConfigDialog({
     setLoadingProviders(true)
 
     void Promise.all([
-      window.api.provider.list(),
-      window.api.auth.getAll().catch(() => ({} as Record<string, AuthStatus>)),
+      desktopApi.providers.list(),
+      desktopApi.providers.auth.getAll().catch(() => ({} as Record<string, AuthStatus>)),
     ]).then(([list, authStatus]) => {
       if (cancelled) return
       const configuredProviders = list.filter(
@@ -94,7 +93,7 @@ export function AgentConfigDialog({
     const ollama = providers.find((provider) => provider.id === 'ollama')
     if (!ollama || ollama.models.length > 0) return
     let cancelled = false
-    void window.api.provider.detectOllama(ollama.api).then((detected) => {
+    void desktopApi.providers.detectOllama(ollama.api).then((detected) => {
       if (cancelled || !detected.available) return
       const models = detected.models.map((id) => ({ id, name: id }))
       setProviders((current) => current.map((provider) => (
@@ -153,34 +152,6 @@ export function AgentConfigDialog({
                 value={form.systemPrompt}
                 onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
               />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-xs font-medium text-muted-foreground">
-                  {t('agentConfig.documentOperationPrompt')}
-                </label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 text-[11px]"
-                  title={t('agentConfig.restoreDocumentOperationPrompt')}
-                  onClick={() => setForm({ ...form, documentOperationPrompt: DEFAULT_DOCUMENT_OPERATION_PROMPT })}
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  {t('agentConfig.restoreDefault')}
-                </Button>
-              </div>
-              <textarea
-                className="flex min-h-[132px] w-full rounded-lg border border-input bg-transparent px-3 py-2 text-xs leading-5 outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
-                data-testid="agent-document-operation-prompt"
-                value={form.documentOperationPrompt}
-                onChange={(event) => setForm({ ...form, documentOperationPrompt: event.target.value })}
-              />
-              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                {t('agentConfig.documentOperationPromptHint')}
-              </p>
             </div>
 
             <div>

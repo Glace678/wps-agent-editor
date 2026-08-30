@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { ChatOpenAI } from '@langchain/openai'
 import {
   getAgentReasoningRequestOptions,
   normalizeAgentReasoningSelection,
@@ -286,11 +285,6 @@ assert.deepEqual(optionKeys(resolveAgentReasoningProfile(metadataModel, 'future-
 ])
 
 const openAIRequest = getAgentReasoningRequestOptions(gpt56, { kind: 'effort', value: 'max' })
-const openAI = new ChatOpenAI({
-  model: 'gpt-5.6-luna',
-  apiKey: 'test-key',
-  modelKwargs: { reasoning_effort: openAIRequest.openAIReasoningEffort },
-})
-assert.equal(openAI.invocationParams().reasoning_effort, 'max')
+assert.deepEqual(openAIRequest, { openAIReasoningEffort: 'max' })
 
 console.log('Agent reasoning capability tests passed.')

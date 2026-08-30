@@ -30,26 +30,55 @@ function test(name, fn) {
 test('wheel handler bails out while settings dialog is open', () => {
   assert.match(
     textEditor,
-    /event\.preventDefault\(\)\s*\n\s*if \(settingsOpen\) return/,
-    'handler must preventDefault first, then skip zoom when settingsOpen',
+    /event\.preventDefault\(\)\s*\r?\n\s*if \(settingsOpenRef\.current\) return/,
+    'handler must preventDefault first, then skip zoom through the live settings ref',
   )
 })
 
-test('wheel effect re-subscribes when settingsOpen changes', () => {
+test('settings state is mirrored into the stable wheel-listener ref', () => {
   assert.match(
     textEditor,
-    /\[loading, settingsOpen, zoomIn, zoomOut\]/,
-    'settingsOpen must be in the wheel effect dependency array',
+    /settingsOpenRef\.current = settingsOpen/,
+    'the wheel listener must observe the latest settings state without re-subscribing',
   )
 })
 
-test('zoom still wired for the normal (settings closed) path', () => {
+test('normal wheel zoom is normalized and coalesced before live text reflow', () => {
   assert.match(
     textEditor,
-    /const applyStep = steps < 0 \? zoomIn : zoomOut/,
+    /normalizeWheelZoomDelta\(event\.deltaY, event\.deltaMode\)/,
   )
-  assert.match(textEditor, /normalizeWheelZoomDelta\(event\.deltaY, event\.deltaMode\)/)
   assert.match(textEditor, /requestAnimationFrame\(flushWheelZoom\)/)
+  assert.match(textEditor, /applyLiveZoom\(/)
+  assert.match(
+    textEditor,
+    /setProperty\('--notepad-editor-font-size'/,
+    'each rendered zoom step must update the real font metrics',
+  )
+  assert.match(
+    textEditor,
+    /setTimeout\(commitWheelZoom, NOTEPAD_WHEEL_ZOOM_IDLE_MS\)/,
+    'only the React/localStorage state commit should wait for wheel idle',
+  )
+})
+
+test('text zoom never transforms or CSS-zooms the editor surface', () => {
+  assert.doesNotMatch(textEditor, /applyNotepadZoomPreview|applyNotepadZoomStyle/)
+  assert.doesNotMatch(textEditor, /surface\.style\.(?:zoom|transform)/)
+})
+
+test('cancelled zoom gestures restore the committed indicator and live ref', () => {
+  assert.match(
+    textEditor,
+    /liveZoomPercentRef\.current = appliedZoomPercentRef\.current\s*\r?\n\s*updateZoomIndicator\(appliedZoomPercentRef\.current\)/,
+  )
+})
+
+test('switching tabs, views, or settings settles a pending zoom gesture', () => {
+  assert.match(
+    textEditor,
+    /commitWheelZoom\(\)\s*\r?\n\s*\}, \[activeTabId, commitWheelZoom, markdownView, settingsOpen\]\)/,
+  )
 })
 
 if (process.exitCode) {

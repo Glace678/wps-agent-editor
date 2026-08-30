@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "retrievedAt": "2026-08-24",
+  "retrievedAt": "2026-08-17",
   "providers": {
     "zhipuai": {
       "name": "Zhipu AI",
@@ -1458,64 +1458,6 @@
       "sourceType": "official-parent-alias",
       "officialColor": true,
       "parentProviderId": "minimax"
-    },
-    "volcengine": {
-      "name": "Volcengine Ark",
-      "assetFile": "volcengine.png",
-      "sourceUrl": "https://portal.volccdn.com/obj/volcfe/misc/favicon.png",
-      "pageUrl": "https://www.volcengine.com/product/ark",
-      "sourceType": "official-site-icon",
-      "officialColor": true
-    },
-    "volcengine-agent-plan": {
-      "name": "Volcengine Ark Agent Plan",
-      "assetFile": "volcengine-agent-plan.png",
-      "sourceUrl": "https://portal.volccdn.com/obj/volcfe/misc/favicon.png",
-      "pageUrl": "https://www.volcengine.com/docs/82379/2556054?lang=zh",
-      "sourceType": "official-parent-alias",
-      "parentProviderId": "volcengine",
-      "officialColor": true
-    },
-    "volcengine-coding-plan": {
-      "name": "Volcengine Ark Coding Plan",
-      "assetFile": "volcengine-coding-plan.png",
-      "sourceUrl": "https://portal.volccdn.com/obj/volcfe/misc/favicon.png",
-      "pageUrl": "https://www.volcengine.com/docs/82379/2556056?lang=zh",
-      "sourceType": "official-parent-alias",
-      "parentProviderId": "volcengine",
-      "officialColor": true
-    },
-    "iflytek-astron-coding-plan": {
-      "name": "iFLYTEK Astron Coding Plan",
-      "assetFile": "iflytek-astron-coding-plan.ico",
-      "sourceUrl": "https://www.xfyun.cn/static/favicon.ico",
-      "pageUrl": "https://www.xfyun.cn/doc/spark/CodingPlan.html",
-      "sourceType": "official-site-icon",
-      "officialColor": true
-    },
-    "jdcloud-joybuilder-coding-plan": {
-      "name": "JD Cloud JoyBuilder Coding Plan",
-      "assetFile": "jdcloud-joybuilder-coding-plan.png",
-      "sourceUrl": "https://img1.jcloudcs.com/portal/jdy-touch-icon.png",
-      "pageUrl": "https://docs.jdcloud.com/cn/jdaip/Quickstart",
-      "sourceType": "official-site-icon",
-      "officialColor": true
-    },
-    "streamlake-kwaikat-coding-plan": {
-      "name": "StreamLake KwaiKAT Coding Plan",
-      "assetFile": "streamlake-kwaikat-coding-plan.ico",
-      "sourceUrl": "https://p4-sl.streamlake.com/kos/nlav11935/streamlake-website/public/favicon.ico",
-      "pageUrl": "https://www.streamlake.com/document/WANQING/me6ymdjrqv8lp4iq0o9",
-      "sourceType": "official-site-icon",
-      "officialColor": true
-    },
-    "compshare-coding-plan": {
-      "name": "Compshare Coding Plan",
-      "assetFile": "compshare-coding-plan.ico",
-      "sourceUrl": "https://www.compshare.cn/favicon.ico",
-      "pageUrl": "https://www.compshare.cn/coding-plan",
-      "sourceType": "official-site-icon",
-      "officialColor": true
     },
     "ollama": {
       "name": "Ollama",

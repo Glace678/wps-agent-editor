@@ -44,7 +44,7 @@ function readDocumentIsDark(): boolean {
 /**
  * 文件/文件夹悬停信息卡（浏览列表、最近列表共用）。
  *
- * 不用 Radix Tooltip / transform 定位：Electron 下带 transform 的层
+ * 不用 Radix Tooltip / transform 定位：系统 WebView 中带 transform 的层
  * 偶发只绘出上/下半边框。这里用 position:fixed 的 top/left 像素定位，
  * 并用 box-shadow 画完整描边（比 border 在合成层上更稳）。
  * 描边颜色：白天黑、暗夜白。
@@ -192,7 +192,7 @@ export function FileHoverCard({
           // 全局 * { border-color } 可能干扰；显式关掉 CSS border
           border: 'none',
           outline: 'none',
-          // 完整描边用 box-shadow（Electron 对 border+transform 半绘更稳）
+          // 完整描边用 box-shadow（WebView 对 border+transform 半绘更稳）
           // 白天黑框 / 暗夜白框
           boxShadow: fileHoverCardBoxShadow(isDark),
           transform: 'none',

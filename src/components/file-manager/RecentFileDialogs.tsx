@@ -1,3 +1,4 @@
+import { desktopApi } from '@/platform'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Copy, FileText, X } from 'lucide-react'
@@ -178,7 +179,7 @@ export function ShareDialog({ files, onClose }: { files: RecentFile[]; onClose: 
   }
 
   const copyFile = async () => {
-    const result = await window.api.file.copyToClipboard(filePaths)
+    const result = await desktopApi.files.copyToClipboard(filePaths)
     if (!result.success) {
       setError(t('recentFiles.errorNotFound'))
       return
@@ -190,7 +191,7 @@ export function ShareDialog({ files, onClose }: { files: RecentFile[]; onClose: 
     try {
       await navigator.clipboard.writeText(filePaths.join('\n'))
     } catch {
-      // Electron renderer clipboard access can fail in previews; ignore and keep UI responsive.
+      // Clipboard access can fail in browser previews; ignore and keep UI responsive.
     }
     finish('path')
   }
@@ -261,11 +262,11 @@ export function HistoryDialog({ file, onClose }: { file: RecentFile; onClose: ()
   const [busy, setBusy] = useState(false)
 
   const reload = async () => {
-    setVersions(await window.api.file.historyList(file.path))
+    setVersions(await desktopApi.files.historyList(file.path))
   }
 
   useEffect(() => {
-    void window.api.file.historyList(file.path).then(setVersions)
+    void desktopApi.files.historyList(file.path).then(setVersions)
   }, [file.path])
 
   const restore = async (version: FileVersion) => {
@@ -278,7 +279,7 @@ export function HistoryDialog({ file, onClose }: { file: RecentFile; onClose: ()
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.file.historyRestore(file.path, version.id)
+      const result = await desktopApi.files.historyRestore(file.path, version.id)
       if (!result.success) {
         setError(t('recentFiles.errorOperationFailed'))
         return

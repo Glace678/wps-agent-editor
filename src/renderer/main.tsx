@@ -5,7 +5,6 @@ import '@/index.css'
 import { initializeLanguage } from '@/lib/i18n/runtime'
 import { syncNativeThemePreference } from '@/lib/theme'
 import { AppErrorBoundary } from '@/components/ErrorBoundary'
-
 initializeLanguage()
 syncNativeThemePreference()
 
