@@ -296,6 +296,11 @@ const layoutReplacements = [
     to: `						if (!hasOnlyTrailingWrapSpaces(runIndex, spaceStartChar) && currentLine.width + boundarySpacing$1 + singleSpaceWidth > currentLine.maxWidth - WIDTH_FUDGE_PX$1 && currentLine.width > 0) {`,
   },
   {
+    label: 'do not wrap a trailing whitespace-only run',
+    from: `					if (currentLine.width + boundarySpacing + spacesWidth > currentLine.maxWidth - WIDTH_FUDGE_PX$1 && currentLine.width > 0) {`,
+    to: `					if (!hasOnlyTrailingWrapSpaces(runIndex, spacesStartChar) && currentLine.width + boundarySpacing + spacesWidth > currentLine.maxWidth - WIDTH_FUDGE_PX$1 && currentLine.width > 0) {`,
+  },
+  {
     label: 'remove paragraph-final space width before final line metrics',
     from: `	if (currentLine) {
 		const metrics = finalizeLineMetrics(currentLine, spacing);
