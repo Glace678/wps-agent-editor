@@ -189,8 +189,12 @@ try {
     assert.doesNotMatch(publicContract, /\bi686\b|\barch:\s*x86(?:\s*[,}])/)
   }
   assert.match(signedWorkflow, /!v\*\.\*\.\*-\*/)
+  assert.match(signedWorkflow, /git fetch --force --no-tags origin "refs\/tags\/\$\{GITHUB_REF_NAME\}:refs\/tags\/\$\{GITHUB_REF_NAME\}"/)
+  assert.match(signedWorkflow, /TAG_COMMIT="\$\(git rev-parse "refs\/tags\/\$GITHUB_REF_NAME\^\{\}"\)"/)
   assert.match(unsignedWorkflow, /v\*\.\*\.\*-rc\.\*/)
   assert.match(unsignedWorkflow, /Unsigned Preview/)
+  assert.match(unsignedWorkflow, /git fetch --force --no-tags origin "refs\/tags\/\$\{GITHUB_REF_NAME\}:refs\/tags\/\$\{GITHUB_REF_NAME\}"/)
+  assert.match(unsignedWorkflow, /TAG_COMMIT="\$\(git rev-parse "refs\/tags\/\$GITHUB_REF_NAME\^\{\}"\)"/)
   assert.doesNotMatch(unsignedWorkflow, /TAURI_SIGNING_PRIVATE_KEY|WINDOWS_CERTIFICATE|APPLE_CERTIFICATE|latest\.json/)
   assert.match(unsignedConfig, /createUpdaterArtifacts:\s*false/)
   assert.match(unsignedConfig, /endpoints:\s*\[\]/)
