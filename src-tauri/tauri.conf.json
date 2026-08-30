@@ -45,10 +45,8 @@
       "icons/icon.ico"
     ],
     "linux": {
-      "appimage": {
-        "files": {
-          "/usr/share/applications/WPS Agent Editor.desktop": "linux/wps-agent-editor.desktop"
-        }
+      "deb": {
+        "desktopTemplate": "linux/wps-agent-editor.desktop"
       }
     },
     "category": "Productivity",

@@ -153,19 +153,13 @@ try {
     'icons/icon.icns',
     'icons/icon.ico',
   ])
-  const linuxDesktopRelativePath = tauriConfig.bundle.linux?.appimage?.files?.[
-    '/usr/share/applications/WPS Agent Editor.desktop'
-  ]
+  const linuxDesktopRelativePath = tauriConfig.bundle.linux?.deb?.desktopTemplate
   assert.equal(linuxDesktopRelativePath, 'linux/wps-agent-editor.desktop')
   const linuxDesktop = await readFile(join(root, 'src-tauri', linuxDesktopRelativePath), 'utf8')
-  assert.match(linuxDesktop, /^Exec=wps-agent-editor %F$/m)
-  const configuredLinuxMimeTypes = [...new Set(
-    tauriConfig.bundle.fileAssociations.map((association) => association.mimeType),
-  )].sort()
-  const desktopMimeLine = linuxDesktop.match(/^MimeType=(.+)$/m)?.[1]
-  assert.ok(desktopMimeLine, 'Linux desktop entry must declare MIME types')
-  const desktopMimeTypes = [...new Set(desktopMimeLine.split(';').filter(Boolean))].sort()
-  assert.deepEqual(desktopMimeTypes, configuredLinuxMimeTypes)
+  assert.match(linuxDesktop, /^Exec=\{\{exec\}\} %F$/m)
+  assert.match(linuxDesktop, /^StartupWMClass=\{\{exec\}\}$/m)
+  assert.match(linuxDesktop, /^Icon=\{\{icon\}\}$/m)
+  assert.match(linuxDesktop, /^MimeType=\{\{mime_type\}\}$/m)
   const linuxConfig = join(temporaryRoot, 'linux-release.json')
   runScript('tauri-release-config.mjs', [linuxConfig], {
     GITHUB_REPOSITORY: 'owner/repository',
@@ -209,6 +203,8 @@ try {
   assert.match(macosInstallSmoke, /printf 'Y\\n' \| hdiutil attach/)
   assert.match(macosInstallSmoke, /hdiutil attach[^\n]+-noverify/)
   assert.match(macosInstallSmoke, /Unable to mount the DMG after 3 attempts/)
+  assert.match(macosInstallSmoke, /expected_macho_arch=.*arm64.*x86_64/)
+  assert.match(macosInstallSmoke, /updater_architectures.*expected_macho_arch/)
   assert.match(stagingWorkflow, /startup health rollback/)
   assert.match(healthGuardian, /--wae-update-health-guardian/)
   assert.match(healthGuardian, /startup-health-failed/)

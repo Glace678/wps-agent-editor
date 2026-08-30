@@ -88,8 +88,9 @@ bundle_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$ap
 source_executable="$app/Contents/MacOS/$bundle_executable"
 [[ -x "$source_executable" ]] || { echo "App bundle main executable is missing or not executable: $source_executable" >&2; exit 1; }
 architectures="$(lipo -archs "$source_executable")"
-[[ "$architectures" == "$arch" ]] || {
-  echo "Mach-O architecture mismatch: expected only $arch, found $architectures" >&2
+expected_macho_arch="$([[ "$arch" == aarch64 ]] && printf 'arm64' || printf 'x86_64')"
+[[ "$architectures" == "$expected_macho_arch" ]] || {
+  echo "Mach-O architecture mismatch: expected only $expected_macho_arch, found $architectures" >&2
   exit 1
 }
 expected_minimum_os="$([[ "$arch" == x86_64 ]] && printf '10.15' || printf '11.0')"
@@ -153,8 +154,8 @@ if [[ "$allow_unsigned" == 0 ]]; then
   updater_executable="$updater_app/Contents/MacOS/$updater_bundle_executable"
   [[ -x "$updater_executable" ]] || { echo "Updater main executable is missing: $updater_executable" >&2; exit 1; }
   updater_architectures="$(lipo -archs "$updater_executable")"
-  [[ "$updater_architectures" == "$arch" ]] || {
-    echo "Updater Mach-O architecture mismatch: expected only $arch, found $updater_architectures" >&2
+  [[ "$updater_architectures" == "$expected_macho_arch" ]] || {
+    echo "Updater Mach-O architecture mismatch: expected only $expected_macho_arch, found $updater_architectures" >&2
     exit 1
   }
   updater_build_version="$(xcrun vtool -show-build "$updater_executable")"
