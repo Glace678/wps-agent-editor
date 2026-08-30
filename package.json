@@ -30,7 +30,7 @@
     "test:notepad-multi-tables": "tsx scripts/test-multi-tables.ts",
     "verify:provider-catalog": "tsx scripts/check-provider-model-filter.ts",
     "generate:provider-catalog": "tsx scripts/generate-provider-catalog.ts",
-    "generate:types": "node scripts/generate-rust-types.mjs",
+    "generate:types": "npm run prepare:sidecar && node scripts/generate-rust-types.mjs",
     "check:generated": "npm run generate:types && git diff --exit-code -- src/types/generated",
     "verify:provider-order": "tsx scripts/check-provider-order.ts",
     "verify:provider-logos": "node scripts/check-provider-logos.mjs",
