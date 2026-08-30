@@ -2156,6 +2156,7 @@ fn recursive_process_descendants(root_pid: u32, links: &[ProcessLink]) -> Vec<Pr
     descendants
 }
 
+#[cfg(any(test, windows))]
 fn process_tree_edge_is_possible(
     parent_pid: u32,
     parent_started: u64,

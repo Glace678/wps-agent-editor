@@ -41,9 +41,13 @@ const MAX_SLIDES: usize = 2_000;
 const MAX_RELATIONSHIP_DEPTH: usize = 256;
 const MAX_EDIT_TEXT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_OUTLINE_TEXT_BYTES: usize = 16 * 1024 * 1024;
+#[cfg(any(test, windows))]
 const MAX_LEGACY_METAFILES: usize = 512;
+#[cfg(any(test, windows))]
 const MAX_RASTERIZED_IMAGE_DIMENSION: u32 = 4_096;
+#[cfg(any(test, windows))]
 const MAX_RASTERIZED_IMAGE_PIXELS: u64 = 16_777_216;
+#[cfg(any(test, windows))]
 const MAX_PNG_DECODER_BYTES: usize = 8 * 1024 * 1024;
 const URI_PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b' ')
@@ -171,6 +175,7 @@ struct Package<'a> {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(any(test, windows))]
 pub(crate) struct LegacyPresentationMetafile {
     pub package_path: String,
     pub data: Vec<u8>,
@@ -665,6 +670,7 @@ impl<'a> Package<'a> {
     }
 }
 
+#[cfg(any(test, windows))]
 pub(crate) fn extract_legacy_presentation_metafiles(
     source: &[u8],
 ) -> AppResult<Vec<LegacyPresentationMetafile>> {
@@ -703,6 +709,7 @@ pub(crate) fn extract_legacy_presentation_metafiles(
 /// Replaces only successfully rasterized metafiles. All other ZIP parts are
 /// copied verbatim, and relationship XML is rewritten only when it targets a
 /// converted part.
+#[cfg(any(test, windows))]
 pub(crate) fn replace_legacy_presentation_metafiles(
     source: &[u8],
     converted: &BTreeMap<String, Vec<u8>>,
@@ -815,6 +822,7 @@ pub(crate) fn replace_legacy_presentation_metafiles(
     Ok((package.finish()?, count))
 }
 
+#[cfg(any(test, windows))]
 pub(crate) fn validate_rasterized_png(source_path: &str, data: &[u8]) -> AppResult<()> {
     let mut options = png::DecodeOptions::default();
     options.set_ignore_adler32(false);
@@ -877,12 +885,14 @@ pub(crate) fn validate_rasterized_png(source_path: &str, data: &[u8]) -> AppResu
     Ok(())
 }
 
+#[cfg(any(test, windows))]
 fn may_contain_legacy_metafile(source: &[u8]) -> bool {
     source
         .windows(4)
         .any(|window| window.eq_ignore_ascii_case(b".wmf") || window.eq_ignore_ascii_case(b".emf"))
 }
 
+#[cfg(any(test, windows))]
 fn is_legacy_metafile_path(name: &str) -> bool {
     let Some(file_name) = name.strip_prefix("ppt/media/") else {
         return false;
@@ -897,6 +907,7 @@ fn is_legacy_metafile_path(name: &str) -> bool {
             })
 }
 
+#[cfg(any(test, windows))]
 fn target_may_reference_legacy_metafile(target: &str) -> bool {
     let path = target.split(['?', '#']).next().unwrap_or(target);
     if validate_percent_encoding(path).is_err() {
@@ -913,6 +924,7 @@ fn target_may_reference_legacy_metafile(target: &str) -> bool {
         })
 }
 
+#[cfg(any(test, windows))]
 fn allocate_normalized_media_path(
     package: &Package<'_>,
     source_path: &str,
@@ -941,6 +953,7 @@ fn allocate_normalized_media_path(
     ))
 }
 
+#[cfg(any(test, windows))]
 fn relationship_owner_path(relationship_part: &str) -> Option<String> {
     if relationship_part == "_rels/.rels" {
         return Some(String::new());
