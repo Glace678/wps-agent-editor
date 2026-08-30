@@ -50,8 +50,20 @@ fi
 [[ "$arch" == x86_64 || "$arch" == aarch64 ]] || { echo "Unsupported macOS architecture: $arch" >&2; exit 2; }
 hdiutil verify "$dmg"
 mkdir -p "$mount_dir" "$install_dir"
-hdiutil attach "$dmg" -readonly -nobrowse -noautoopen -mountpoint "$mount_dir" >/dev/null
-mounted=1
+attach_log="$log_dir/macos-$arch-hdiutil-attach.log"
+for attempt in 1 2 3; do
+  if hdiutil attach "$dmg" -readonly -nobrowse -noautoopen -noverify -mountpoint "$mount_dir" >"$attach_log" 2>&1; then
+    mounted=1
+    break
+  fi
+  echo "hdiutil attach attempt $attempt failed" >&2
+  cat "$attach_log" >&2
+  hdiutil detach "$mount_dir" -force >/dev/null 2>&1 || true
+  rm -rf "$mount_dir"
+  mkdir -p "$mount_dir"
+  sleep $((attempt * 2))
+done
+[[ "$mounted" == 1 ]] || { echo 'Unable to mount the DMG after 3 attempts' >&2; exit 1; }
 
 app="$(find "$mount_dir" -maxdepth 2 -type d -name '*.app' -print -quit)"
 [[ -n "$app" ]] || { echo 'Mounted DMG contains no .app bundle' >&2; exit 1; }
