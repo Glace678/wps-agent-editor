@@ -71,6 +71,7 @@ jobs:
     env:
       WAE_BUILD_TARGET: ${{ matrix.target }}
       MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
+      NODE_OPTIONS: --max-old-space-size=4096
       CI: 'true'
     steps:
       - uses: actions/checkout@v4
