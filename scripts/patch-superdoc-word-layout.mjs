@@ -33,14 +33,25 @@ function countOccurrences(source, value) {
 }
 
 function applyReplacement(source, replacement, file) {
-  const { from, to, label, count = 1 } = replacement
-  const patchedCount = countOccurrences(source, to)
+  const { from, to, label, count = 1, applied = to, legacy = [] } = replacement
+  const patchedCount = countOccurrences(source, applied)
   if (patchedCount === count) {
     console.log(`[SKIP] ${file}: ${label} (already applied)`)
     return source
   }
   if (patchedCount !== 0) {
     throw new Error(`${file}: ${label}: found ${patchedCount} partial patched occurrences`)
+  }
+
+  for (const legacySource of legacy) {
+    const legacyCount = countOccurrences(source, legacySource)
+    if (legacyCount === count) {
+      console.log(`[OK]   ${file}: ${label} (migrated)`)
+      return source.split(legacySource).join(to)
+    }
+    if (legacyCount !== 0) {
+      throw new Error(`${file}: ${label}: found ${legacyCount} partial legacy occurrences`)
+    }
   }
 
   const sourceCount = countOccurrences(source, from)
@@ -159,9 +170,12 @@ const replacements = [
     to: `\t\t\tpushBlock: (block) => {\n\t\t\t\tblocks.push(block);\n\t\t\t\trecordBlockKind(block.kind);\n\t\t\t},\n\t\t\tconverterContext\n\t\t});`,
   },
   {
-    label: 'keep centered bold table captions with their table',
+    label: 'keep sized content-table captions with their table',
     from: `\tconst mergedBlocks = mergeFusedParagraphs(mergeDropCapParagraphs(hydrateImageBlocks(blocks, options?.mediaFiles)));\n\tstampTrackedChangeColors(mergedBlocks, options?.resolveTrackedChangeColor);`,
-    to: `\tconst mergedBlocks = mergeFusedParagraphs(mergeDropCapParagraphs(hydrateImageBlocks(blocks, options?.mediaFiles)));\n\tfor (let index = 0; index < mergedBlocks.length - 1; index++) {\n\t\tconst caption = mergedBlocks[index];\n\t\tconst nextBlock = mergedBlocks[index + 1];\n\t\tif (caption.kind !== "paragraph" || nextBlock.kind !== "table" || caption.attrs?.alignment !== "center" || caption.attrs?.keepNext === false) continue;\n\t\tconst hasVisibleText = caption.runs?.some((run) => typeof run.text === "string" && run.text.trim().length > 0);\n\t\tconst hasBoldText = caption.runs?.some((run) => run.bold === true && typeof run.text === "string" && run.text.trim().length > 0);\n\t\tif (!hasVisibleText || !hasBoldText) continue;\n\t\tcaption.attrs = {\n\t\t\t...caption.attrs,\n\t\t\tkeepNext: true\n\t\t};\n\t}\n\tstampTrackedChangeColors(mergedBlocks, options?.resolveTrackedChangeColor);`,
+    to: `\tconst mergedBlocks = mergeFusedParagraphs(mergeDropCapParagraphs(hydrateImageBlocks(blocks, options?.mediaFiles)));\n\tfor (let index = 0; index < mergedBlocks.length - 1; index++) {\n\t\tconst caption = mergedBlocks[index];\n\t\tconst nextBlock = mergedBlocks[index + 1];\n\t\tif (caption.kind !== "paragraph" || nextBlock.kind !== "table" || caption.attrs?.alignment !== "center" || caption.attrs?.keepNext === false) continue;\n\t\tconst firstRow = nextBlock.rows?.[0];\n\t\tconst rowStartHeight = firstRow?.attrs?.rowHeight?.value;\n\t\tconst hasSizedContentRow = typeof rowStartHeight === "number" && Number.isFinite(rowStartHeight) && rowStartHeight > 0 && firstRow.cells?.some((cell) => cell.blocks?.some((cellBlock) => cellBlock.runs?.some((run) => typeof run.text === "string" && run.text.trim().length > 0)));\n\t\tconst hasVisibleText = caption.runs?.some((run) => typeof run.text === "string" && run.text.trim().length > 0);\n\t\tconst hasBoldText = caption.runs?.some((run) => run.bold === true && typeof run.text === "string" && run.text.trim().length > 0);\n\t\tif (!hasSizedContentRow || !hasVisibleText || !hasBoldText) continue;\n\t\tcaption.attrs = {\n\t\t\t...caption.attrs,\n\t\t\tkeepNext: true\n\t\t};\n\t}\n\tstampTrackedChangeColors(mergedBlocks, options?.resolveTrackedChangeColor);`,
+    legacy: [
+      `\tconst mergedBlocks = mergeFusedParagraphs(mergeDropCapParagraphs(hydrateImageBlocks(blocks, options?.mediaFiles)));\n\tfor (let index = 0; index < mergedBlocks.length - 1; index++) {\n\t\tconst caption = mergedBlocks[index];\n\t\tconst nextBlock = mergedBlocks[index + 1];\n\t\tif (caption.kind !== "paragraph" || nextBlock.kind !== "table" || caption.attrs?.alignment !== "center" || caption.attrs?.keepNext === false) continue;\n\t\tconst hasVisibleText = caption.runs?.some((run) => typeof run.text === "string" && run.text.trim().length > 0);\n\t\tconst hasBoldText = caption.runs?.some((run) => run.bold === true && typeof run.text === "string" && run.text.trim().length > 0);\n\t\tif (!hasVisibleText || !hasBoldText) continue;\n\t\tcaption.attrs = {\n\t\t\t...caption.attrs,\n\t\t\tkeepNext: true\n\t\t};\n\t}\n\tstampTrackedChangeColors(mergedBlocks, options?.resolveTrackedChangeColor);`,
+    ],
   },
 ]
 
@@ -175,6 +189,17 @@ const layoutReplacements = [
     label: 'move a row to a clean page when its minimum height cannot start here',
     from: `\t\t\tif (lastFitRow === startRow) {\n\t\t\t\tconst cellSpacingPx = measure.cellSpacingPx ?? 0;\n\t\t\t\tconst topBorderPx = borderCollapse === "separate" && measure.tableBorderWidths ? measure.tableBorderWidths.top : 0;\n\t\t\t\tremainingHeight = availableHeight - cellSpacingPx - topBorderPx;\n\t\t\t}\n\t\t\tif (fullPageHeight && rowHeight > fullPageHeight) {`,
     to: `\t\t\tif (lastFitRow === startRow) {\n\t\t\t\tconst cellSpacingPx = measure.cellSpacingPx ?? 0;\n\t\t\t\tconst topBorderPx = borderCollapse === "separate" && measure.tableBorderWidths ? measure.tableBorderWidths.top : 0;\n\t\t\t\tremainingHeight = availableHeight - cellSpacingPx - topBorderPx;\n\t\t\t}\n\t\t\tconst explicitRowStartHeight = getExplicitRowStartHeight(row);\n\t\t\tif (explicitRowStartHeight != null && fullPageHeight && explicitRowStartHeight <= fullPageHeight + ROW_HEIGHT_EPSILON && remainingHeight + ROW_HEIGHT_EPSILON < explicitRowStartHeight) {\n\t\t\t\tconst safeEndRow = maxRowspanEnd > lastFitRow && lastCleanFitRow > startRow ? lastCleanFitRow : lastFitRow;\n\t\t\t\treturn {\n\t\t\t\t\tendRow: safeEndRow,\n\t\t\t\t\tpartialRow: null,\n\t\t\t\t\tforcePageBreak: true\n\t\t\t\t};\n\t\t\t}\n\t\t\tif (fullPageHeight && rowHeight > fullPageHeight) {`,
+    applied: `\t\t\tconst explicitRowStartHeight = getExplicitRowStartHeight(row);`,
+  },
+  {
+    label: 'preserve a vertical row-span group at a page boundary',
+    from: `\t\t\t\tconst safeEndRow = maxRowspanEnd > lastFitRow && lastCleanFitRow > startRow ? lastCleanFitRow : lastFitRow;`,
+    to: `\t\t\t\tconst safeEndRow = maxRowspanEnd > lastFitRow ? lastCleanFitRow : lastFitRow;`,
+  },
+  {
+    label: 'measure a kept table anchor from its Word row start height',
+    from: `\t\t\t\tif (anchorBlock.kind === "table" && anchorMeasure.kind === "table" && anchorMeasure.rows.length > 0) {\n\t\t\t\t\tconst firstRowHeight = anchorMeasure.rows[0]?.height;\n\t\t\t\t\tif (typeof firstRowHeight === "number" && Number.isFinite(firstRowHeight) && firstRowHeight > 0) anchorHeight = firstRowHeight;\n\t\t\t\t}`,
+    to: `\t\t\t\tif (anchorBlock.kind === "table" && anchorMeasure.kind === "table" && anchorMeasure.rows.length > 0) {\n\t\t\t\t\tconst firstRowHeight = anchorMeasure.rows[0]?.height;\n\t\t\t\t\tconst explicitRowStartHeight = getExplicitRowStartHeight(anchorBlock.rows[0]);\n\t\t\t\t\tif (explicitRowStartHeight != null) anchorHeight = explicitRowStartHeight;\n\t\t\t\t\telse if (typeof firstRowHeight === "number" && Number.isFinite(firstRowHeight) && firstRowHeight > 0) anchorHeight = firstRowHeight;\n\t\t\t\t}`,
   },
 ]
 
