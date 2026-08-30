@@ -44,7 +44,7 @@
     "test:provider-contract": "tsx --tsconfig tsconfig.web.json scripts/test-provider-desktop-contract.ts",
     "test:word-toolbar-i18n": "tsx --tsconfig tsconfig.web.json scripts/test-word-toolbar-i18n.ts",
     "test:web-canaries": "node scripts/test-office-shortcuts-structural.mjs && npm run test:agent-document-bridge && npm run test:agent-reasoning && npm run test:document-zoom-wheel && npm run test:file-session && npm run test:desktop-channel && npm run test:provider-contract && npm run test:word-toolbar-i18n",
-    "postinstall": "node scripts/patch-pptx-renderer.mjs && node scripts/patch-superdoc-font-size.mjs"
+    "postinstall": "node scripts/patch-pptx-renderer.mjs && node scripts/patch-superdoc-font-size.mjs && node scripts/patch-superdoc-word-layout.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
