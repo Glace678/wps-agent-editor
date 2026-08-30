@@ -79,6 +79,11 @@ const replacements = [
     to: `\tspacing.line = gridLineHeight ?? line;\n\tspacing.lineUnit = gridLineHeight == null ? lineUnit : "px";`,
   },
   {
+    label: 'retain the grid pitch for implicit Word line spacing',
+    from: `\tspacing.lineUnit = gridLineHeight == null ? lineUnit : "px";`,
+    to: `\tspacing.lineUnit = gridLineHeight == null ? lineUnit : "px";\n\tif (shouldUseDocumentGrid && lineRaw == null) spacing.documentGridLinePitch = gridLinePitchPx;`,
+  },
+  {
     label: 'apply the document grid when a paragraph omits explicit spacing',
     from: `const normalizeParagraphSpacing = (value, isList$2, snapToGrid, documentGrid) => {\n\tif (!value || typeof value !== "object") return void 0;`,
     to: `const normalizeParagraphSpacing = (value, isList$2, snapToGrid, documentGrid) => {\n\tif (!value || typeof value !== "object") value = {};`,
@@ -165,6 +170,16 @@ const replacements = [
     to: `\tconverterContext.sectionDirection = converterContext.sectionDirection ?? resolveSectionDirectionFromSectPr(firstSectPr);\n\tconverterContext.sectionDirectionContext = resolveSectionDirection(firstSectPr);\n\tconverterContext.documentGrid = sectionRanges[0]?.docGrid ?? converterContext.documentGrid;`,
   },
   {
+    label: 'use the complex-script paragraph-mark size for empty lines',
+    from: `function paragraphToFlowBlocks({ para, nextBlockId, positions, storyKey, trackedChangesConfig, bookmarks, hyperlinkConfig = DEFAULT_HYPERLINK_CONFIG, themeColors, converters: converters$1, converterContext, enableComments = true, stableBlockId, previousParagraphFont }) {`,
+    to: `function getEmptyParagraphFontSize(paragraphProperties, defaultSize) {\n\tconst complexSizeHalfPoints = paragraphProperties?.runProperties?.fontSizeCs;\n\tif (typeof complexSizeHalfPoints !== "number" || !Number.isFinite(complexSizeHalfPoints) || complexSizeHalfPoints <= 0) return defaultSize;\n\treturn Math.max(defaultSize, ptToPx(complexSizeHalfPoints / 2));\n}\nfunction paragraphToFlowBlocks({ para, nextBlockId, positions, storyKey, trackedChangesConfig, bookmarks, hyperlinkConfig = DEFAULT_HYPERLINK_CONFIG, themeColors, converters: converters$1, converterContext, enableComments = true, stableBlockId, previousParagraphFont }) {`,
+  },
+  {
+    label: 'measure empty lines from their full paragraph-mark size',
+    from: `\t\t\tfontFamily: defaultFont,\n\t\t\tfontSize: defaultSize\n\t\t};\n\t\tif (paragraphMarkTrackedChange)`,
+    to: `\t\t\tfontFamily: defaultFont,\n\t\t\tfontSize: getEmptyParagraphFontSize(resolvedParagraphProperties, defaultSize)\n\t\t};\n\t\tif (paragraphMarkTrackedChange)`,
+  },
+  {
     label: 'pass converter context to top-level section transitions',
     from: `\t\t\tpushBlock: (block) => {\n\t\t\t\tblocks.push(block);\n\t\t\t\trecordBlockKind(block.kind);\n\t\t\t}\n\t\t});`,
     to: `\t\t\tpushBlock: (block) => {\n\t\t\t\tblocks.push(block);\n\t\t\t\trecordBlockKind(block.kind);\n\t\t\t},\n\t\t\tconverterContext\n\t\t});`,
@@ -215,6 +230,16 @@ const layoutReplacements = [
     label: 'measure a kept table anchor from its Word row start height',
     from: `\t\t\t\tif (anchorBlock.kind === "table" && anchorMeasure.kind === "table" && anchorMeasure.rows.length > 0) {\n\t\t\t\t\tconst firstRowHeight = anchorMeasure.rows[0]?.height;\n\t\t\t\t\tif (typeof firstRowHeight === "number" && Number.isFinite(firstRowHeight) && firstRowHeight > 0) anchorHeight = firstRowHeight;\n\t\t\t\t}`,
     to: `\t\t\t\tif (anchorBlock.kind === "table" && anchorMeasure.kind === "table" && anchorMeasure.rows.length > 0) {\n\t\t\t\t\tconst firstRowHeight = anchorMeasure.rows[0]?.height;\n\t\t\t\t\tconst explicitRowStartHeight = getExplicitRowStartHeight(anchorBlock.rows[0]);\n\t\t\t\t\tif (explicitRowStartHeight != null) anchorHeight = explicitRowStartHeight;\n\t\t\t\t\telse if (typeof firstRowHeight === "number" && Number.isFinite(firstRowHeight) && firstRowHeight > 0) anchorHeight = firstRowHeight;\n\t\t\t\t}`,
+  },
+  {
+    label: 'snap implicit line boxes to whole Word document-grid rows',
+    from: `var resolveLineHeight = (spacing, fontSize, maxHeight = -1) => {\n\tlet computedHeight = spacing?.line ?? WORD_SINGLE_LINE_SPACING_MULTIPLIER;\n\tif (spacing?.lineUnit === "multiplier") computedHeight = computedHeight * fontSize;\n\tconst lineRule = spacing?.lineRule ?? "auto";\n\tif (["atLeast", "auto"].includes(lineRule)) return Math.max(computedHeight, maxHeight, WORD_SINGLE_LINE_SPACING_MULTIPLIER * fontSize);\n\treturn computedHeight;\n};`,
+    to: `var snapLineHeightToDocumentGrid = (height, spacing) => {\n\tconst gridPitch = spacing?.documentGridLinePitch;\n\tif (typeof gridPitch !== "number" || !Number.isFinite(gridPitch) || gridPitch <= 0) return height;\n\treturn Math.ceil(Math.max(0, height - ROW_HEIGHT_EPSILON) / gridPitch) * gridPitch;\n};\nvar resolveLineHeight = (spacing, fontSize, maxHeight = -1) => {\n\tlet computedHeight = spacing?.line ?? WORD_SINGLE_LINE_SPACING_MULTIPLIER;\n\tif (spacing?.lineUnit === "multiplier") computedHeight = computedHeight * fontSize;\n\tconst lineRule = spacing?.lineRule ?? "auto";\n\tconst resolvedHeight = ["atLeast", "auto"].includes(lineRule) ? Math.max(computedHeight, maxHeight, WORD_SINGLE_LINE_SPACING_MULTIPLIER * fontSize) : computedHeight;\n\treturn snapLineHeightToDocumentGrid(resolvedHeight, spacing);\n};`,
+  },
+  {
+    label: 'snap inline images to whole Word document-grid rows',
+    from: `\tconst imageH = line.maxImageHeight ?? 0;\n\tif (imageH > metrics.lineHeight) metrics.lineHeight = imageH;\n\treturn metrics;`,
+    to: `\tconst imageH = line.maxImageHeight ?? 0;\n\tif (imageH > metrics.lineHeight) metrics.lineHeight = imageH;\n\tmetrics.lineHeight = snapLineHeightToDocumentGrid(metrics.lineHeight, spacing);\n\treturn metrics;`,
   },
 ]
 
