@@ -181,6 +181,11 @@ const replacements = [
 
 const layoutReplacements = [
   {
+    label: 'reserve Word table border clearance at a page boundary',
+    from: `var ROW_HEIGHT_EPSILON = .1;`,
+    to: `var ROW_HEIGHT_EPSILON = .1;\nvar WORD_TABLE_START_CLEARANCE_PX = 2;`,
+  },
+  {
     label: 'read the explicit minimum height used to start a table row',
     from: `function findSplitPoint(block, measure, startRow, availableHeight, fullPageHeight, _pendingPartialRow) {`,
     to: `function getExplicitRowStartHeight(blockRow) {\n\tconst rowHeight = blockRow?.attrs?.rowHeight;\n\tconst value = rowHeight?.value;\n\tif (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return;\n\treturn value;\n}\nfunction findSplitPoint(block, measure, startRow, availableHeight, fullPageHeight, _pendingPartialRow) {`,
@@ -195,6 +200,16 @@ const layoutReplacements = [
     label: 'preserve a vertical row-span group at a page boundary',
     from: `\t\t\t\tconst safeEndRow = maxRowspanEnd > lastFitRow && lastCleanFitRow > startRow ? lastCleanFitRow : lastFitRow;`,
     to: `\t\t\t\tconst safeEndRow = maxRowspanEnd > lastFitRow ? lastCleanFitRow : lastFitRow;`,
+  },
+  {
+    label: 'compute page-end clearance for a newly starting table',
+    from: `\tlet maxRowspanEnd = startRow;\n\tlet lastCleanFitRow = startRow;\n\tfor (let i = startRow; i < block.rows.length; i++) {`,
+    to: `\tlet maxRowspanEnd = startRow;\n\tlet lastCleanFitRow = startRow;\n\tconst pageEndClearance = startRow === 0 && fullPageHeight && availableHeight + ROW_HEIGHT_EPSILON < fullPageHeight ? WORD_TABLE_START_CLEARANCE_PX : 0;\n\tfor (let i = startRow; i < block.rows.length; i++) {`,
+  },
+  {
+    label: 'honor page-end clearance when fitting table rows',
+    from: `\t\tif (computeFragmentHeight(measure, startRow, i + 1, 0, borderCollapse) <= availableHeight) {`,
+    to: `\t\tif (computeFragmentHeight(measure, startRow, i + 1, 0, borderCollapse) + pageEndClearance <= availableHeight) {`,
   },
   {
     label: 'measure a kept table anchor from its Word row start height',
