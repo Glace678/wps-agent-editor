@@ -67,8 +67,8 @@ const VISUAL_ORDER = [
 
 /** 首次出现前的兜底值；出现后会被当前主题下的 DOM 实测宽度替代。 */
 const FALLBACK_ITEM_WIDTHS: Record<string, number> = {
-  zoom: 75,
-  fontFamily: 116,
+  zoom: 54,
+  fontFamily: 160,
   // Keep the first pass aligned with the compact Word CSS before the browser
   // can measure the rendered item.
   fontSize: 50,

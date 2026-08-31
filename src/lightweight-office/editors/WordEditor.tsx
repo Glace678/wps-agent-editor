@@ -8,6 +8,8 @@ import type { Editor, SuperDocInstance } from '@superdoc-dev/react'
 import { useEditorStore } from '@/stores/editor.store'
 import { useDocumentZoom } from '@/components/layout/modules/DocumentZoom'
 import { useTranslation } from '@/lib/i18n/runtime'
+import type { LanguageCode } from '@/lib/i18n'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readWordBuffer, saveFileBuffer } from '../utils/file-io'
 import { prepareWordBytes, resolveSavePathForWord } from '../utils/doc-compat'
@@ -18,6 +20,8 @@ import { installWordToolbarTooltipLocalization } from '../word-toolbar-i18n'
 import { installWordToolbarOverflowPolicy, type SuperToolbarLike } from '../word-toolbar-overflow'
 import { installWordFontPickerSearch } from '../word-font-search'
 import { installWordFontSizeApplyOnBlur } from '../word-font-size-input'
+import { installWordTablePicker } from '../word-table-picker'
+import { WordInsertTableDialog } from '../components/WordInsertTableDialog'
 import { WordDocumentLayout } from '../components/WordDocumentLayout'
 import {
   WordAlternateView,
@@ -75,6 +79,18 @@ function getWordOutlineText(editor: Editor, nodeId: string, summary: string): st
   return ''
 }
 
+const WORD_FONT_EMPTY_TEXTS: Record<LanguageCode, string> = {
+  'zh-CN': '没有匹配的字体',
+  en: 'No matching font',
+  ja: '一致するフォントがありません',
+  es: 'No hay fuentes coincidentes',
+  pt: 'Nenhuma fonte correspondente',
+  de: 'Keine passenden Schriftarten',
+  fr: 'Aucune police correspondante',
+  ru: 'Шрифты не найдены',
+  ar: 'لا توجد خطوط مطابقة',
+}
+
 export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegisterSave }: WordEditorProps) {
   const { language, t } = useTranslation()
   const setCurrentFile = useEditorStore((s) => s.setCurrentFile)
@@ -98,6 +114,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
   const [isZooming, setIsZooming] = useState(false)
   const zoomingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [viewSnapshot, setViewSnapshot] = useState<WordViewSnapshot>({ html: '', outline: [] })
+  const [insertTableDialogOpen, setInsertTableDialogOpen] = useState(false)
 
   const refreshWordViewSnapshot = useCallback((editor = editorInstance) => {
     if (!editor) return
@@ -189,11 +206,19 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       language,
       fontFaces: wordFontFaces,
       placeholder: t('excelEditor.fontSearchPlaceholder'),
-      emptyMessage: language === 'zh-CN'
-        ? '\u6ca1\u6709\u5339\u914d\u7684\u5b57\u4f53'
-        : 'No matching font',
+      emptyMessage: WORD_FONT_EMPTY_TEXTS[language as LanguageCode] ?? WORD_FONT_EMPTY_TEXTS.en,
     })
   }, [language, superdocInstance, t, wordFontFaces])
+
+  // Word 插入表格下拉网格与“更多行列”弹窗
+  useEffect(() => {
+    if (!superdocInstance) return
+    return installWordTablePicker({
+      language,
+      getEditor: () => editorInstance || (superdocInstance as { editor?: Editor })?.editor || null,
+      onOpenCustomDialog: () => setInsertTableDialogOpen(true),
+    })
+  }, [editorInstance, language, superdocInstance])
 
   useEffect(() => {
     let cancelled = false
@@ -342,9 +367,13 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
   if (!document || !wordEditorModules) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        {document
-          ? t('appShell.loadingSystemFonts')
-          : t(loadingMode === 'legacy' ? 'wordEditor.parsingDoc' : 'wordEditor.loading')}
+        <WaitingText
+          text={
+            document
+              ? t('appShell.loadingSystemFonts')
+              : t(loadingMode === 'legacy' ? 'wordEditor.parsingDoc' : 'wordEditor.loading')
+          }
+        />
       </div>
     )
   }
@@ -477,6 +506,24 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
           </span>
         </div>
       )}
+      <WordInsertTableDialog
+        open={insertTableDialogOpen}
+        onClose={() => setInsertTableDialogOpen(false)}
+        onInsert={(rows, cols) => {
+          const editor = editorInstance || (superdocInstance as { editor?: Editor })?.editor
+          if (editor) {
+            try {
+              if (typeof (editor.commands as Record<string, unknown>)?.insertTable === 'function') {
+                ;(editor.commands as Record<string, (args: { rows: number; cols: number }) => boolean>).insertTable({ rows, cols })
+              } else if (typeof (editor as unknown as { chain?: () => { insertTable?: (args: { rows: number; cols: number }) => { run: () => boolean } } }).chain === 'function') {
+                ;(editor as unknown as { chain: () => { insertTable: (args: { rows: number; cols: number }) => { run: () => boolean } } }).chain().insertTable({ rows, cols }).run()
+              }
+            } catch (err) {
+              console.warn('[WordEditor] insertTable failed:', err)
+            }
+          }
+        }}
+      />
     </div>
   )
 }

@@ -311,6 +311,7 @@ export const ja = {
     screenshotCopied: 'スクリーンショットをクリップボードにコピーしました',
     screenshotCopyFailed: 'スクリーンショットをクリップボードにコピーできませんでした',
     screenshotPreview: 'スクリーンショットのプレビュー',
+    insertFunction: "関数の挿入",
   },
   agentUi: {
     addAttachment: 'ファイルを添付',
@@ -441,6 +442,8 @@ export const ja = {
     searchPlaceholder: 'ショートカットまたはコマンドを検索...',
     command: 'コマンド',
     shortcut: 'ショートカット',
+    editShortcut: '「{command}」のショートカットを編集',
+    conflict: '「{commands}」と競合しています',
     scope: '適用範囲',
     modified: '変更済み',
     restore: '復元',

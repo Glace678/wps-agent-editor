@@ -311,6 +311,7 @@ export const es = {
     screenshotCopied: 'Captura copiada al portapapeles',
     screenshotCopyFailed: 'No se pudo copiar la captura al portapapeles',
     screenshotPreview: 'Vista previa de la captura',
+    insertFunction: "Insertar función",
   },
   agentUi: {
     addAttachment: 'Adjuntar archivos',
@@ -441,6 +442,8 @@ export const es = {
     searchPlaceholder: 'Buscar atajos o comandos...',
     command: 'Comando',
     shortcut: 'Atajo',
+    editShortcut: 'Editar atajo para «{command}»',
+    conflict: 'En conflicto con «{commands}»',
     scope: 'Ámbito',
     modified: 'Modificado',
     restore: 'Restaurar',

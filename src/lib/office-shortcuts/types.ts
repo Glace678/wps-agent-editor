@@ -89,6 +89,14 @@ export interface ParsedChord {
   key: string
 }
 
+export type ShortcutModifier = 'Ctrl' | 'Alt' | 'Shift'
+
+export interface CapturedShortcutChord {
+  chord: string
+  complete: boolean
+  modifiers: ShortcutModifier[]
+}
+
 export interface KeyEventLike {
   key: string
   code?: string

@@ -31,6 +31,14 @@ test('decoratePicker pins search before the scrolling select', () => {
   assert.match(src, /excel-font-search/)
 })
 
+test('Excel visually reuses the Word Chinese-first system-font order', () => {
+  assert.match(src, /function orderExcelFontPickerOptions/)
+  assert.match(src, /getOrderedFontFamilyEntries\(fontFaces\)/)
+  assert.match(src, /if \(kind === 'font'\) orderExcelFontPickerOptions\(select, fontFaces\)/)
+  assert.match(src, /excel-font-picker-symbol-label/)
+  assert.match(css, /\.excel-font-picker-symbol-label[\s\S]*?font-family:/)
+})
+
 test('font/format/size picker kind detection covers Fortune locales + heuristics', () => {
   // Spanish / Russian labels that previously missed the search field.
   assert.match(src, /\\bfuente\\b/)

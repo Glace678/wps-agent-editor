@@ -29,6 +29,7 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { useEditorStore } from '@/stores/editor.store'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { getThemePreference, setThemePreference, type ThemePreference } from '@/lib/theme'
 import {
   consumeWheelZoomSteps,
@@ -2980,7 +2981,7 @@ export function TextEditor({
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        {t('notepad.loadingTextFile')}
+        <WaitingText text={t('notepad.loadingTextFile')} />
       </div>
     )
   }

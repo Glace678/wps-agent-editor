@@ -1,6 +1,7 @@
 import { Search, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { cn } from '@/lib/utils'
 import { FileIcon } from './FileIcon'
 import type { FileEntry } from '@/types/file'
@@ -64,7 +65,7 @@ export function FileSearch({ query, onQueryChange, results, onOpen, isSearching 
       </div>
       {query && (
         <div className="max-h-48 overflow-y-auto px-2">
-          {isSearching && <p className="px-2 py-2 text-xs text-muted-foreground">{t('appShell.searchingFiles')}</p>}
+          {isSearching && <p className="px-2 py-2 text-xs text-muted-foreground"><WaitingText text={t('appShell.searchingFiles')} /></p>}
           {!isSearching && results.length === 0 && (
             <p className="px-2 py-2 text-xs text-muted-foreground">{t('appShell.noMatchingFiles')}</p>
           )}

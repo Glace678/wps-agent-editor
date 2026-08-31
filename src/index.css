@@ -765,3 +765,69 @@
   .notepad-print-header { top: 0; }
   .notepad-print-footer { bottom: 0; }
 }
+
+/* Animated ellipsis / loading dots (one-by-one appear and fade) */
+@keyframes ellipsis-dot-1 {
+  0% {
+    opacity: 0;
+  }
+  15%,
+  75% {
+    opacity: 1;
+  }
+  90%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes ellipsis-dot-2 {
+  0%,
+  15% {
+    opacity: 0;
+  }
+  35%,
+  75% {
+    opacity: 1;
+  }
+  90%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes ellipsis-dot-3 {
+  0%,
+  35% {
+    opacity: 0;
+  }
+  55%,
+  75% {
+    opacity: 1;
+  }
+  90%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-ellipsis-dot-1 {
+  animation: ellipsis-dot-1 1.5s infinite ease-in-out;
+}
+
+.animate-ellipsis-dot-2 {
+  animation: ellipsis-dot-2 1.5s infinite ease-in-out;
+}
+
+.animate-ellipsis-dot-3 {
+  animation: ellipsis-dot-3 1.5s infinite ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ellipsis-dot-1,
+  .animate-ellipsis-dot-2,
+  .animate-ellipsis-dot-3 {
+    animation: none;
+    opacity: 1;
+  }
+}

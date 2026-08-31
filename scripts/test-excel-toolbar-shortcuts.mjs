@@ -12,6 +12,15 @@ const srcPath = path.join(root, 'src/lightweight-office/utils/excel-toolbar-shor
 const editorPath = path.join(root, 'src/lightweight-office/editors/ExcelEditor.tsx')
 const src = fs.readFileSync(srcPath, 'utf8')
 const editor = fs.readFileSync(editorPath, 'utf8')
+const require = createRequire(import.meta.url)
+const ts = require('typescript')
+const compiled = ts.transpileModule(src, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText
+const toolbarShortcuts = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 
 let passed = 0
 function test(name, fn) {
@@ -26,22 +35,56 @@ function test(name, fn) {
   }
 }
 
-// Evaluate pure helpers via a tiny transpile-free mirror of the exported logic
-// by dynamic-importing a built version is heavy; re-check source contracts and
-// run a lightweight inline copy of the pure functions for behavior checks.
-function excelToolbarTipHasShortcut(tip) {
-  if (!tip) return false
-  if (/\([^)]*(?:Ctrl|Alt|Shift|Cmd|Command|Meta|⌘|⌃)[^)]*\)/i.test(tip)) return true
-  if (/（[^）]*(?:Ctrl|Alt|Shift|Cmd|Command|Meta|⌘|⌃)[^）]*）/i.test(tip)) return true
-  if (/\b(?:Ctrl|Alt|Shift)\s*\+/i.test(tip)) return true
-  if (/\bF(?:1[0-2]|[1-9])\b/.test(tip)) return true
-  return false
+const { appendExcelToolbarShortcut, syncExcelToolbarTooltipNode } = toolbarShortcuts
+
+class FakeElement {
+  constructor(className = '') {
+    this.children = []
+    this.parentElement = null
+    this.textContent = ''
+    this.className = className
+  }
+
+  set className(value) {
+    this._className = value
+    this._classes = new Set(value.split(/\s+/).filter(Boolean))
+  }
+
+  get className() {
+    return this._className
+  }
+
+  matches(selector) {
+    return selector.split(',').some((part) => {
+      const className = part.trim().replace(/^\./, '')
+      return this._classes.has(className)
+    })
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null
+  }
+
+  querySelectorAll(selector) {
+    assert.equal(selector, ':scope > .fortune-tooltip')
+    return this.children.filter((child) => child.matches('.fortune-tooltip'))
+  }
+
+  appendChild(child) {
+    child.parentElement = this
+    this.children.push(child)
+    return child
+  }
+
+  remove() {
+    if (!this.parentElement) return
+    this.parentElement.children = this.parentElement.children.filter((child) => child !== this)
+    this.parentElement = null
+  }
 }
 
-function appendExcelToolbarShortcut(tip, chord) {
-  const base = tip.trim()
-  if (!base || !chord || excelToolbarTipHasShortcut(base)) return tip
-  return `${base} (${chord})`
+globalThis.document = {
+  createElement: () => new FakeElement(),
 }
 
 test('module maps core Excel toolbar chords', () => {
@@ -80,6 +123,35 @@ test('undo maps to Ctrl+Z for icon and Chinese tip', () => {
   assert.match(src, /syncExcelToolbarTooltipNode/)
   // Visible hover box must be synced to full tip text
   assert.match(src, /fortune-tooltip/)
+})
+
+test('normal toolbar button keeps one direct tooltip', () => {
+  const button = new FakeElement('fortune-toolbar-button')
+
+  syncExcelToolbarTooltipNode(button, '撤销 (Ctrl+Z)')
+
+  assert.equal(button.querySelectorAll(':scope > .fortune-tooltip').length, 1)
+  assert.equal(button.children[0].textContent, '撤销 (Ctrl+Z)')
+})
+
+test('combo button and arrow share one tooltip without duplicated label', () => {
+  const combo = new FakeElement('fortune-toolbar-combo')
+  const button = combo.appendChild(new FakeElement('fortune-toolbar-combo-button'))
+  const arrow = combo.appendChild(new FakeElement('fortune-toolbar-combo-arrow'))
+  const sharedTooltip = combo.appendChild(new FakeElement('fortune-tooltip'))
+  sharedTooltip.textContent = '边框'
+
+  // Reproduce stale nodes created by the old implementation.
+  button.appendChild(new FakeElement('fortune-tooltip'))
+  arrow.appendChild(new FakeElement('fortune-tooltip'))
+
+  syncExcelToolbarTooltipNode(button, '边框 (Ctrl+Shift+&)')
+  syncExcelToolbarTooltipNode(arrow, '边框 (Ctrl+Shift+&)')
+
+  assert.equal(combo.querySelectorAll(':scope > .fortune-tooltip').length, 1)
+  assert.equal(button.querySelectorAll(':scope > .fortune-tooltip').length, 0)
+  assert.equal(arrow.querySelectorAll(':scope > .fortune-tooltip').length, 0)
+  assert.equal(sharedTooltip.textContent, '边框 (Ctrl+Shift+&)')
 })
 
 test('ExcelEditor wires decoration + observer', () => {

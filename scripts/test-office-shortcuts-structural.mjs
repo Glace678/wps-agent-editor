@@ -60,7 +60,15 @@ test('LightweightDocumentEditor wires global dispatcher for Word/Excel/text', ()
 test('settings panel uses catalog not a hard-coded chord list', () => {
   const src = read('src/components/shortcuts/ShortcutSettingsPanel.tsx')
   assert.match(src, /getOfficeShortcutCatalog/)
+  assert.match(src, /data-shortcut-recorder/)
+  assert.match(src, /captureShortcutChord/)
+  assert.match(src, /findShortcutConflicts/)
   assert.doesNotMatch(src, /Ctrl\+S.*Ctrl\+O.*Ctrl\+N/)
+})
+
+test('global shortcut dispatcher yields while a shortcut is being recorded', () => {
+  const src = read('src/lib/office-shortcuts/useGlobalOfficeShortcutListener.ts')
+  assert.match(src, /closest\('\[data-shortcut-recorder\]'\)/)
 })
 
 test('Tauri menu aligns core accelerators with Office defaults', () => {

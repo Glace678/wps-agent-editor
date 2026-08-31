@@ -281,6 +281,30 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     scheduleTwoPageMeasureRef.current()
   }, [zoom])
 
+  // 缩放变化时立即（下一帧）修正 book 模式宿主几何，避免等待 180ms 的
+  // measure 造成「闪一下才显示缩放后页面」。measure effect 仍会在手势
+  // 结束后补一次双页适配测量与几何修正，作为兜底。
+  useEffect(() => {
+    if (!superdoc) return
+    const container = containerRef.current
+    if (!container) return
+    if (modeRef.current !== 'book') return
+    if (container.closest('[data-panel-resizing="true"]')) return
+    let raf: number | null = null
+    let cancelled = false
+    const patch = () => {
+      raf = null
+      if (cancelled || modeRef.current !== 'book') return
+      if (container.closest('[data-panel-resizing="true"]')) return
+      patchBookHostGeometry(container, zoomFactorRef.current)
+    }
+    raf = requestAnimationFrame(patch)
+    return () => {
+      cancelled = true
+      if (raf != null) cancelAnimationFrame(raf)
+    }
+  }, [superdoc, zoom])
+
   // 总页数已知且页面已渲染后，用真实页面宽度再量一次双页基宽。
   useEffect(() => {
     if (totalPages != null && totalPages >= 2) {

@@ -311,6 +311,7 @@ export const ar = {
     screenshotCopied: 'تم نسخ لقطة الشاشة إلى الحافظة',
     screenshotCopyFailed: 'تعذر نسخ لقطة الشاشة إلى الحافظة',
     screenshotPreview: 'معاينة لقطة الشاشة',
+    insertFunction: "إدراج دالة",
   },
   agentUi: {
     addAttachment: 'إرفاق ملفات',
@@ -441,6 +442,8 @@ export const ar = {
     searchPlaceholder: 'البحث عن الاختصارات أو الأوامر...',
     command: 'الأمر',
     shortcut: 'الاختصار',
+    editShortcut: 'تعديل اختصار «{command}»',
+    conflict: 'يتعارض مع «{commands}»',
     scope: 'النطاق',
     modified: 'تم التعديل',
     restore: 'استعادة',

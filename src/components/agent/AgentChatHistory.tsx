@@ -17,6 +17,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import type { CodexImportResult, ConversationSummary } from '@/types/generated'
 
 interface AgentChatHistoryProps {
@@ -205,7 +206,7 @@ export function AgentChatHistory({
         {isImportingCodex && (
           <div className="flex items-center gap-1.5 rounded-md bg-primary/5 px-2 py-1.5 text-[10px] text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin text-primary" />
-            {t('agentUi.importingCodex')}
+            <WaitingText text={t('agentUi.importingCodex')} />
           </div>
         )}
         {!isImportingCodex && importResult && (

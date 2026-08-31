@@ -1,7 +1,17 @@
 import { expect, test, type Page } from '@playwright/test'
+import ExcelJS from 'exceljs'
 
-async function installDesktopMock(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+async function createExcelFixtureBytes(): Promise<number[]> {
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Tooltip test')
+  worksheet.getCell('A1').value = 'Border tooltip'
+  return Array.from(new Uint8Array(await workbook.xlsx.writeBuffer()))
+}
+
+const excelFixtureBytesPromise = createExcelFixtureBytes()
+
+async function installDesktopMock(page: Page, excelFixtureBytes: number[]): Promise<void> {
+  await page.addInitScript((fixtureBytes) => {
     const callbacks = new Map<number, (payload: unknown) => void>()
     let callbackId = 0
     let startupDrained = false
@@ -29,6 +39,15 @@ async function installDesktopMock(page: Page): Promise<void> {
       if (command === 'files_list' || command === 'files_search') return []
       if (command === 'files_get_recent') return []
       if (command === 'files_session_load') {
+        if (new URL(window.location.href).searchParams.get('session') === 'excel') {
+          return {
+            mainDirectory: null,
+            currentDirectory: null,
+            recentDirectories: [],
+            openFiles: [{ path: '/mock/tooltip.xlsx', grantId: 'excel-grant' }],
+            activeFile: '/mock/tooltip.xlsx',
+          }
+        }
         if (new URL(window.location.href).searchParams.get('session') === 'text') {
           return {
             mainDirectory: { path: '/mock/workspace', grantId: 'workspace-main-grant' },
@@ -66,7 +85,10 @@ async function installDesktopMock(page: Page): Promise<void> {
       if (command === 'files_open') {
         return { path: '/mock/notes.txt', grantId: 'notes-grant', recent: [] }
       }
-      if (command === 'documents_read_file') {
+      if (command === 'documents_read_file' || command === 'documents_prepare_spreadsheet') {
+        if (new URL(window.location.href).searchParams.get('session') === 'excel') {
+          return Uint8Array.from(fixtureBytes)
+        }
         return new TextEncoder().encode('typed desktop bridge\n')
       }
       return { success: true }
@@ -89,11 +111,11 @@ async function installDesktopMock(page: Page): Promise<void> {
       __WAE_TEST_COMMANDS__: invokedCommands,
       __WAE_TEST_MENU_ACTIONS__: invokedMenuActions,
     })
-  })
+  }, excelFixtureBytes)
 }
 
 test.beforeEach(async ({ page }) => {
-  await installDesktopMock(page)
+  await installDesktopMock(page, await excelFixtureBytesPromise)
 })
 
 test('starts with the typed desktop bridge and renders the workspace', async ({ page }) => {
@@ -235,4 +257,180 @@ test('restores persisted folders and all document tabs through granted session p
     (window as unknown as { __WAE_TEST_COMMANDS__: string[] }).__WAE_TEST_COMMANDS__
       .includes('files_session_save')
   ))).toBe(true)
+})
+
+test('shows one tooltip and usable color/style controls for the Excel border combo', async ({ page }, testInfo) => {
+  await page.goto('/?session=excel')
+  await page.getByTestId('language-menu-trigger').click()
+  await page.getByTestId('language-option-zh-CN').click()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+  await page.getByTestId('theme-toggle').click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.getByRole('button', { name: /^(更多|More)$/ }).click()
+
+  const borderButton = page.locator(
+    '.fortune-toolbar-combo-button[data-excel-shortcut-chord="Ctrl+Shift+&"]',
+  )
+  const borderCombo = borderButton.locator('..')
+  const sharedTooltip = borderCombo.locator(':scope > .fortune-tooltip')
+
+  await expect(borderCombo).toHaveCount(1)
+  await expect(sharedTooltip).toHaveText('边框 (Ctrl+Shift+&)')
+  await expect(borderCombo.locator(':scope > .fortune-toolbar-combo-button > .fortune-tooltip')).toHaveCount(0)
+  await expect(borderCombo.locator(':scope > .fortune-toolbar-combo-arrow > .fortune-tooltip')).toHaveCount(0)
+
+  await borderCombo.hover()
+  await expect(sharedTooltip).toBeVisible()
+  await borderCombo.locator('.fortune-toolbar-combo-arrow').click()
+
+  const borderPopup = borderCombo.locator('..').locator(':scope > .fortune-toolbar-combo-popup')
+  const borderRows = borderPopup.locator('.fortune-border-select-option')
+  const colorRow = borderRows.nth(0)
+  const styleRow = borderRows.nth(1)
+  const diagonalRow = borderPopup
+    .locator('.fortune-toolbar-select-option')
+    .filter({ hasText: '边框斜线' })
+  const colorSubmenu = colorRow.locator(':scope > .fortune-border-select-menu')
+  const styleSubmenu = styleRow.locator(':scope > .fortune-border-select-menu')
+
+  await expect(borderPopup).toBeVisible()
+  await expect(borderRows).toHaveCount(2)
+  await expect(colorRow.locator(':scope > .fortune-border-color-preview')).toHaveCSS('width', '32px')
+  await expect(styleRow.locator(':scope > .fortune-border-style-preview')).toHaveCSS('width', '32px')
+
+  await colorRow.locator(':scope > .fortune-toolbar-menu-line').click()
+  await expect(colorSubmenu).toBeVisible()
+  await expect(colorSubmenu).toHaveAttribute('data-excel-popup-boundary', 'true')
+  const colorRowBox = await colorRow.boundingBox()
+  const colorSubmenuBox = await colorSubmenu.boundingBox()
+  expect(colorRowBox).not.toBeNull()
+  expect(colorSubmenuBox).not.toBeNull()
+  expect(colorSubmenuBox!.x + colorSubmenuBox!.width).toBeLessThanOrEqual(colorRowBox!.x + 1)
+
+  const colorDisplayAfterDiagonalHover = await diagonalRow.evaluate((row) => {
+    row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    const popup = row.closest('.fortune-toolbar-combo-popup')
+    const submenu = popup?.querySelector<HTMLElement>(
+      '.fortune-border-select-option > .fortune-border-select-menu',
+    )
+    return submenu ? getComputedStyle(submenu).display : null
+  })
+  expect(colorDisplayAfterDiagonalHover).toBe('none')
+  await colorRow.locator(':scope > .fortune-toolbar-menu-line').click()
+  await expect(colorSubmenu).toBeVisible()
+
+  const colorHexInput = colorSubmenu.getByLabel('Hex 颜色代码')
+  const colorHexInputBox = await colorHexInput.boundingBox()
+  expect(colorHexInputBox).not.toBeNull()
+  await page.mouse.move(
+    colorRowBox!.x + colorRowBox!.width / 2,
+    colorRowBox!.y + colorRowBox!.height / 2,
+  )
+  await page.mouse.move(
+    colorHexInputBox!.x + colorHexInputBox!.width / 2,
+    colorHexInputBox!.y + colorHexInputBox!.height / 2,
+    { steps: 12 },
+  )
+  await page.waitForTimeout(600)
+  await expect(colorSubmenu).toBeVisible()
+  await colorHexInput.click()
+  await colorHexInput.fill('#336699')
+  await expect(colorHexInput).toHaveValue('#336699')
+  await expect(colorSubmenu).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('excel-border-color-submenu.png') })
+
+  await styleRow.locator(':scope > .fortune-toolbar-menu-line').click()
+  await expect(styleSubmenu).toBeVisible()
+  await expect(colorSubmenu).toBeHidden()
+  await expect(styleSubmenu).toHaveAttribute('data-excel-popup-boundary', 'true')
+  const styleRowBox = await styleRow.boundingBox()
+  const styleSubmenuBox = await styleSubmenu.boundingBox()
+  expect(styleRowBox).not.toBeNull()
+  expect(styleSubmenuBox).not.toBeNull()
+  expect(styleSubmenuBox!.x + styleSubmenuBox!.width).toBeLessThanOrEqual(styleRowBox!.x + 1)
+
+  const styleOptionTops = await styleSubmenu
+    .locator('.fortune-border-style-picker-menu')
+    .evaluateAll((options) => options.map((option) => option.getBoundingClientRect().top))
+  const styleOptionSteps = styleOptionTops
+    .slice(1)
+    .map((top, index) => top - styleOptionTops[index])
+  expect(Math.min(...styleOptionSteps)).toBeGreaterThanOrEqual(28)
+
+  const styleChoice = styleSubmenu.locator('.fortune-border-style-picker-menu').nth(4)
+  const styleChoiceBox = await styleChoice.boundingBox()
+  expect(styleChoiceBox).not.toBeNull()
+  await page.mouse.move(
+    styleRowBox!.x + styleRowBox!.width / 2,
+    styleRowBox!.y + styleRowBox!.height / 2,
+  )
+  await page.mouse.move(
+    styleChoiceBox!.x + styleChoiceBox!.width / 2,
+    styleChoiceBox!.y + styleChoiceBox!.height / 2,
+    { steps: 12 },
+  )
+  await page.waitForTimeout(600)
+  await expect(styleSubmenu).toBeVisible()
+  await styleChoice.click()
+  await expect(styleSubmenu).toBeVisible()
+
+  const styleSubmenuIsBounded = await styleSubmenu.evaluate((submenu) => {
+    const shell = submenu.closest('.excel-editor-shell')
+    if (!shell) return false
+    const submenuRect = submenu.getBoundingClientRect()
+    const shellRect = shell.getBoundingClientRect()
+    return submenuRect.left >= shellRect.left
+      && submenuRect.right <= shellRect.right
+      && submenuRect.top >= shellRect.top
+      && submenuRect.bottom <= shellRect.bottom
+  })
+  expect(styleSubmenuIsBounded).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('excel-border-style-submenu.png') })
+
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(600)
+  await expect(styleSubmenu).toBeHidden()
+  await page.screenshot({ path: testInfo.outputPath('excel-border-controls.png') })
+})
+
+test('records custom shortcuts and rejects conflicting assignments', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('wps-agent-language', 'zh-CN'))
+  await page.goto('/')
+  await page.getByTestId('theme-toggle').click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.getByTestId('open-shortcut-settings-empty').click()
+
+  const recorder = page.getByTestId('shortcut-recorder-file.new')
+  await expect(recorder).toHaveValue('Ctrl+N')
+
+  await recorder.click()
+  await page.keyboard.down('Control')
+  await expect(recorder).toHaveValue('Ctrl')
+  await page.keyboard.press('n')
+  await page.keyboard.up('Control')
+  await expect(recorder).toHaveValue('Ctrl+N')
+
+  await recorder.click()
+  await page.keyboard.down('Control')
+  await expect(recorder).toHaveValue('Ctrl')
+  await page.keyboard.press('m')
+  await page.keyboard.up('Control')
+  await expect(recorder).toHaveValue('Ctrl+M')
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem('office-shortcut-overrides') ?? '{}')['file.new']
+  ))).toBe('Ctrl+M')
+
+  await recorder.click()
+  await page.keyboard.down('Control')
+  await expect(recorder).toHaveValue('Ctrl')
+  await page.keyboard.press('s')
+  await page.keyboard.up('Control')
+
+  await expect(recorder).toHaveValue('Ctrl+S')
+  await expect(recorder).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByRole('alert')).toContainText('保存')
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem('office-shortcut-overrides') ?? '{}')['file.new']
+  ))).toBe('Ctrl+M')
+  await page.screenshot({ path: testInfo.outputPath('shortcut-recorder-conflict.png') })
 })

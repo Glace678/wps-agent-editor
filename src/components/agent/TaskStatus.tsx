@@ -1,5 +1,6 @@
 import { Loader2, CheckCircle2 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 
 interface TaskStatusProps {
   status: string
@@ -19,7 +20,13 @@ export function TaskStatus({ status, isRunning }: TaskStatusProps) {
         ) : (
           <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
         )}
-        <span className="truncate font-medium">{status || t('taskStatus.processing')}</span>
+        <span className="truncate font-medium">
+          {isRunning ? (
+            <WaitingText text={status || t('taskStatus.processing')} />
+          ) : (
+            status || t('taskStatus.processing')
+          )}
+        </span>
       </div>
     </div>
   )

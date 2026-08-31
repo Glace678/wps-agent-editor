@@ -6,6 +6,8 @@ import { Workbook } from '@fortune-sheet/react'
 import type { WorkbookInstance } from '@fortune-sheet/react'
 import type { Cell, Sheet } from '@fortune-sheet/core'
 import { useTranslation } from '@/lib/i18n/runtime'
+import type { LanguageCode } from '@/lib/i18n'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { useEditorStore } from '@/stores/editor.store'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readSpreadsheetBuffer, saveFileBuffer } from '../utils/file-io'
@@ -21,6 +23,8 @@ import {
 } from '../utils/xlsx-convert'
 import {
   createFallbackSystemFontFaces,
+  getOrderedFontFamilyEntries,
+  isSymbolFontFamily,
   loadSystemFontFaces,
   normalizeSystemFontFamilyName,
   type SystemFontFace,
@@ -91,6 +95,54 @@ interface ExcelPickerCopy {
   invalid: string
 }
 
+const EXCEL_FONT_EMPTY_TEXTS: Record<LanguageCode, string> = {
+  'zh-CN': '没有匹配的字体，按 Enter 使用输入的字体',
+  en: 'No matching font. Press Enter to use the typed font.',
+  ja: '一致するフォントがありません。Enter を押して入力したフォントを使用します。',
+  es: 'No hay fuentes coincidentes. Presione Entrar para usar la fuente escrita.',
+  pt: 'Nenhuma fonte correspondente. Pressione Enter para usar a fonte digitada.',
+  de: 'Keine passende Schriftart. Drücken Sie die Eingabetaste, um die eingegebene Schriftart zu verwenden.',
+  fr: 'Aucune police correspondante. Appuyez sur Entrée pour utiliser la police saisie.',
+  ru: 'Шрифт не найден. Нажмите Enter, чтобы использовать введенный шрифт.',
+  ar: 'لا يوجد خط مطابق. اضغط على Enter لاستخدام الخط المكتوب.',
+}
+
+const EXCEL_FONT_SIZE_EMPTY_TEXTS: Record<LanguageCode, (min: number, max: number) => string> = {
+  'zh-CN': (min, max) => `请输入 ${min} 到 ${max} 之间的字号`,
+  en: (min, max) => `Enter a size from ${min} to ${max}.`,
+  ja: (min, max) => `${min} から ${max} までのサイズを入力してください。`,
+  es: (min, max) => `Introduzca un tamaño de ${min} a ${max}.`,
+  pt: (min, max) => `Insira um tamanho de ${min} a ${max}.`,
+  de: (min, max) => `Geben Sie eine Größe zwischen ${min} und ${max} ein.`,
+  fr: (min, max) => `Entrez une taille comprise entre ${min} et ${max}.`,
+  ru: (min, max) => `Введите размер от ${min} до ${max}.`,
+  ar: (min, max) => `أدخل حجمًا من ${min} إلى ${max}.`,
+}
+
+const EXCEL_FONT_SIZE_INVALID_TEXTS: Record<LanguageCode, (min: number, max: number) => string> = {
+  'zh-CN': (min, max) => `字号需介于 ${min} 和 ${max} 之间`,
+  en: (min, max) => `Font size must be from ${min} to ${max}.`,
+  ja: (min, max) => `フォントサイズは ${min} ～ ${max} の範囲内である必要があります。`,
+  es: (min, max) => `El tamaño de fuente debe estar entre ${min} y ${max}.`,
+  pt: (min, max) => `O tamanho da fonte deve estar entre ${min} e ${max}.`,
+  de: (min, max) => `Der Schriftgrad muss zwischen ${min} und ${max} liegen.`,
+  fr: (min, max) => `La taille de la police doit être comprise entre ${min} et ${max}.`,
+  ru: (min, max) => `Размер шрифта должен быть от ${min} до ${max}.`,
+  ar: (min, max) => `يجب أن يكون حجم الخط بين ${min} و ${max}.`,
+}
+
+const EXCEL_FORMAT_EMPTY_TEXTS: Record<LanguageCode, string> = {
+  'zh-CN': '没有匹配的格式',
+  en: 'No matching format.',
+  ja: '一致する書式がありません。',
+  es: 'No hay formato coincidente.',
+  pt: 'Nenhum formato correspondente.',
+  de: 'Kein passendes Format.',
+  fr: 'Aucun format correspondant.',
+  ru: 'Формат не найден.',
+  ar: 'لا يوجد تنسيق مطابق.',
+}
+
 function getExcelPickerCopyForPicker(
   kind: ExcelToolbarPickerKind,
   language: string,
@@ -100,14 +152,12 @@ function getExcelPickerCopyForPicker(
     format: string
   },
 ): ExcelPickerCopy {
-  const isZh = language === 'zh-CN'
+  const lang = (language in EXCEL_FONT_EMPTY_TEXTS ? language : 'en') as LanguageCode
 
   if (kind === 'font') {
     return {
       placeholder: placeholders.font,
-      empty: isZh
-        ? '\u6ca1\u6709\u5339\u914d\u7684\u5b57\u4f53\uff0c\u6309 Enter \u4f7f\u7528\u8f93\u5165\u7684\u5b57\u4f53'
-        : 'No matching font. Press Enter to use the typed font.',
+      empty: EXCEL_FONT_EMPTY_TEXTS[lang],
       invalid: '',
     }
   }
@@ -115,21 +165,15 @@ function getExcelPickerCopyForPicker(
   if (kind === 'font-size') {
     return {
       placeholder: placeholders.fontSize,
-      empty: isZh
-        ? `\u8bf7\u8f93\u5165 ${EXCEL_FONT_SIZE_MIN} \u5230 ${EXCEL_FONT_SIZE_MAX} \u4e4b\u95f4\u7684\u5b57\u53f7`
-        : `Enter a size from ${EXCEL_FONT_SIZE_MIN} to ${EXCEL_FONT_SIZE_MAX}.`,
-      invalid: isZh
-        ? `\u5b57\u53f7\u9700\u4ecb\u4e8e ${EXCEL_FONT_SIZE_MIN} \u548c ${EXCEL_FONT_SIZE_MAX} \u4e4b\u95f4`
-        : `Font size must be from ${EXCEL_FONT_SIZE_MIN} to ${EXCEL_FONT_SIZE_MAX}.`,
+      empty: EXCEL_FONT_SIZE_EMPTY_TEXTS[lang](EXCEL_FONT_SIZE_MIN, EXCEL_FONT_SIZE_MAX),
+      invalid: EXCEL_FONT_SIZE_INVALID_TEXTS[lang](EXCEL_FONT_SIZE_MIN, EXCEL_FONT_SIZE_MAX),
     }
   }
 
   // format
   return {
     placeholder: placeholders.format,
-    empty: isZh
-      ? '\u6ca1\u6709\u5339\u914d\u7684\u683c\u5f0f'
-      : 'No matching format.',
+    empty: EXCEL_FORMAT_EMPTY_TEXTS[lang],
     invalid: '',
   }
 }
@@ -284,6 +328,40 @@ function collectSystemFontDisplayNames(fontFaces: SystemFontFace[]): string[] {
     if (familyName) names.add(familyName)
   }
   return [...names]
+}
+
+/** Reorder only the picker DOM. Fortune keeps its default font at internal
+ * index zero, while the visible catalog follows Word: Chinese first, then A-Z. */
+function orderExcelFontPickerOptions(
+  select: HTMLElement,
+  fontFaces: readonly SystemFontFace[],
+): void {
+  const rankByName = new Map<string, number>()
+  const familyByName = new Map<string, string>()
+  getOrderedFontFamilyEntries(fontFaces).forEach(({ familyName, displayName }, index) => {
+    for (const name of [familyName, displayName]) {
+      const key = normalizeSystemFontFamilyName(name)
+      if (!key) continue
+      rankByName.set(key, index)
+      familyByName.set(key, familyName)
+    }
+  })
+
+  const options = [...select.querySelectorAll<HTMLElement>(':scope > .fortune-toolbar-select-option')]
+  options
+    .map((option, originalIndex) => {
+      const label = option.textContent?.trim() || ''
+      const key = normalizeSystemFontFamilyName(label)
+      const familyName = familyByName.get(key) || label
+      option.classList.toggle('excel-font-picker-symbol-label', isSymbolFontFamily(familyName))
+      return {
+        option,
+        originalIndex,
+        rank: rankByName.get(key) ?? Number.MAX_SAFE_INTEGER,
+      }
+    })
+    .sort((left, right) => left.rank - right.rank || left.originalIndex - right.originalIndex)
+    .forEach(({ option }) => select.append(option))
 }
 
 /**
@@ -1449,7 +1527,6 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       if (statusNode.dataset.status !== status) statusNode.dataset.status = status
       if (statusNode.textContent !== message) statusNode.textContent = message
     }
-
     const copyScreenshotToClipboard = async (
       dialog: HTMLElement,
       previewImage: HTMLImageElement,
@@ -1514,44 +1591,56 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
           '.fortune-dialog-box-content img',
         )
         const isScreenshotPreview = previewImage?.src.startsWith('data:image/png;base64,') ?? false
-        dialog.dataset.fortuneDialogKind = isScreenshotPreview ? 'screenshot-preview' : 'modal'
-        dialog.setAttribute('role', 'dialog')
-        dialog.setAttribute('aria-modal', isScreenshotPreview ? 'true' : 'false')
-        dialog.setAttribute(
-          'aria-label',
-          isScreenshotPreview
-            ? translate('excelEditor.screenshotPreview')
-            : translate('excelEditor.excelDialog'),
-        )
+        const searchFormula = dialog.querySelector<HTMLElement>('#luckysheet-search-formula')
+        const isSearchFormula = !isScreenshotPreview && !!searchFormula
+        const header = dialog.querySelector<HTMLElement>('.fortune-modal-dialog-header')
 
-        if (isScreenshotPreview && previewImage) {
-          const header = dialog.querySelector<HTMLElement>('.fortune-modal-dialog-header')
+        if (isScreenshotPreview) {
+          dialog.dataset.fortuneDialogKind = 'screenshot-preview'
+          dialog.setAttribute('role', 'dialog')
+          dialog.setAttribute('aria-modal', 'true')
+          dialog.setAttribute('aria-label', translate('excelEditor.screenshotPreview'))
           if (header) {
             header.dataset.excelDialogTitle = translate('excelEditor.screenshotPreview')
           }
 
-          const clipboardState = previewImage.dataset.fortuneClipboardState
-          if (!clipboardState) {
-            void copyScreenshotToClipboard(dialog, previewImage)
-          } else if (clipboardState === 'copying') {
-            updateScreenshotClipboardStatus(
-              dialog,
-              'copying',
-              translate('excelEditor.copyingScreenshot'),
-            )
-          } else if (clipboardState === 'copied') {
-            updateScreenshotClipboardStatus(
-              dialog,
-              'copied',
-              translate('excelEditor.screenshotCopied'),
-            )
-          } else if (clipboardState === 'error') {
-            updateScreenshotClipboardStatus(
-              dialog,
-              'error',
-              translate('excelEditor.screenshotCopyFailed'),
-            )
+          if (previewImage) {
+            const clipboardState = previewImage.dataset.fortuneClipboardState
+            if (!clipboardState) {
+              void copyScreenshotToClipboard(dialog, previewImage)
+            } else if (clipboardState === 'copying') {
+              updateScreenshotClipboardStatus(
+                dialog,
+                'copying',
+                translate('excelEditor.copyingScreenshot'),
+              )
+            } else if (clipboardState === 'copied') {
+              updateScreenshotClipboardStatus(
+                dialog,
+                'copied',
+                translate('excelEditor.screenshotCopied'),
+              )
+            } else if (clipboardState === 'error') {
+              updateScreenshotClipboardStatus(
+                dialog,
+                'error',
+                translate('excelEditor.screenshotCopyFailed'),
+              )
+            }
           }
+        } else if (isSearchFormula) {
+          dialog.dataset.fortuneDialogKind = 'search-formula'
+          dialog.setAttribute('role', 'dialog')
+          dialog.setAttribute('aria-modal', 'false')
+          dialog.setAttribute('aria-label', translate('excelEditor.insertFunction'))
+          if (header) {
+            header.dataset.excelDialogTitle = translate('excelEditor.insertFunction')
+          }
+        } else {
+          dialog.dataset.fortuneDialogKind = 'modal'
+          dialog.setAttribute('role', 'dialog')
+          dialog.setAttribute('aria-modal', 'false')
+          dialog.setAttribute('aria-label', translate('excelEditor.excelDialog'))
         }
 
         const closeControl = dialog.querySelector<HTMLElement>('.fortune-modal-dialog-icon-close')
@@ -1716,6 +1805,8 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       const container = popup.closest<HTMLElement>('.fortune-toobar-combo-container')
       const select = popup.querySelector<HTMLElement>('.fortune-toolbar-select')
       if (!container || !select) return
+
+      if (kind === 'font') orderExcelFontPickerOptions(select, fontFaces)
 
       popup.dataset.excelPickerSearchReady = 'true'
       popup.dataset.excelPickerKind = kind
@@ -2299,7 +2390,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   if (!sheets || !fontLibraryReady) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        {sheets ? t('appShell.loadingSystemFonts') : t('excelEditor.loading')}
+        <WaitingText
+          text={sheets ? t('appShell.loadingSystemFonts') : t('excelEditor.loading')}
+        />
       </div>
     )
   }

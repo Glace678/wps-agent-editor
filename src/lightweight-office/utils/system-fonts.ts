@@ -42,6 +42,10 @@ const FALLBACK_CHINESE_FONT_DISPLAY_NAMES: Record<string, string> = {
   DengXian: '等线',
 }
 
+function normalizeFontCatalogKey(familyName: string): string {
+  return familyName.toLocaleLowerCase().replace(/[\s'"_-]+/g, '')
+}
+
 export function createFallbackSystemFontFaces(language: LanguageCode): SystemFontFace[] {
   return FALLBACK_SYSTEM_FONT_FAMILIES.flatMap((familyName) => {
     const displayName = language === 'zh-CN'
@@ -113,10 +117,36 @@ const CHINESE_FONT_FAMILY_KEYS = new Set([
   'stxiyuan',
 ])
 
+const CHINESE_FONT_FAMILY_KEY_PATTERNS = [
+  /^(?:simsun|nsimsun)ext[bg]$/,
+  /^(?:mingliu|pmingliu|mingliuhkscs|mingliumscs)extb$/,
+  /^noto(?:sans|serif)(?:cjk)?sc$/,
+  /^sourcehan(?:sans|serif)(?:sc|cn)?$/,
+  /^sarasa(?:gothic|mono|term)(?:sc)?$/,
+]
+
+const SYMBOL_FONT_FAMILY_KEYS = new Set([
+  'marlett',
+  'mtextra',
+  'segoefluenticons',
+  'segoemdl2assets',
+  'symbol',
+  'webdings',
+  'wingdings',
+  'wingdings2',
+  'wingdings3',
+])
+
 export function isChineseFontFamily(familyName: string, displayName = ''): boolean {
+  const key = normalizeFontCatalogKey(familyName)
   return CJK_TEXT_RE.test(familyName)
     || CJK_TEXT_RE.test(displayName)
-    || CHINESE_FONT_FAMILY_KEYS.has(familyName.toLowerCase().replace(/[\s'"_-]+/g, ''))
+    || CHINESE_FONT_FAMILY_KEYS.has(key)
+    || CHINESE_FONT_FAMILY_KEY_PATTERNS.some((pattern) => pattern.test(key))
+}
+
+export function isSymbolFontFamily(familyName: string): boolean {
+  return SYMBOL_FONT_FAMILY_KEYS.has(normalizeFontCatalogKey(familyName))
 }
 
 export interface FontFamilyEntry {

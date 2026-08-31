@@ -176,7 +176,7 @@ export const zhCN = {
   },
   wordEditor: {
     loading: '正在加载 Word 文档...',
-    parsingDoc: '正在通过可用的系统 Office 应用转换 .doc 文件...',
+    parsingDoc: '请等待',
     loadFailed: '无法加载 Word 文档：{error}',
     cannotLoad: '无法加载 Word 文档。',
     legacyDocCorrupt: '无法转换或读取此 .doc 文件。请安装 WPS Office、LibreOffice 或 Microsoft Word，并确认文档有效。',
@@ -311,6 +311,7 @@ export const zhCN = {
     screenshotCopied: '截图已复制到剪贴板',
     screenshotCopyFailed: '无法将截图复制到剪贴板',
     screenshotPreview: '截图预览',
+    insertFunction: "插入函数",
   },
   agentUi: {
     addAttachment: '添加附件',
@@ -441,6 +442,8 @@ export const zhCN = {
     searchPlaceholder: '搜索快捷键或命令...',
     command: '命令',
     shortcut: '快捷键',
+    editShortcut: '编辑“{command}”的快捷键',
+    conflict: '与“{commands}”冲突',
     scope: '适用范围',
     modified: '已修改',
     restore: '恢复',

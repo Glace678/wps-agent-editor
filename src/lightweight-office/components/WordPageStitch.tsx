@@ -228,7 +228,9 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
   }, [stitched])
 
   useEffect(() => {
-    if (!active || !superdoc) {
+    // `ready` controls whether the overlay ref exists. Re-run this effect when
+    // the delayed overlay mounts so its initial bands and listeners are installed.
+    if (!active || !ready || !superdoc) {
       setBands((prev) => (prev.length ? [] : prev))
       return
     }
@@ -278,7 +280,7 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
         rafRef.current = null
       }
     }
-  }, [active, superdoc, scheduleRefresh])
+  }, [active, ready, superdoc, scheduleRefresh])
 
   const toggle = useCallback(
     (upperIndex: number) => {

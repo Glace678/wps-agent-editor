@@ -20,6 +20,9 @@ export function useGlobalOfficeShortcutListener(enabled = true): void {
 
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target
+      if (target instanceof Element && target.closest('[data-shortcut-recorder]')) {
+        return
+      }
       if (target instanceof Element && target.closest('[data-code-editor-root]')) {
         return
       }

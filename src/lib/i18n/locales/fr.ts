@@ -311,6 +311,7 @@ export const fr = {
     screenshotCopied: 'Capture copiée dans le presse-papiers',
     screenshotCopyFailed: 'Impossible de copier la capture dans le presse-papiers',
     screenshotPreview: 'Aperçu de la capture d’écran',
+    insertFunction: "Insérer une fonction",
   },
   agentUi: {
     addAttachment: 'Joindre des fichiers',
@@ -441,6 +442,8 @@ export const fr = {
     searchPlaceholder: 'Rechercher des raccourcis ou des commandes...',
     command: 'Commande',
     shortcut: 'Raccourci',
+    editShortcut: 'Modifier le raccourci de « {command} »',
+    conflict: 'En conflit avec « {commands} »',
     scope: 'Contexte',
     modified: 'Modifié',
     restore: 'Restaurer',

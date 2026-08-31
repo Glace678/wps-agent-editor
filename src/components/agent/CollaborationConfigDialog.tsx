@@ -13,6 +13,7 @@ import { Bot, Check, ChevronDown, Play, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { useTranslation } from '@/lib/i18n/runtime'
+import type { LanguageCode } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type { AgentConfig } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
@@ -34,6 +35,30 @@ interface PopupPosition {
 const POPUP_GAP = 4
 const VIEWPORT_PADDING = 12
 
+const AGENT_SEARCH_PLACEHOLDER: Record<LanguageCode, string> = {
+  'zh-CN': '搜索 Agent...',
+  en: 'Search agents...',
+  ja: 'エージェントを検索...',
+  es: 'Buscar agentes...',
+  pt: 'Pesquisar agentes...',
+  de: 'Agenten suchen...',
+  fr: 'Rechercher des agents...',
+  ru: 'Поиск агентов...',
+  ar: 'بحث عن وكلاء...',
+}
+
+const AGENT_SEARCH_EMPTY: Record<LanguageCode, string> = {
+  'zh-CN': '未找到匹配的 Agent',
+  en: 'No matching agents',
+  ja: '一致するエージェントが見つかりません',
+  es: 'No se encontraron agentes',
+  pt: 'Nenhum agente encontrado',
+  de: 'Keine Agenten gefunden',
+  fr: 'Aucun agent trouvé',
+  ru: 'Агенты не найдены',
+  ar: 'لم يتم العثور على وكلاء',
+}
+
 export function CollaborationConfigDialog({
   agents,
   isRunning,
@@ -42,7 +67,7 @@ export function CollaborationConfigDialog({
   providers: initialProviders,
 }: CollaborationConfigDialogProps) {
   const { language, t } = useTranslation()
-  const isZh = language.startsWith('zh')
+  const lang = (language in AGENT_SEARCH_PLACEHOLDER ? language : 'en') as LanguageCode
   const [providers, setProviders] = useState<ProviderDefinition[]>(initialProviders ?? [])
   const enabledAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents])
   const [task, setTask] = useState('')
@@ -274,7 +299,7 @@ export function CollaborationConfigDialog({
               }
             }}
             className="min-w-0 flex-1 bg-transparent text-xs text-popover-foreground outline-none placeholder:text-muted-foreground"
-            placeholder={isZh ? '搜索 Agent...' : 'Search agents...'}
+            placeholder={AGENT_SEARCH_PLACEHOLDER[lang]}
             aria-label={t('agentUi.rootAgent')}
             data-testid="collaboration-root-agent-search"
           />
@@ -300,7 +325,7 @@ export function CollaborationConfigDialog({
       >
         {filteredRootAgents.length === 0 ? (
           <div className="flex h-16 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-            {isZh ? '未找到匹配的 Agent' : 'No matching agents'}
+            {AGENT_SEARCH_EMPTY[lang]}
           </div>
         ) : filteredRootAgents.map((agent) => {
           const selected = agent.id === rootAgentId

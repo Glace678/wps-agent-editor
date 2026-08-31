@@ -1,10 +1,12 @@
 import { OFFICE_SHORTCUT_CATALOG } from './catalog'
 import type {
+  CapturedShortcutChord,
   KeyEventLike,
   OfficeActionId,
   ParsedChord,
   ShortcutBinding,
   ShortcutContext,
+  ShortcutModifier,
 } from './types'
 
 /** Normalize event key to a comparable token (case-insensitive letters). */
@@ -118,6 +120,158 @@ export function formatChordDisplay(chord: string): string {
     .replace(/CmdOrCtrl/gi, 'Ctrl')
     .replace(/Control/gi, 'Ctrl')
     .replace(/Meta/gi, 'Ctrl')
+}
+
+const SHORTCUT_MODIFIER_ORDER: readonly ShortcutModifier[] = ['Ctrl', 'Alt', 'Shift']
+const MODIFIER_EVENT_KEYS = new Set(['Control', 'Meta', 'Alt', 'AltGraph', 'Shift'])
+const IGNORED_CAPTURE_KEYS = new Set(['dead', 'process', 'unidentified', 'compose'])
+
+function orderedModifiers(modifiers: ReadonlySet<ShortcutModifier>): ShortcutModifier[] {
+  return SHORTCUT_MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier))
+}
+
+function capturedKeyLabel(event: KeyEventLike): string | null {
+  const normalized = normalizeEventKey(event)
+  if (!normalized || IGNORED_CAPTURE_KEYS.has(normalized)) return null
+  if (normalized === ' ') return 'Space'
+
+  const specialKeys: Record<string, string> = {
+    backspace: 'Backspace',
+    delete: 'Delete',
+    end: 'End',
+    enter: 'Enter',
+    escape: 'Escape',
+    home: 'Home',
+    insert: 'Insert',
+    pageup: 'PageUp',
+    pagedown: 'PageDown',
+    tab: 'Tab',
+    arrowup: 'ArrowUp',
+    arrowdown: 'ArrowDown',
+    arrowleft: 'ArrowLeft',
+    arrowright: 'ArrowRight',
+  }
+  if (specialKeys[normalized]) return specialKeys[normalized]
+  if (/^f\d{1,2}$/.test(normalized)) return normalized.toUpperCase()
+  if (normalized.length === 1 && /[a-z]/i.test(normalized)) {
+    return normalized.toUpperCase()
+  }
+  return normalized
+}
+
+/** Convert successive keydown events into the chord format consumed at runtime. */
+export function captureShortcutChord(
+  event: KeyEventLike,
+  latchedModifiers: readonly ShortcutModifier[] = [],
+): CapturedShortcutChord | null {
+  const modifiers = new Set<ShortcutModifier>(latchedModifiers)
+  if (event.ctrlKey || event.metaKey || event.key === 'Control' || event.key === 'Meta') {
+    modifiers.add('Ctrl')
+  }
+  if (event.altKey || event.key === 'Alt' || event.key === 'AltGraph') {
+    modifiers.add('Alt')
+  }
+  if (event.shiftKey || event.key === 'Shift') modifiers.add('Shift')
+
+  if (MODIFIER_EVENT_KEYS.has(event.key)) {
+    const ordered = orderedModifiers(modifiers)
+    return { chord: ordered.join('+'), complete: false, modifiers: ordered }
+  }
+
+  const key = capturedKeyLabel(event)
+  if (!key) return null
+
+  // On common layouts the Shift used to type "+" belongs to the key itself.
+  if (key === '+' && event.code === 'Equal') modifiers.delete('Shift')
+
+  const ordered = orderedModifiers(modifiers)
+  return {
+    chord: [...ordered, key].join('+'),
+    complete: true,
+    modifiers: ordered,
+  }
+}
+
+export function areShortcutChordsEquivalent(left: string, right: string): boolean {
+  const a = parseChord(left)
+  const b = parseChord(right)
+  return a.ctrl === b.ctrl && a.alt === b.alt && a.shift === b.shift && a.key === b.key
+}
+
+function representativeEventsForChord(chord: string): KeyEventLike[] {
+  const parsed = parseChord(chord)
+  const makeEvent = (key: string, shiftKey: boolean, code?: string): KeyEventLike => ({
+    key,
+    code,
+    ctrlKey: parsed.ctrl,
+    metaKey: false,
+    altKey: parsed.alt,
+    shiftKey,
+  })
+
+  let candidates: KeyEventLike[]
+  if (parsed.key === '+' || parsed.key === '=') {
+    candidates = [
+      makeEvent('=', false, 'Equal'),
+      makeEvent('+', true, 'Equal'),
+      makeEvent('+', false, 'NumpadAdd'),
+    ]
+  } else if (parsed.key === '-') {
+    candidates = [
+      makeEvent('-', false, 'Minus'),
+      makeEvent('_', true, 'Minus'),
+      makeEvent('-', false, 'NumpadSubtract'),
+    ]
+  } else if (parsed.key === '0') {
+    candidates = [
+      makeEvent('0', false, 'Digit0'),
+      makeEvent(')', true, 'Digit0'),
+      makeEvent('0', false, 'Numpad0'),
+    ]
+  } else {
+    const key = parsed.shift && /^[a-z]$/.test(parsed.key)
+      ? parsed.key.toUpperCase()
+      : parsed.key
+    candidates = [makeEvent(key, parsed.shift)]
+  }
+
+  return candidates.filter((event) => matchKeyEvent(event, chord))
+}
+
+/** True when at least one real key event can trigger both chord strings. */
+export function shortcutChordsConflict(left: string, right: string): boolean {
+  const candidates = [
+    ...representativeEventsForChord(left),
+    ...representativeEventsForChord(right),
+  ]
+  return candidates.some(
+    (event) => matchKeyEvent(event, left) && matchKeyEvent(event, right),
+  )
+}
+
+export function shortcutContextsOverlap(
+  left: readonly (ShortcutContext | 'all')[],
+  right: readonly (ShortcutContext | 'all')[],
+): boolean {
+  if (left.includes('all') || right.includes('all')) return true
+  return left.some((context) => right.includes(context))
+}
+
+/** Find effective assignments that would invoke a different command in the same scope. */
+export function findShortcutConflicts(
+  bindingId: string,
+  chord: string,
+  chordOverrides: Record<string, string> = {},
+): ShortcutBinding[] {
+  const target = OFFICE_SHORTCUT_CATALOG.find((binding) => binding.id === bindingId)
+  if (!target) return []
+
+  return OFFICE_SHORTCUT_CATALOG.filter((binding) => {
+    if (binding.id === target.id || binding.actionId === target.actionId) return false
+    if (!shortcutContextsOverlap(target.contexts, binding.contexts)) return false
+    const effectiveChord = chordOverrides[binding.id] ?? binding.defaultChord
+    return shortcutChordsConflict(chord, effectiveChord)
+  })
 }
 
 export interface ResolveOptions {

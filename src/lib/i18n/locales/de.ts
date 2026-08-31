@@ -311,6 +311,7 @@ export const de = {
     screenshotCopied: 'Screenshot in die Zwischenablage kopiert',
     screenshotCopyFailed: 'Screenshot konnte nicht in die Zwischenablage kopiert werden',
     screenshotPreview: 'Screenshot-Vorschau',
+    insertFunction: "Funktion einfügen",
   },
   agentUi: {
     addAttachment: 'Dateien anhängen',
@@ -441,6 +442,8 @@ export const de = {
     searchPlaceholder: 'Tastenkürzel oder Befehle suchen...',
     command: 'Befehl',
     shortcut: 'Tastenkürzel',
+    editShortcut: 'Tastenkürzel für „{command}“ bearbeiten',
+    conflict: 'Konflikt mit „{commands}“',
     scope: 'Gültigkeitsbereich',
     modified: 'Geändert',
     restore: 'Wiederherstellen',

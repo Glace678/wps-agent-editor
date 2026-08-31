@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { TriangleAlert, X } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
+import type { LanguageCode } from '@/lib/i18n'
 
 interface SaveConfirmDialogProps {
   fileName: string
@@ -8,6 +9,80 @@ interface SaveConfirmDialogProps {
   onSave: () => void | Promise<void>
   onDontSave: () => void
   onCancel: () => void
+}
+
+interface SaveConfirmTexts {
+  title: string
+  message: (fileName: string) => string
+  save: string
+  dontSave: string
+  cancel: string
+}
+
+const SAVE_CONFIRM_TEXTS: Record<LanguageCode, SaveConfirmTexts> = {
+  'zh-CN': {
+    title: '是否保存文档？',
+    message: (f) => `是否保存对 "${f}" 的更改？`,
+    save: '保存(S)',
+    dontSave: '不保存(N)',
+    cancel: '取消',
+  },
+  en: {
+    title: 'Save Document?',
+    message: (f) => `Do you want to save the changes you made to "${f}"?`,
+    save: 'Save (S)',
+    dontSave: "Don't Save (N)",
+    cancel: 'Cancel',
+  },
+  ja: {
+    title: 'ドキュメントを保存しますか？',
+    message: (f) => `"${f}" への変更を保存しますか？`,
+    save: '保存 (S)',
+    dontSave: '保存しない (N)',
+    cancel: 'キャンセル',
+  },
+  es: {
+    title: '¿Guardar documento?',
+    message: (f) => `¿Desea guardar los cambios en "${f}"?`,
+    save: 'Guardar (S)',
+    dontSave: 'No guardar (N)',
+    cancel: 'Cancelar',
+  },
+  pt: {
+    title: 'Salvar documento?',
+    message: (f) => `Deseja salvar as alterações em "${f}"?`,
+    save: 'Salvar (S)',
+    dontSave: 'Não salvar (N)',
+    cancel: 'Cancelar',
+  },
+  de: {
+    title: 'Dokument speichern?',
+    message: (f) => `Möchten Sie die Änderungen an "${f}" speichern?`,
+    save: 'Speichern (S)',
+    dontSave: 'Nicht speichern (N)',
+    cancel: 'Abbrechen',
+  },
+  fr: {
+    title: 'Enregistrer le document ?',
+    message: (f) => `Voulez-vous enregistrer les modifications apportées à « ${f} » ?`,
+    save: 'Enregistrer (S)',
+    dontSave: 'Ne pas enregistrer (N)',
+    cancel: 'Annuler',
+  },
+  ru: {
+    title: 'Сохранить документ?',
+    message: (f) => `Сохранить изменения в файле "${f}"?`,
+    save: 'Сохранить (S)',
+    dontSave: 'Не сохранять (N)',
+    cancel: 'Отмена',
+  },
+  ar: {
+    title: 'هل تريد حفظ المستند؟',
+    message: (f) => `هل تريد حفظ التغييرات التي تم إجراؤها على "${f}"؟`,
+    save: 'حفظ (S)',
+    dontSave: 'عدم الحفظ (N)',
+    cancel: 'إلغاء',
+  },
 }
 
 export function SaveConfirmDialog({
@@ -18,7 +93,7 @@ export function SaveConfirmDialog({
   onCancel,
 }: SaveConfirmDialogProps) {
   const { language } = useTranslation()
-  const isZh = language.startsWith('zh')
+  const texts = SAVE_CONFIRM_TEXTS[language as LanguageCode] ?? SAVE_CONFIRM_TEXTS.en
 
   useEffect(() => {
     if (!isOpen) return
@@ -64,13 +139,11 @@ export function SaveConfirmDialog({
 
   if (!isOpen) return null
 
-  const titleText = isZh ? '是否保存文档？' : 'Save Document?'
-  const messageText = isZh
-    ? `是否保存对 "${fileName}" 的更改？`
-    : `Do you want to save the changes you made to "${fileName}"?`
-  const saveText = isZh ? '保存(S)' : 'Save (S)'
-  const dontSaveText = isZh ? '不保存(N)' : "Don't Save (N)"
-  const cancelText = isZh ? '取消' : 'Cancel'
+  const titleText = texts.title
+  const messageText = texts.message(fileName)
+  const saveText = texts.save
+  const dontSaveText = texts.dontSave
+  const cancelText = texts.cancel
 
   return (
     <div

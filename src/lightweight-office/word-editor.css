@@ -212,9 +212,52 @@ body .sd-tooltip-arrow {
   height: 16px;
 }
 
-/* 字体下拉保持紧凑，避免挤掉格式按钮 */
+/* 缩放下拉栏宽度缩小：SuperDoc 默认 71px，收窄为 54px 紧凑展示 */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has([data-item='btn-zoom']),
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item:has(> [data-item='btn-zoom']),
+.word-editor-panel .superdoc-toolbar [data-item='btn-zoom'] {
+  width: 54px !important;
+  min-width: 54px !important;
+  max-width: 54px !important;
+}
+
+.word-editor-panel .superdoc-toolbar [data-item='btn-zoom'] {
+  padding: 0 4px !important;
+  justify-content: center !important;
+  gap: 2px !important;
+}
+
+.word-editor-panel .superdoc-toolbar [data-item='btn-zoom'] .sd-button-label {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 缩放下拉弹层收窄，并居中选项 */
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-zoom-option']),
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-zoom-option']) {
+  width: 62px !important;
+  min-width: 62px !important;
+  padding: 4px 3px !important;
+}
+
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-zoom-option'])
+  .toolbar-dropdown-option,
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-zoom-option'])
+  .toolbar-dropdown-option {
+  justify-content: center;
+  padding: 0 4px;
+  min-height: 28px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 字体选择栏放大宽度：SuperDoc 默认 116px，放大到 160px，避免中英文字体名称被截断 */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has([data-item='btn-fontFamily']),
+.word-editor-panel .superdoc-toolbar .sd-font-combobox[data-item='btn-fontFamily'],
 .word-editor-panel .superdoc-toolbar .sd-font-combobox {
-  max-width: 130px;
+  width: 160px !important;
+  min-width: 150px !important;
+  max-width: 180px !important;
 }
 
 /* 只居中工具栏里当前显示的字体名；下拉列表项仍保持原有左对齐。 */
@@ -228,9 +271,9 @@ body .sd-tooltip-arrow {
  * body, so these selectors intentionally stay global instead of being scoped
  * to .word-editor-panel. */
 body .sd-font-combobox__listbox.word-font-picker-listbox {
-  width: 200px !important;
-  min-width: min(200px, calc(100vw - 16px)) !important;
-  max-width: min(200px, calc(100vw - 16px)) !important;
+  width: 220px !important;
+  min-width: min(220px, calc(100vw - 16px)) !important;
+  max-width: min(220px, calc(100vw - 16px)) !important;
   padding: 4px;
 }
 
@@ -239,6 +282,12 @@ body .sd-font-combobox__listbox.word-font-picker-listbox {
  * injected search box actually narrows the list. */
 body .sd-font-combobox__listbox .sd-font-combobox__option[hidden] {
   display: none !important;
+}
+
+/* Symbol-only fonts map Latin letters to pictograms. Keep their menu names
+ * readable without changing the font family applied to the document. */
+body .sd-font-combobox__listbox .sd-font-combobox__option.word-font-picker-symbol-label {
+  font-family: var(--sd-ui-font-family, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif) !important;
 }
 
 body .word-font-picker-search {
@@ -309,12 +358,27 @@ body .word-font-picker-empty {
   color: var(--sd-ui-text-muted, #a3a3a3);
 }
 
-/* 字号下拉只需要容纳两到三位数字，收窄组合框以减少工具栏占用。 */
-.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
-  .sd-toolbar-split-field {
-  width: 50px !important;
-  min-width: 50px !important;
-  flex: 0 0 50px !important;
+/* Word Insert Table Picker Dropdown, matching Office/WPS specifications */
+body .sd-toolbar-dropdown-menu:has(.toolbar-table-grid-wrapper),
+body .toolbar-dropdown-menu:has(.toolbar-table-grid-wrapper),
+body .sd-toolbar-dropdown-menu:has(.word-table-picker),
+body .toolbar-dropdown-menu:has(.word-table-picker) {
+  width: max-content !important;
+  min-width: 280px !important;
+  max-width: 320px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+body .toolbar-table-grid-wrapper {
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* 字号下拉面板本体也按内容收窄：默认 min-width 80px + 左对齐会让两位数字
@@ -329,6 +393,10 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   .toolbar-dropdown-option {
   justify-content: center;
   padding: 0 6px;
+}
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
+  .sd-toolbar-split-field {
+  width: 50px !important;
 }
 
 .word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
@@ -401,9 +469,28 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   height: 0 !important;
 }
 
-/* 缩放期间把页面宿主提升到合成层，减少末尾重绘闪烁 */
-.word-editor-panel[data-word-zooming='true'] .presentation-editor__pages {
+/* 缩放期间把页面宿主与选区层提升到合成层，减少末尾重绘闪烁 */
+.word-editor-panel[data-word-zooming='true'] .presentation-editor__pages,
+.word-editor-panel[data-word-zooming='true'] .presentation-editor__selection-overlay {
   will-change: transform;
+}
+
+.word-editor-panel .presentation-editor__pages,
+.word-editor-panel .presentation-editor__selection-overlay {
+  /* 给引擎自身的 transform 加短暂过渡，使双页视图缩放更平滑；
+   * 该 transform 由 SuperDoc 在 #applyZoom 中设置，我们只动画它而不
+   * 额外添加 transform，因此指针坐标换算不受影响。 */
+  transition: transform 100ms ease-out;
+}
+
+/*
+ * Word 表格默认边框：SuperDoc 在单元格没有显式 w:tcBorders 时不渲染任何
+ * 边框，导致表格看起来是“透明”的。这里给编辑视图的单元格补一个默认网格
+ * 线；有显式 inline border 的单元格会覆盖它（内联样式优先级更高）。
+ */
+.word-editor-panel .sd-editor-scoped .ProseMirror table td,
+.word-editor-panel .sd-editor-scoped .ProseMirror table th {
+  border: 1px solid #000;
 }
 
 /*

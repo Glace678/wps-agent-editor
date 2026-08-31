@@ -20,6 +20,7 @@ import {
 } from '@/lib/office-shortcuts'
 import { ShortcutSettingsPanel } from '@/components/shortcuts/ShortcutSettingsPanel'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { MODULE_ID, MODULE_VERSION } from './config'
 import {
   getDocKind,
@@ -545,7 +546,7 @@ export function LightweightDocumentEditor() {
           <Suspense
             fallback={(
               <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-                {t('wordEditor.loading')}
+                <WaitingText text={t('wordEditor.loading')} />
               </div>
             )}
           >
@@ -577,7 +578,7 @@ export function LightweightDocumentEditor() {
           <Suspense
             fallback={(
               <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-                {t('excelEditor.loading')}
+                <WaitingText text={t('excelEditor.loading')} />
               </div>
             )}
           >
@@ -611,7 +612,7 @@ export function LightweightDocumentEditor() {
           <Suspense
             fallback={(
               <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-                {t('pdfViewer.loadingPdf')}
+                <WaitingText text={t('pdfViewer.loadingPdf')} />
               </div>
             )}
           >
@@ -626,7 +627,7 @@ export function LightweightDocumentEditor() {
         <Suspense
           fallback={(
             <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-              {t('presentationViewer.loading')}
+              <WaitingText text={t('presentationViewer.loading')} />
             </div>
           )}
         >
@@ -646,7 +647,7 @@ export function LightweightDocumentEditor() {
         <Suspense
           fallback={(
             <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-              {t('codeEditor.loading')}
+              <WaitingText text={t('codeEditor.loading')} />
             </div>
           )}
         >
@@ -668,7 +669,7 @@ export function LightweightDocumentEditor() {
       <Suspense
         fallback={(
           <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
-            {t('notepad.loadingTextFile')}
+            <WaitingText text={t('notepad.loadingTextFile')} />
           </div>
         )}
       >

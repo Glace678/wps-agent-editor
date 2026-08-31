@@ -1,4 +1,5 @@
 export type {
+  CapturedShortcutChord,
   DispatchResult,
   KeyEventLike,
   OfficeActionId,
@@ -8,6 +9,7 @@ export type {
   ShortcutContext,
   ShortcutHandler,
   ShortcutHandlerMap,
+  ShortcutModifier,
 } from './types'
 
 export {
@@ -21,12 +23,17 @@ export {
 } from './catalog'
 
 export {
+  areShortcutChordsEquivalent,
+  captureShortcutChord,
+  findShortcutConflicts,
   formatChordDisplay,
   getDefaultActionChordMap,
   matchKeyEvent,
   normalizeEventKey,
   parseChord,
   resolveActionFromEvent,
+  shortcutChordsConflict,
+  shortcutContextsOverlap,
 } from './match'
 
 export {

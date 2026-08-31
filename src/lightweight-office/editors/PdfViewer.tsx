@@ -6,6 +6,7 @@ import {
 import * as pdfjsLib from 'pdfjs-dist'
 import officialWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { useDocumentZoom } from '@/components/layout/modules/DocumentZoom'
 import { cn } from '@/lib/utils'
 import { documentBridge } from '../agent/document-bridge'
@@ -942,7 +943,7 @@ export function PdfViewer({ filePath, onReady }: PdfViewerProps) {
           </div>
         ) : pages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-            <p>{t('pdfViewer.loadingPdf')}</p>
+            <p><WaitingText text={t('pdfViewer.loadingPdf')} /></p>
             {progress.total > 0 && (
               <p className="text-xs">
                 {t('appShell.pageProgress', {
@@ -972,7 +973,7 @@ export function PdfViewer({ filePath, onReady }: PdfViewerProps) {
                   />
                 ) : (
                   <div className="flex h-48 w-full items-center justify-center rounded-sm bg-muted text-xs text-muted-foreground shadow-md">
-                    {t('pdfViewer.renderingPage', { number: index + 1 })}
+                    <WaitingText text={t('pdfViewer.renderingPage', { number: index + 1 })} />
                   </div>
                 )}
               </div>
@@ -984,10 +985,10 @@ export function PdfViewer({ filePath, onReady }: PdfViewerProps) {
                   layout === 'two' && 'col-span-2',
                 )}
               >
-                {t('pdfViewer.renderingRemaining', {
+                <WaitingText text={t('pdfViewer.renderingRemaining', {
                   rendered: progress.done,
                   total: progress.total,
-                })}
+                })} />
               </p>
             )}
           </div>

@@ -44,6 +44,7 @@ import {
 } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/stores/editor.store'
 import type {
@@ -1923,7 +1924,7 @@ export function PresentationViewer({
             <div className="absolute inset-0 flex items-center justify-center bg-[#e7e8ea]/95 dark:bg-[#101214]/95">
               <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground" role="status">
                 <LoaderCircle className="h-7 w-7 animate-spin text-[#d24726]" />
-                <span>{t('presentationViewer.loading')}</span>
+                <span><WaitingText text={t('presentationViewer.loading')} /></span>
               </div>
             </div>
           ) : null}

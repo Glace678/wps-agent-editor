@@ -12,6 +12,7 @@ import { Check, ChevronDown, Search } from 'lucide-react'
 import { ProviderLogo } from '@/components/agent/ProviderLogo'
 import { searchProviders } from '@/lib/provider-search'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import type { ProviderDefinition } from '@/types/provider'
 
 interface AgentProviderPickerProps {
@@ -273,7 +274,9 @@ export function AgentProviderPicker({
             decorative
           />
         )}
-        <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {loading && !selectedProvider ? <WaitingText text={t('agentConfig.loading')} /> : selectedLabel}
+        </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
       {popup}

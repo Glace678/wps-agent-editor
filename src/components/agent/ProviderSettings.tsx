@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 
 const MIN_LIST_WIDTH = 168
 const MAX_LIST_WIDTH = 336
@@ -551,7 +552,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                     {isTestingCustomConnection
                       ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                       : <RefreshCw className="h-3.5 w-3.5" />}
-                    {isTestingCustomConnection ? t('providerSettings.testingConnection') : t('providerSettings.testConnection')}
+                    {isTestingCustomConnection ? <WaitingText text={t('providerSettings.testingConnection')} /> : t('providerSettings.testConnection')}
                   </Button>
                   {detectedModels.length > 0 && (
                     <span data-testid="custom-provider-models-detected" className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">

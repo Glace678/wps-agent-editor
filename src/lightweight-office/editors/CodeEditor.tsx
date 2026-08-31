@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { getCodeLanguage } from '@/lib/code-languages'
 import { openAgentAssistant } from '@/lib/code-editor-events'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { useAgentStore } from '@/stores/agent.store'
 import { useDebugStore } from '@/stores/debug.store'
 import { usePanelStore } from '@/stores/panel.store'
@@ -1056,7 +1057,7 @@ export function CodeEditor({
             data-testid="code-run-button"
           >
             <Play className="h-3.5 w-3.5" />
-            {isRunning ? t('codeEditor.running') : t('codeEditor.runCode')}
+            {isRunning ? <WaitingText text={t('codeEditor.running')} /> : t('codeEditor.runCode')}
           </Button>
           <span className="h-4 w-px bg-border" aria-hidden="true" />
           {debugging ? (
@@ -1221,7 +1222,7 @@ export function CodeEditor({
           )}
           {loadState === 'loading' && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-background text-sm text-muted-foreground">
-              {t('codeEditor.loading')}
+              <WaitingText text={t('codeEditor.loading')} />
             </div>
           )}
           {loadState === 'error' && (

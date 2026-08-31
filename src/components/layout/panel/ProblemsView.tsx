@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { useEditorStore } from '@/stores/editor.store'
 import { usePanelStore } from '@/stores/panel.store'
 
@@ -71,7 +72,7 @@ export function ProblemsView({ onCountChange }: { onCountChange: (count: number)
   if (loading) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-xs text-muted-foreground">
-        {t('bottomPanel.loading')}
+        <WaitingText text={t('bottomPanel.loading')} />
       </div>
     )
   }

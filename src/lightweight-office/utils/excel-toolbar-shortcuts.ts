@@ -138,11 +138,27 @@ export function resolveExcelToolbarShortcut(
  */
 export function syncExcelToolbarTooltipNode(el: HTMLElement, fullTip: string): void {
   if (!fullTip) return
-  let tooltipNode = el.querySelector<HTMLElement>(':scope > .fortune-tooltip')
+
+  // Fortune's Combo renders one shared tooltip beside its button + arrow.
+  // Adding a tooltip inside either trigger makes the shared original visible as
+  // well, producing text such as "边框 边框 (Ctrl+Shift+&)".
+  const comboHost = el.parentElement?.matches('.fortune-toolbar-combo')
+    && el.matches('.fortune-toolbar-combo-button, .fortune-toolbar-combo-arrow')
+    ? el.parentElement
+    : null
+  const tooltipHost = comboHost || el
+
+  if (comboHost) {
+    for (const duplicate of el.querySelectorAll(':scope > .fortune-tooltip')) {
+      duplicate.remove()
+    }
+  }
+
+  let tooltipNode = tooltipHost.querySelector<HTMLElement>(':scope > .fortune-tooltip')
   if (!tooltipNode) {
     tooltipNode = document.createElement('div')
     tooltipNode.className = 'fortune-tooltip'
-    el.appendChild(tooltipNode)
+    tooltipHost.appendChild(tooltipNode)
   }
   if (tooltipNode.textContent !== fullTip) {
     tooltipNode.textContent = fullTip

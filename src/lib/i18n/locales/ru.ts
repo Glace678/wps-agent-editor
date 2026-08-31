@@ -311,6 +311,7 @@ export const ru = {
     screenshotCopied: 'Снимок скопирован в буфер обмена',
     screenshotCopyFailed: 'Не удалось скопировать снимок в буфер обмена',
     screenshotPreview: 'Предпросмотр снимка экрана',
+    insertFunction: "Вставить функцию",
   },
   agentUi: {
     addAttachment: 'Прикрепить файлы',
@@ -441,6 +442,8 @@ export const ru = {
     searchPlaceholder: 'Поиск сочетаний клавиш или команд...',
     command: 'Команда',
     shortcut: 'Сочетание клавиш',
+    editShortcut: 'Изменить сочетание для «{command}»',
+    conflict: 'Конфликт с «{commands}»',
     scope: 'Область действия',
     modified: 'Изменено',
     restore: 'Восстановить',

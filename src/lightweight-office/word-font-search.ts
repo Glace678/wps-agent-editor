@@ -1,5 +1,5 @@
 import type { LanguageCode } from '../lib/i18n'
-import type { SystemFontFace } from './utils/system-fonts'
+import { isSymbolFontFamily, type SystemFontFace } from './utils/system-fonts'
 import {
   buildFontSearchTerms,
   normalizeFontSearchText,
@@ -73,6 +73,13 @@ function decorateFontPicker(
 
   const fontOptions = getFontOptions(popup)
   if (fontOptions.length === 0) return
+
+  for (const option of fontOptions) {
+    option.classList.toggle(
+      'word-font-picker-symbol-label',
+      isSymbolFontFamily(option.textContent?.trim() || ''),
+    )
+  }
 
   popup.dataset.wordFontSearchReady = 'true'
   popup.classList.add('word-font-picker-listbox')

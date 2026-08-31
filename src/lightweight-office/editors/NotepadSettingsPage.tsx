@@ -6,6 +6,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
+import type { LanguageCode } from '@/lib/i18n'
 import type { ThemePreference } from '@/lib/theme'
 import type { SystemFontFace } from '../utils/system-fonts'
 
@@ -176,6 +177,66 @@ function SelectField({
   )
 }
 
+const NOTEPAD_SETTINGS_TOGGLE_ON: Record<LanguageCode, string> = {
+  'zh-CN': '开',
+  en: 'On',
+  ja: 'オン',
+  es: 'Activado',
+  pt: 'Ativado',
+  de: 'Ein',
+  fr: 'Activé',
+  ru: 'Вкл.',
+  ar: 'تشغيل',
+}
+
+const NOTEPAD_SETTINGS_TOGGLE_OFF: Record<LanguageCode, string> = {
+  'zh-CN': '关',
+  en: 'Off',
+  ja: 'オフ',
+  es: 'Desactivado',
+  pt: 'Desativado',
+  de: 'Aus',
+  fr: 'Désactivé',
+  ru: 'Выкл.',
+  ar: 'إيقاف',
+}
+
+const NOTEPAD_SETTINGS_EXPAND: Record<LanguageCode, string> = {
+  'zh-CN': '展开',
+  en: 'Expand',
+  ja: '展開',
+  es: 'Expandir',
+  pt: 'Expandir',
+  de: 'Erweitern',
+  fr: 'Développer',
+  ru: 'Развернуть',
+  ar: 'توسيع',
+}
+
+const NOTEPAD_SETTINGS_COLLAPSE: Record<LanguageCode, string> = {
+  'zh-CN': '收起',
+  en: 'Collapse',
+  ja: '折りたたむ',
+  es: 'Contraer',
+  pt: 'Recolher',
+  de: 'Reduzieren',
+  fr: 'Réduire',
+  ru: 'Свернуть',
+  ar: 'طي',
+}
+
+const NOTEPAD_SETTINGS_BACK: Record<LanguageCode, string> = {
+  'zh-CN': '返回',
+  en: 'Back',
+  ja: '戻る',
+  es: 'Volver',
+  pt: 'Voltar',
+  de: 'Zurück',
+  fr: 'Retour',
+  ru: 'Назад',
+  ar: 'رجوع',
+}
+
 function SettingToggle({
   checked,
   disabled = false,
@@ -188,8 +249,9 @@ function SettingToggle({
   onChange: () => void
 }) {
   const { language } = useTranslation()
-  const onLabel = language === 'zh-CN' ? '\u5f00' : 'On'
-  const offLabel = language === 'zh-CN' ? '\u5173' : 'Off'
+  const lang = (language in NOTEPAD_SETTINGS_TOGGLE_ON ? language : 'en') as LanguageCode
+  const onLabel = NOTEPAD_SETTINGS_TOGGLE_ON[lang]
+  const offLabel = NOTEPAD_SETTINGS_TOGGLE_OFF[lang]
   return (
     <span className="notepad-settings-toggle-wrap">
       <button
@@ -232,9 +294,10 @@ function SettingsExpander({
   children: ReactNode
 }) {
   const { language } = useTranslation()
+  const lang = (language in NOTEPAD_SETTINGS_EXPAND ? language : 'en') as LanguageCode
   const actionLabel = expanded
-    ? (language === 'zh-CN' ? '\u6536\u8d77' : 'Collapse')
-    : (language === 'zh-CN' ? '\u5c55\u5f00' : 'Expand')
+    ? NOTEPAD_SETTINGS_COLLAPSE[lang]
+    : NOTEPAD_SETTINGS_EXPAND[lang]
   return (
     <SettingsCard>
       <div className="notepad-settings-card-header">
@@ -421,7 +484,7 @@ export function NotepadSettingsPage({
         data-testid="notepad-settings-page"
       >
         <header className="notepad-settings-topbar">
-          <button type="button" className="notepad-settings-back" onClick={onClose} aria-label={language === 'zh-CN' ? '\u8fd4\u56de' : 'Back'}>
+          <button type="button" className="notepad-settings-back" onClick={onClose} aria-label={NOTEPAD_SETTINGS_BACK[(language in NOTEPAD_SETTINGS_BACK ? language : 'en') as LanguageCode]}>
             <ArrowLeft className="h-5 w-5" aria-hidden="true" />
           </button>
           <Settings className="notepad-settings-app-icon" aria-hidden="true" />

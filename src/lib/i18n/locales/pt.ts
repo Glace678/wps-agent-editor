@@ -311,6 +311,7 @@ export const pt = {
     screenshotCopied: 'Captura copiada para a área de transferência',
     screenshotCopyFailed: 'Não foi possível copiar a captura para a área de transferência',
     screenshotPreview: 'Prévia da captura de tela',
+    insertFunction: "Inserir função",
   },
   agentUi: {
     addAttachment: 'Anexar arquivos',
@@ -441,6 +442,8 @@ export const pt = {
     searchPlaceholder: 'Pesquisar atalhos ou comandos...',
     command: 'Comando',
     shortcut: 'Atalho',
+    editShortcut: 'Editar atalho de "{command}"',
+    conflict: 'Conflita com "{commands}"',
     scope: 'Escopo',
     modified: 'Modificado',
     restore: 'Restaurar',

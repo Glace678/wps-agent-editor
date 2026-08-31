@@ -224,6 +224,36 @@ const replacements = [
 
 const layoutReplacements = [
   {
+    label: 'combine negative paragraph left indents with first-line indents',
+    from: `\tconst firstLineOffset = suppressFirstLineIndent ? 0 : (indent?.firstLine ?? 0) - (indent?.hanging ?? 0);\n\tconst isFirstLine = lineIndex === 0 && localStartLine === 0 && !continuesFromPrev;`,
+    to: `\tconst firstLineOffset = suppressFirstLineIndent ? 0 : (indent?.firstLine ?? 0) - (indent?.hanging ?? 0);\n\tconst effectiveFirstLineOffset = firstLineOffset > 0 && paraIndentLeft < 0 ? Math.max(0, firstLineOffset + paraIndentLeft) : firstLineOffset;\n\tconst isFirstLine = lineIndex === 0 && localStartLine === 0 && !continuesFromPrev;`,
+  },
+  {
+    label: 'paint the effective first-line indent',
+    from: `\t} else if (explicitSegmentPositioning) {\n\t\tif (isFirstLine && firstLineOffset !== 0) {\n\t\t\tconst adjustedPadding = (paraIndentLeft < 0 ? 0 : paraIndentLeft) + firstLineOffset;\n\t\t\tif (adjustedPadding > 0) lineEl.style.paddingLeft = \`\${adjustedPadding}px\`;\n\t\t}\n\t} else if (paraIndentLeft && paraIndentLeft > 0) lineEl.style.paddingLeft = \`\${paraIndentLeft}px\`;\n\telse if (!isFirstLine && indent?.hanging && indent.hanging > 0 && (paraIndentLeft == null || paraIndentLeft >= 0)) lineEl.style.paddingLeft = \`\${indent.hanging}px\`;\n\tif (paraIndentRight && paraIndentRight > 0) lineEl.style.paddingRight = \`\${paraIndentRight}px\`;\n\tif (isFirstLine && firstLineOffset && !explicitSegmentPositioning) lineEl.style.textIndent = \`\${firstLineOffset}px\`;\n\telse if (firstLineOffset && explicitSegmentPositioning) lineEl.style.textIndent = "0px";`,
+    to: `\t} else if (explicitSegmentPositioning) {\n\t\tif (isFirstLine && effectiveFirstLineOffset !== 0) {\n\t\t\tconst adjustedPadding = Math.max(0, paraIndentLeft) + effectiveFirstLineOffset;\n\t\t\tif (adjustedPadding > 0) lineEl.style.paddingLeft = \`\${adjustedPadding}px\`;\n\t\t}\n\t} else if (paraIndentLeft && paraIndentLeft > 0) lineEl.style.paddingLeft = \`\${paraIndentLeft}px\`;\n\telse if (!isFirstLine && indent?.hanging && indent.hanging > 0 && (paraIndentLeft == null || paraIndentLeft >= 0)) lineEl.style.paddingLeft = \`\${indent.hanging}px\`;\n\tif (paraIndentRight && paraIndentRight > 0) lineEl.style.paddingRight = \`\${paraIndentRight}px\`;\n\tif (isFirstLine && effectiveFirstLineOffset && !explicitSegmentPositioning) lineEl.style.textIndent = \`\${effectiveFirstLineOffset}px\`;\n\telse if (effectiveFirstLineOffset && explicitSegmentPositioning) lineEl.style.textIndent = "0px";`,
+  },
+  {
+    label: 'measure body lines from the effective first-line indent',
+    from: `\tconst firstLineOffset = suppressFirstLineIndent ? 0 : (paraIndent?.firstLine ?? 0) - (paraIndent?.hanging ?? 0);\n\tconst expandedRunsForBlock =`,
+    to: `\tconst firstLineOffset = suppressFirstLineIndent ? 0 : (paraIndent?.firstLine ?? 0) - (paraIndent?.hanging ?? 0);\n\tconst effectiveFirstLineOffset = firstLineOffset > 0 && paraIndentLeft < 0 ? Math.max(0, firstLineOffset + paraIndentLeft) : firstLineOffset;\n\tconst expandedRunsForBlock =`,
+  },
+  {
+    label: 'pass the effective first-line indent to body line measurement',
+    from: `\t\t\t\tfirstLineOffset,\n\t\t\t\tisFirstLine,\n\t\t\t\tisListFirstLine,`,
+    to: `\t\t\t\tfirstLineOffset: effectiveFirstLineOffset,\n\t\t\t\tisFirstLine,\n\t\t\t\tisListFirstLine,`,
+  },
+  {
+    label: 'include each collapsed row bottom border in Word table height',
+    from: `\t\tconst bandReservation = (band) => band > 2 ? band - 1 : 0;`,
+    to: `\t\tconst bandReservation = (band) => band > 2 ? band - 1 : Math.max(0, band);`,
+  },
+  {
+    label: 'assign collapsed gridline height to the row above it',
+    from: `\t\tfor (let i = 0; i < block.rows.length; i++) rowHeights[i] += bandReservation(gridlineBand(i));\n\t\trowHeights[block.rows.length - 1] += bandReservation(gridlineBand(block.rows.length));`,
+    to: `\t\tfor (let i = 0; i < block.rows.length; i++) rowHeights[i] += bandReservation(gridlineBand(i + 1));`,
+  },
+  {
     label: 'reserve Word table border clearance at a page boundary',
     from: `var ROW_HEIGHT_EPSILON = .1;`,
     to: `var ROW_HEIGHT_EPSILON = .1;\nvar WORD_TABLE_START_CLEARANCE_PX = 2;`,

@@ -309,6 +309,7 @@ export const en = {
     screenshotCopied: 'Screenshot copied to the clipboard',
     screenshotCopyFailed: 'Could not copy the screenshot to the clipboard',
     screenshotPreview: 'Screenshot preview',
+    insertFunction: "Insert Function",
   },
   agentUi: {
     addAttachment: 'Attach files',
@@ -439,6 +440,8 @@ export const en = {
     searchPlaceholder: 'Search shortcuts or commands...',
     command: 'Command',
     shortcut: 'Shortcut',
+    editShortcut: 'Edit shortcut for "{command}"',
+    conflict: 'Conflicts with "{commands}"',
     scope: 'Scope',
     modified: 'Modified',
     restore: 'Restore',

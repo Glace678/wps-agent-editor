@@ -111,6 +111,13 @@
   --fortune-dark-picker-hover: #363636;
   --fortune-dark-picker-active: #444;
   --fortune-dark-picker-border: #4a4a4a;
+  --fortune-dark-dialog-bg: #1e1e24;
+  --fortune-dark-dialog-header: #26262e;
+  --fortune-dark-dialog-border: #3d3d46;
+  --fortune-dark-dialog-input-bg: #141418;
+  --fortune-dark-dialog-text: #f9fafb;
+  --fortune-dark-dialog-muted: #9ca3af;
+  --fortune-dark-dialog-func: #60a5fa;
   background: #000;
   color-scheme: dark;
 }
@@ -292,32 +299,6 @@
   max-width: 100%;
 }
 
-/* Menus, popovers and dialogs, including the font-family picker. */
-.dark .excel-editor-shell .fortune-toolbar-select,
-.dark .excel-editor-shell .fortune-toolbar-color-picker,
-.dark .excel-editor-shell .fortune-toolbar-more-container,
-.dark .excel-editor-shell .toolbar-item-sub-menu,
-.dark .excel-editor-shell .condition-format-sub-menu,
-.dark .excel-editor-shell .fortune-context-menu,
-.dark .excel-editor-shell .fortune-filter-menu,
-.dark .excel-editor-shell .luckysheet-filter-bycolor-submenu,
-.dark .excel-editor-shell .fortune-zoom-ratio-menu,
-.dark .excel-editor-shell .fortune-sheet-list,
-.dark .excel-editor-shell .fortune-dialog,
-.dark .excel-editor-shell .fortune-link-modify-modal,
-.dark .excel-editor-shell .luckysheet-formula-search-c,
-.dark .excel-editor-shell .luckysheet-formula-help-c,
-.dark .excel-editor-shell #fortune-custom-color,
-.dark .excel-editor-shell #fortune-change-color,
-.dark .excel-editor-shell #range-dialog,
-.dark .excel-editor-shell #luckysheet-dataVerification-dropdown-List,
-.dark .excel-editor-shell #luckysheet-dataVerification-showHintBox {
-  background: var(--fortune-dark-bg);
-  color: var(--fortune-dark-text);
-  border-color: var(--fortune-dark-border);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 70%);
-}
-
 /* Dropdowns sit one level above the pure-black worksheet. Keep their shared
    border and shadow visible even when a Fortune popup has no native border. */
 .dark .excel-editor-shell .fortune-toolbar-select,
@@ -342,6 +323,80 @@
 
 .dark .excel-editor-shell .fortune-modal-container {
   background: rgb(0 0 0 / 72%);
+}
+
+/* Border color/style are single-line submenu triggers. Fortune's 3px preview
+   blocks otherwise span the row and read as broken input borders in dark mode. */
+.excel-editor-shell .fortune-border-select-option {
+  position: relative;
+  box-sizing: border-box;
+  height: 34px;
+  min-width: 170px;
+  padding: 6px 10px;
+  line-height: 22px;
+}
+
+.excel-editor-shell .fortune-border-select-option > .fortune-toolbar-menu-line {
+  box-sizing: border-box;
+  height: 22px;
+  padding-right: 58px;
+}
+
+.excel-editor-shell .fortune-border-select-option > .fortune-toolbar-menu-line > svg {
+  position: absolute;
+  right: 0;
+}
+
+.excel-editor-shell .fortune-border-color-preview,
+.excel-editor-shell .fortune-border-style-preview {
+  position: absolute;
+  top: 50%;
+  right: 34px;
+  width: 32px;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.excel-editor-shell .fortune-border-color-preview {
+  height: 4px;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 24%);
+}
+
+.excel-editor-shell .fortune-border-style-preview {
+  height: 8px;
+  overflow: hidden;
+}
+
+.excel-editor-shell .fortune-border-style-preview svg {
+  display: block;
+  width: 32px;
+  height: 8px;
+  transform: translateY(4px);
+}
+
+.excel-editor-shell .fortune-border-select-menu .fortune-boder-style-picker {
+  padding: 4px 0 6px;
+}
+
+.excel-editor-shell .fortune-border-select-menu .fortune-border-style-picker-menu {
+  display: flex;
+  box-sizing: border-box;
+  min-height: 28px;
+  align-items: center;
+  padding: 7px 12px;
+}
+
+.excel-editor-shell .fortune-border-select-menu .fortune-border-style-reset {
+  min-height: 34px;
+}
+
+.dark .excel-editor-shell .fortune-border-color-preview {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 42%);
+}
+
+.dark .excel-editor-shell .fortune-border-style-preview g {
+  stroke: var(--fortune-dark-text) !important;
 }
 
 .dark .excel-editor-shell .fortune-toolbar-select-option,
@@ -438,6 +493,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Preserve symbol fonts as selectable values, but render their names with the
+   UI font so Webdings/Wingdings do not appear as corrupted glyph rows. */
+.excel-editor-shell .fortune-toolbar-combo-popup[data-excel-picker-kind='font']
+  .fortune-toolbar-select-option.excel-font-picker-symbol-label {
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif !important;
 }
 
 .excel-editor-shell .excel-toolbar-picker-search {
@@ -711,7 +773,7 @@
 .dark .excel-editor-shell #range-dialog .dialog-title,
 .dark .excel-editor-shell #fortune-location-condition .title,
 .dark .excel-editor-shell .fortune-sort-title {
-  background: var(--fortune-dark-bg);
+  background: var(--fortune-dark-dialog-header, #26262e);
   color: var(--fortune-dark-text);
   border-color: var(--fortune-dark-border);
 }
@@ -724,21 +786,55 @@
 }
 
 /* Formula help and search results. */
-.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item,
-.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item-active,
-.dark .excel-editor-shell .luckysheet-formula-help-title {
-  background: var(--fortune-dark-bg);
+.dark .excel-editor-shell .luckysheet-formula-search-c,
+.dark .excel-editor-shell .luckysheet-formula-help-c {
+  background: var(--fortune-dark-dialog-bg, #1e1e24) !important;
+  color: var(--fortune-dark-dialog-text, #f9fafb) !important;
+  border: 1px solid var(--fortune-dark-dialog-border, #3d3d46) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75) !important;
+  border-radius: 8px !important;
+}
+
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item {
+  background: transparent;
   color: var(--fortune-dark-text);
-  border-color: var(--fortune-dark-border);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item-active,
 .dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item:hover {
-  background: var(--fortune-dark-hover);
+  background: #282832 !important;
 }
 
-.dark .excel-editor-shell .luckysheet-formula-search-detail,
-.dark .excel-editor-shell .luckysheet-formula-search-func,
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item-active {
+  background: #0078d4 !important;
+  color: #ffffff !important;
+}
+
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item-active .luckysheet-formula-search-func {
+  color: #ffffff !important;
+}
+
+.dark .excel-editor-shell .luckysheet-formula-search-c .luckysheet-formula-search-item-active .luckysheet-formula-search-detail {
+  color: #eff6ff !important;
+}
+
+.dark .excel-editor-shell .luckysheet-formula-help-title {
+  background: var(--fortune-dark-dialog-header, #26262e) !important;
+  color: #ffffff !important;
+  border-bottom: 1px solid var(--fortune-dark-dialog-border, #3d3d46) !important;
+  font-weight: 600;
+}
+
+.dark .excel-editor-shell .luckysheet-formula-search-detail {
+  color: #cbd5e1 !important;
+}
+
+.dark .excel-editor-shell .luckysheet-formula-search-func {
+  color: #60a5fa !important;
+  font-weight: 600 !important;
+  font-family: 'Consolas', monospace !important;
+}
+
 .dark .excel-editor-shell .luckysheet-arguments-help-section,
 .dark .excel-editor-shell .luckysheet-arguments-help-section-title,
 .dark .excel-editor-shell .fortune-toolbar-subtext,
@@ -751,8 +847,9 @@
 }
 
 .dark .excel-editor-shell .luckysheet-arguments-help-parameter-active {
-  background: #292400;
-  color: #fff2a8;
+  background: #312e12 !important;
+  color: #fef08a !important;
+  border: 1px solid #854d0e !important;
 }
 
 .dark .excel-editor-shell .luckysheet-formula-text-color {
@@ -838,29 +935,72 @@
   background: #3a3a3a;
 }
 
-/* Keep every Fortune Sheet dialog exit visible and keyboard accessible. */
+/* Keep every Fortune Sheet dialog exit visible, accessible, and high-contrast. */
 .excel-editor-shell .fortune-dialog {
   position: relative;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 12px !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
+  overflow: hidden !important;
+}
+
+.dark .excel-editor-shell .fortune-dialog {
+  background: var(--fortune-dark-dialog-bg, #1e1e24) !important;
+  color: var(--fortune-dark-dialog-text, #f9fafb) !important;
+  border: 1px solid var(--fortune-dark-dialog-border, #3d3d46) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  overflow: hidden !important;
+}
+
+.excel-editor-shell .fortune-modal-container {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(3px);
+}
+
+.dark .excel-editor-shell .fortune-modal-container {
+  background: rgba(0, 0, 0, 0.75) !important;
 }
 
 .excel-editor-shell .fortune-modal-container .fortune-modal-dialog-header {
   position: sticky;
   top: 0;
   z-index: 5;
-  align-items: center;
-  min-height: 44px;
-  padding: 4px;
-  background: #fff;
-  border-bottom: 1px solid #d8dce3;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  min-height: 42px !important;
+  height: 42px !important;
+  padding: 0 12px 0 16px !important;
+  background: #f8fafc !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  box-sizing: border-box !important;
 }
 
-.excel-editor-shell [data-fortune-dialog-kind='screenshot-preview'] .fortune-modal-dialog-header::before {
+.dark .excel-editor-shell .fortune-modal-container .fortune-modal-dialog-header {
+  background: var(--fortune-dark-dialog-header, #26262e) !important;
+  border-bottom: 1px solid var(--fortune-dark-dialog-border, #3d3d46) !important;
+}
+
+.excel-editor-shell [data-fortune-dialog-kind] .fortune-modal-dialog-header::before {
   content: attr(data-excel-dialog-title);
   margin-right: auto;
-  padding-left: 10px;
-  color: #252a34;
-  font-size: 14px;
+  color: #1e293b;
+  font-size: 13.5px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.dark .excel-editor-shell [data-fortune-dialog-kind] .fortune-modal-dialog-header::before {
+  color: #f3f4f6 !important;
 }
 
 .excel-editor-shell .excel-screenshot-clipboard-status {
@@ -922,54 +1062,433 @@
 }
 
 .excel-editor-shell .fortune-modal-dialog-icon-close {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  color: #252a34;
-  background: #f3f4f6;
-  border: 1px solid #b9c0ca;
-  border-radius: 8px;
-  opacity: 1;
-  cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  margin-left: auto !important;
+  color: #64748b !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 6px !important;
+  opacity: 1 !important;
+  cursor: pointer !important;
+  transition: background-color 120ms ease, color 120ms ease !important;
 }
 
 .excel-editor-shell .fortune-modal-dialog-icon-close:hover {
-  color: #fff;
-  background: #c93232;
-  border-color: #b52a2a;
-  opacity: 1;
+  color: #0f172a !important;
+  background: #e2e8f0 !important;
+  border: none !important;
 }
 
 .excel-editor-shell .fortune-modal-dialog-icon-close:focus-visible,
 .excel-editor-shell #fortune-search-replace .close-button:focus-visible {
-  outline: 3px solid #726efe;
-  outline-offset: 2px;
+  outline: 2px solid #3b82f6 !important;
+  outline-offset: 2px !important;
 }
 
 .excel-editor-shell .fortune-modal-dialog-icon-close svg {
-  width: 30px;
-  height: 30px;
-  color: inherit;
+  width: 14px !important;
+  height: 14px !important;
+  color: currentColor !important;
+  filter: none !important;
 }
 
-.excel-editor-shell .fortune-modal-dialog-icon-close svg :is(path, line, polyline) {
-  stroke: currentColor !important;
-  stroke-opacity: 1 !important;
+.dark .excel-editor-shell .fortune-modal-dialog-icon-close {
+  color: #9ca3af !important;
+  background: transparent !important;
+  border: none !important;
 }
 
-/* Fortune renders the close glyph through <use>, so recolor its source symbol too. */
+.dark .excel-editor-shell .fortune-modal-dialog-icon-close:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: none !important;
+}
+
+.dark .excel-editor-shell .fortune-modal-dialog-icon-close:active {
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
+.dark .excel-editor-shell .fortune-modal-dialog-icon-close svg {
+  color: currentColor !important;
+  filter: none !important;
+}
+
+.excel-editor-shell .fortune-modal-dialog-icon-close svg :is(path, line, polyline),
 .excel-editor-shell .fortune-container symbol#close :is(path, line, polyline) {
   stroke: currentColor !important;
+  stroke-width: 2 !important;
   stroke-opacity: 1 !important;
 }
 
-.excel-editor-shell .fortune-modal-dialog-icon-close:hover svg,
-.dark .excel-editor-shell .fortune-modal-dialog-icon-close svg {
-  filter: brightness(0) invert(1);
+/* Dialog content body */
+.excel-editor-shell .fortune-dialog-box-content {
+  padding: 16px 20px 20px !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+}
+
+/* ==========================================================================
+   Function / Formula Selection Dialog (#luckysheet-search-formula)
+   High-contrast, modern UI layout
+   ========================================================================== */
+.excel-editor-shell #luckysheet-search-formula {
+  display: flex;
+  flex-direction: column;
+  min-width: 480px;
+  max-width: 540px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.excel-editor-shell #luckysheet-search-formula .inpbox {
+  margin-bottom: 12px;
+}
+
+.excel-editor-shell #luckysheet-search-formula .inpbox > div,
+.excel-editor-shell #luckysheet-search-formula .listbox > div:first-child,
+.excel-editor-shell #luckysheet-search-formula .listbox label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #334155;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .inpbox > div,
+.dark .excel-editor-shell #luckysheet-search-formula .listbox > div:first-child,
+.dark .excel-editor-shell #luckysheet-search-formula .listbox label {
+  color: #f1f5f9;
+}
+
+.excel-editor-shell #luckysheet-search-formula .inpbox input,
+.excel-editor-shell #luckysheet-search-formula #searchFormulaListInput {
+  width: 100% !important;
+  height: 36px !important;
+  line-height: 36px !important;
+  padding: 0 12px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  box-sizing: border-box !important;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.excel-editor-shell #luckysheet-search-formula .inpbox input:focus,
+.excel-editor-shell #luckysheet-search-formula #searchFormulaListInput:focus {
+  background: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.excel-editor-shell #luckysheet-search-formula .inpbox input::placeholder,
+.excel-editor-shell #luckysheet-search-formula #searchFormulaListInput::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .inpbox input,
+.dark .excel-editor-shell #luckysheet-search-formula #searchFormulaListInput {
+  background: #141418 !important;
+  border: 1px solid #3f3f46 !important;
+  color: #f9fafb !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .inpbox input:focus,
+.dark .excel-editor-shell #luckysheet-search-formula #searchFormulaListInput:focus {
+  background: #18181e !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .inpbox input::placeholder,
+.dark .excel-editor-shell #luckysheet-search-formula #searchFormulaListInput::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+/* Category Selection */
+.excel-editor-shell #luckysheet-search-formula .selbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.excel-editor-shell #luckysheet-search-formula .selbox > span {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #334155;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .selbox > span {
+  color: #f1f5f9;
+}
+
+.excel-editor-shell #luckysheet-search-formula .selbox select,
+.excel-editor-shell #luckysheet-search-formula #formulaTypeSelect {
+  height: 32px !important;
+  line-height: 32px !important;
+  min-width: 160px;
+  max-width: 220px;
+  padding: 0 28px 0 10px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  cursor: pointer;
+  outline: none;
+  box-sizing: border-box !important;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #f8fafc url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") no-repeat right 8px center / 14px 14px;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.excel-editor-shell #luckysheet-search-formula .selbox select:focus,
+.excel-editor-shell #luckysheet-search-formula #formulaTypeSelect:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .selbox select,
+.dark .excel-editor-shell #luckysheet-search-formula #formulaTypeSelect {
+  background: #25252d url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") no-repeat right 8px center / 14px 14px !important;
+  border: 1px solid #3f3f46 !important;
+  color: #f9fafb !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .selbox select:focus,
+.dark .excel-editor-shell #luckysheet-search-formula #formulaTypeSelect:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .selbox select option {
+  background-color: #25252d;
+  color: #f9fafb;
+}
+
+/* Function List Area */
+.excel-editor-shell #luckysheet-search-formula .listbox {
+  height: auto !important;
+  margin-bottom: 6px;
+}
+
+.excel-editor-shell #luckysheet-search-formula .formulaList {
+  width: 100% !important;
+  height: 220px !important;
+  box-sizing: border-box !important;
+  padding: 4px !important;
+  border-radius: 8px !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .formulaList {
+  background: #141418 !important;
+  border: 1px solid #3f3f46 !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 7px 10px !important;
+  margin: 2px 0 !important;
+  border-radius: 6px !important;
+  border-bottom: none !important;
+  cursor: pointer !important;
+  transition: background-color 100ms ease, color 100ms ease !important;
+  user-select: none !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox > div:first-child {
+  font-family: 'Consolas', 'Cascadia Code', 'Segoe UI Mono', monospace !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  flex-shrink: 0 !important;
+  min-width: 90px !important;
+  color: #1d4ed8;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox > div:nth-child(2) {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  flex: 1 !important;
+  text-align: right !important;
+  color: #475569;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox:hover {
+  background: #e2e8f0 !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox:hover > div:first-child {
+  color: #1e40af !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox:hover > div:nth-child(2) {
+  color: #0f172a !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox.on {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3) !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox.on > div:first-child {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.excel-editor-shell #luckysheet-search-formula .listBox.on > div:nth-child(2) {
+  color: #eff6ff !important;
+  font-weight: 400 !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox > div:first-child {
+  color: #60a5fa !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox > div:nth-child(2) {
+  color: #cbd5e1 !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox:hover {
+  background: #262630 !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox:hover > div:first-child {
+  color: #93c5fd !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox:hover > div:nth-child(2) {
+  color: #f1f5f9 !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox.on {
+  background: #0078d4 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox.on > div:first-child {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.dark .excel-editor-shell #luckysheet-search-formula .listBox.on > div:nth-child(2) {
+  color: #eff6ff !important;
+  font-weight: 400 !important;
+}
+
+/* Dialog Footer & Action Buttons */
+.excel-editor-shell .fortune-dialog-box-button-container {
+  display: flex !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  gap: 10px !important;
+  margin-top: 18px !important;
+  padding-top: 14px !important;
+  border-top: 1px solid #e2e8f0;
+  box-sizing: border-box !important;
+}
+
+.dark .excel-editor-shell .fortune-dialog-box-button-container {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.excel-editor-shell .fortune-message-box-button {
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 76px !important;
+  height: 32px !important;
+  padding: 0 16px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 120ms ease !important;
+  user-select: none !important;
+  text-align: center !important;
+}
+
+.excel-editor-shell .fortune-message-box-button.button-primary {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border: 1px solid #1d4ed8 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+}
+
+.excel-editor-shell .fortune-message-box-button.button-primary:hover {
+  background: #1d4ed8 !important;
+  border-color: #1e40af !important;
+}
+
+.excel-editor-shell .fortune-message-box-button.button-default {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+.excel-editor-shell .fortune-message-box-button.button-default:hover {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+.dark .excel-editor-shell .fortune-message-box-button.button-primary {
+  background: #0078d4 !important;
+  color: #ffffff !important;
+  border: 1px solid #0078d4 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark .excel-editor-shell .fortune-message-box-button.button-primary:hover {
+  background: #106ebe !important;
+  border-color: #2b88d8 !important;
+}
+
+.dark .excel-editor-shell .fortune-message-box-button.button-primary:active {
+  background: #005a9e !important;
+}
+
+.dark .excel-editor-shell .fortune-message-box-button.button-default {
+  background: #2b2b34 !important;
+  color: #e5e7eb !important;
+  border: 1px solid #43434e !important;
+}
+
+.dark .excel-editor-shell .fortune-message-box-button.button-default:hover {
+  background: #383844 !important;
+  color: #ffffff !important;
+  border-color: #585866 !important;
+}
+
+.dark .excel-editor-shell .fortune-message-box-button.button-default:active {
+  background: #22222a !important;
 }
 
 .excel-editor-shell #fortune-search-replace {
@@ -1001,6 +1520,18 @@
 }
 
 .excel-editor-shell #fortune-search-replace .close-button:hover {
+  color: #fff;
+  background: #c93232;
+  border-color: #b52a2a;
+}
+
+.dark .excel-editor-shell #fortune-search-replace .close-button {
+  color: #e5e7eb;
+  background: #2b2b34;
+  border-color: #43434e;
+}
+
+.dark .excel-editor-shell #fortune-search-replace .close-button:hover {
   color: #fff;
   background: #c93232;
   border-color: #b52a2a;

@@ -21,6 +21,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { WaitingText } from '@/components/ui/animated-ellipsis'
 import type { ChatMessage, AgentAttachment, AgentReasoningSelection } from '@/types/agent'
 import type { CodexImportResult, ConversationSummary } from '@/types/generated'
 import { useAgentStore } from '@/stores/agent.store'
@@ -427,7 +428,7 @@ export function AgentChat({
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
                 </span>
                 <span className="font-medium text-foreground">
-                  {t('agentUi.thinking', { agent: agentName || t('agents.agent') })}
+                  <WaitingText text={t('agentUi.thinking', { agent: agentName || t('agents.agent') })} />
                 </span>
               </div>
             )}
