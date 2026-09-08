@@ -1,4 +1,3 @@
-import { desktopApi } from '@/platform'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bug,
@@ -14,11 +13,10 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { usePanelStore, type BottomPanelTab, PANEL_MAX_HEIGHT_RATIO, PANEL_MIN_HEIGHT } from '@/stores/panel.store'
-import { handleDebugEvent, useDebugStore } from '@/stores/debug.store'
-import type { DebugEvent } from '@/types/code'
+import { useDebugStore } from '@/stores/debug.store'
 import { ProblemsView } from './panel/ProblemsView'
 import { DebugConsoleView } from './panel/DebugConsoleView'
-import { TerminalView } from './panel/TerminalView'
+import { TERMINAL_KILL_ACTIVE_EVENT, TerminalView } from './panel/TerminalView'
 import { ReferencesView } from './panel/ReferencesView'
 
 function OutputView() {
@@ -47,10 +45,6 @@ export function BottomPanel() {
   const debugStatus = useDebugStore((s) => s.status)
   const [problemCount, setProblemCount] = useState(0)
   const resizeRef = useRef<{ cleanup: (() => void) | null }>({ cleanup: null })
-  useEffect(() => {
-    return desktopApi.process.onDebugEvent((event) => handleDebugEvent(event as DebugEvent))
-  }, [])
-
   const startResize = useCallback((startY: number) => {
     const onMove = (event: MouseEvent) => {
       const next = window.innerHeight - event.clientY
@@ -109,13 +103,11 @@ export function BottomPanel() {
     return items
   }, [t, references.length])
 
-  if (!open) return null
-
   return (
     <TooltipProvider delayDuration={450}>
       <div
-        className="flex shrink-0 flex-col border-t bg-card text-foreground"
-        style={{ height }}
+        className={`${open ? 'flex' : 'hidden'} shrink-0 flex-col border-t bg-card text-foreground`}
+        style={{ height: open ? height : 0 }}
         data-testid="bottom-panel"
       >
         <div
@@ -211,7 +203,7 @@ export function BottomPanel() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    onClick={() => void desktopApi.process.terminalKill()}
+                    onClick={() => window.dispatchEvent(new Event(TERMINAL_KILL_ACTIVE_EVENT))}
                     aria-label={t('bottomPanel.killTerminal')}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -244,6 +236,7 @@ export function BottomPanel() {
               className="h-7 w-7"
               onClick={() => setOpen(false)}
               aria-label={t('bottomPanel.closePanel')}
+              data-testid="bottom-panel-close"
             >
               <ChevronDown className="h-3.5 w-3.5" />
             </Button>
@@ -253,7 +246,9 @@ export function BottomPanel() {
           {tab === 'problems' && <ProblemsView onCountChange={setProblemCount} />}
           {tab === 'output' && <OutputView />}
           {tab === 'debug-console' && <DebugConsoleView />}
-          {tab === 'terminal' && <TerminalView />}
+          <div className={tab === 'terminal' ? 'flex min-h-0 flex-1' : 'hidden'}>
+            <TerminalView active={open && tab === 'terminal'} />
+          </div>
           {tab === 'references' && <ReferencesView />}
         </div>
       </div>
