@@ -1,6 +1,9 @@
 use crate::{
     error::{AppError, AppResult},
-    state::{atomic_write_json, ensure_data_version, read_json_or_default, DATA_SCHEMA_VERSION},
+    state::{
+        atomic_write_json, new_recovery_notices, read_versioned_json, RecoveryNotices,
+        DATA_SCHEMA_VERSION,
+    },
 };
 use parking_lot::RwLock;
 use reqwest::Client;
@@ -155,14 +158,19 @@ pub struct ProviderStore {
 
 impl ProviderStore {
     pub fn new(app_data_dir: PathBuf) -> AppResult<Self> {
+        Self::new_with_recovery(app_data_dir, new_recovery_notices())
+    }
+
+    pub fn new_with_recovery(app_data_dir: PathBuf, notices: RecoveryNotices) -> AppResult<Self> {
         let custom_path = app_data_dir.join("custom-providers.json");
         let base_url_path = app_data_dir.join("provider-base-urls.json");
         let credential_index_path = app_data_dir.join("credential-index.json");
-        let custom = load_custom_providers(&custom_path)?;
-        let base_urls: BaseUrlFile = read_json_or_default(&base_url_path)?;
-        let credentials: CredentialIndexFile = read_json_or_default(&credential_index_path)?;
-        ensure_data_version("provider base URL", base_urls.version)?;
-        ensure_data_version("credential index", credentials.version)?;
+        let custom: CustomProviderFile =
+            read_versioned_json(&custom_path, "custom provider", &notices)?;
+        let base_urls: BaseUrlFile =
+            read_versioned_json(&base_url_path, "provider base URL", &notices)?;
+        let credentials: CredentialIndexFile =
+            read_versioned_json(&credential_index_path, "credential index", &notices)?;
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(60))
@@ -394,20 +402,6 @@ where
     Ok(configured)
 }
 
-fn load_custom_providers(path: &std::path::Path) -> AppResult<CustomProviderFile> {
-    match std::fs::read(path) {
-        Ok(data) => {
-            let file: CustomProviderFile = serde_json::from_slice(&data)?;
-            ensure_data_version("custom provider", file.version)?;
-            Ok(file)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok(CustomProviderFile::default())
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export))]
@@ -511,14 +505,22 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("custom-providers.json");
         std::fs::write(&path, b"[]").unwrap();
-        assert_eq!(
-            load_custom_providers(&path).err().unwrap().code,
-            "invalid-data"
-        );
+        let notices = new_recovery_notices();
+        let recovered: CustomProviderFile =
+            read_versioned_json(&path, "custom provider", &notices).unwrap();
+        assert!(recovered.providers.is_empty());
+        assert_eq!(notices.lock()[0].action, "quarantined");
 
         std::fs::write(&path, br#"{"version":2,"providers":[]}"#).unwrap();
         assert_eq!(
-            load_custom_providers(&path).err().unwrap().code,
+            read_versioned_json::<CustomProviderFile>(
+                &path,
+                "custom provider",
+                &new_recovery_notices(),
+            )
+            .err()
+            .unwrap()
+            .code,
             "unsupported-data-version"
         );
     }

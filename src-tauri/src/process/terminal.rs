@@ -13,9 +13,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{ipc::Channel, WebviewWindow};
-use uuid::Uuid;
-
-const DEFAULT_SESSION: &str = "default";
 const MAX_SESSIONS_GLOBAL: usize = 16;
 const MAX_SESSIONS_PER_WINDOW: usize = 4;
 const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
@@ -35,7 +32,7 @@ struct TerminalSession {
     output_bytes: AtomicUsize,
     stopping: AtomicBool,
     started: Instant,
-    events: Mutex<Channel<TerminalEvent>>,
+    events: Channel<TerminalEvent>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,17 +83,19 @@ fn shell_command() -> PathBuf {
 pub fn start(
     window: WebviewWindow,
     events: Channel<TerminalEvent>,
-    requested_id: Option<String>,
+    requested_id: String,
     cwd: PathBuf,
     cols: u16,
     rows: u16,
 ) -> AppResult<TerminalStartResult> {
-    let id = normalize_session_id(requested_id)?;
+    let id = normalize_session_id(&requested_id)?;
     let label = window.label().to_owned();
     let session_key = key(&label, &id);
-    if let Some(existing) = sessions().lock().get(&session_key).cloned() {
-        *existing.events.lock() = events;
-        return Ok(start_result(&existing));
+    if sessions().lock().contains_key(&session_key) {
+        return Err(AppError::new(
+            "session-already-active",
+            "A terminal session with this id is already active",
+        ));
     }
 
     let metadata = std::fs::metadata(&cwd)?;
@@ -161,7 +160,7 @@ pub fn start(
         output_bytes: AtomicUsize::new(0),
         stopping: AtomicBool::new(false),
         started: Instant::now(),
-        events: Mutex::new(events),
+        events,
     });
     sessions().lock().insert(session_key, session.clone());
     spawn_reader(session.clone(), reader);
@@ -169,33 +168,7 @@ pub fn start(
     Ok(start_result(&session))
 }
 
-pub fn exec(
-    window: WebviewWindow,
-    events: Channel<TerminalEvent>,
-    input: String,
-    cwd: PathBuf,
-) -> AppResult<TerminalStartResult> {
-    if input.contains('\0') || input.len() > 64 * 1024 {
-        return Err(AppError::invalid("Terminal input is invalid or too large"));
-    }
-    let result = start(
-        window.clone(),
-        events,
-        Some(DEFAULT_SESSION.to_owned()),
-        cwd,
-        120,
-        30,
-    )?;
-    let ending = if cfg!(windows) { "\r\n" } else { "\n" };
-    write(
-        &window,
-        Some(&result.session_id),
-        format!("{input}{ending}"),
-    )?;
-    Ok(result)
-}
-
-pub fn write(window: &WebviewWindow, session_id: Option<&str>, data: String) -> AppResult<()> {
+pub fn write(window: &WebviewWindow, session_id: &str, data: String) -> AppResult<()> {
     if data.contains('\0') || data.len() > 256 * 1024 {
         return Err(AppError::invalid("Terminal input is invalid or too large"));
     }
@@ -207,12 +180,7 @@ pub fn write(window: &WebviewWindow, session_id: Option<&str>, data: String) -> 
         .map_err(AppError::from)
 }
 
-pub fn resize(
-    window: &WebviewWindow,
-    session_id: Option<&str>,
-    cols: u16,
-    rows: u16,
-) -> AppResult<()> {
+pub fn resize(window: &WebviewWindow, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
     let session = get(window.label(), session_id)?;
     let result = session
         .master
@@ -227,9 +195,8 @@ pub fn resize(
     result
 }
 
-pub fn kill(window_label: &str, session_id: Option<&str>) -> AppResult<bool> {
-    let id = session_id.unwrap_or(DEFAULT_SESSION);
-    let Some(session) = sessions().lock().remove(&key(window_label, id)) else {
+pub fn kill(window_label: &str, session_id: &str) -> AppResult<bool> {
+    let Some(session) = sessions().lock().remove(&key(window_label, session_id)) else {
         return Ok(false);
     };
     stop_session(&session);
@@ -255,16 +222,16 @@ pub fn kill_window(window_label: &str) -> usize {
     removed.len()
 }
 
-fn get(window_label: &str, session_id: Option<&str>) -> AppResult<Arc<TerminalSession>> {
+fn get(window_label: &str, session_id: &str) -> AppResult<Arc<TerminalSession>> {
     sessions()
         .lock()
-        .get(&key(window_label, session_id.unwrap_or(DEFAULT_SESSION)))
+        .get(&key(window_label, session_id))
         .cloned()
         .ok_or_else(|| AppError::not_found("Terminal session was not found"))
 }
 
-fn normalize_session_id(requested: Option<String>) -> AppResult<String> {
-    let id = requested.unwrap_or_else(|| Uuid::new_v4().to_string());
+fn normalize_session_id(requested: &str) -> AppResult<String> {
+    let id = requested.trim();
     if id.is_empty()
         || id.len() > 128
         || !id
@@ -273,7 +240,7 @@ fn normalize_session_id(requested: Option<String>) -> AppResult<String> {
     {
         return Err(AppError::invalid("Invalid terminal session id"));
     }
-    Ok(id)
+    Ok(id.to_owned())
 }
 
 fn start_result(session: &TerminalSession) -> TerminalStartResult {
@@ -361,7 +328,7 @@ fn stop_session(session: &TerminalSession) {
 }
 
 fn emit_output(session: &TerminalSession, text: &str) {
-    let _ = session.events.lock().send(TerminalEvent {
+    let _ = session.events.send(TerminalEvent {
         kind: "output",
         text: Some(text.to_owned()),
         code: None,
@@ -371,7 +338,7 @@ fn emit_output(session: &TerminalSession, text: &str) {
 }
 
 fn emit_exit(session: &TerminalSession, code: Option<u32>) {
-    let _ = session.events.lock().send(TerminalEvent {
+    let _ = session.events.send(TerminalEvent {
         kind: "exit",
         text: None,
         code: code.and_then(|value| i32::try_from(value).ok()),
@@ -408,12 +375,9 @@ mod tests {
 
     #[test]
     fn validates_session_ids() {
-        assert_eq!(
-            normalize_session_id(Some("term_1-a".into())).unwrap(),
-            "term_1-a"
-        );
-        assert!(normalize_session_id(Some("../bad".into())).is_err());
-        assert!(normalize_session_id(Some("".into())).is_err());
+        assert_eq!(normalize_session_id("term_1-a").unwrap(), "term_1-a");
+        assert!(normalize_session_id("../bad").is_err());
+        assert!(normalize_session_id("").is_err());
     }
 
     #[test]

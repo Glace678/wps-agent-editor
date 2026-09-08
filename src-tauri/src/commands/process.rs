@@ -16,6 +16,7 @@ use tauri::{ipc::Channel, State, WebviewWindow};
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DebugStartRequest {
+    session_id: String,
     path: String,
     grant_id: String,
     #[serde(default)]
@@ -26,7 +27,7 @@ pub struct DebugStartRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DebugCommandRequest {
     command: DebugCommand,
-    session_id: Option<String>,
+    session_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,13 +35,13 @@ pub struct DebugCommandRequest {
 pub struct DebugEvaluateRequest {
     expression: String,
     id: String,
-    session_id: Option<String>,
+    session_id: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalStartRequest {
-    session_id: Option<String>,
+    session_id: String,
     cwd: Option<String>,
     grant_id: Option<String>,
     cols: Option<u16>,
@@ -50,7 +51,7 @@ pub struct TerminalStartRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalWriteRequest {
-    session_id: Option<String>,
+    session_id: String,
     #[serde(alias = "text", alias = "input")]
     data: String,
 }
@@ -58,7 +59,7 @@ pub struct TerminalWriteRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalResizeRequest {
-    session_id: Option<String>,
+    session_id: String,
     cols: u16,
     rows: u16,
 }
@@ -127,16 +128,22 @@ pub async fn process_debug_start(
         Some(false),
     )?;
     ensure_file_can_be_opened(&path)?;
-    crate::process::debugger::start(window, on_event, path, request.breakpoints)
+    crate::process::debugger::start(
+        window,
+        on_event,
+        request.session_id,
+        path,
+        request.breakpoints,
+    )
 }
 
 #[tauri::command]
 pub async fn process_debug_stop(
-    session_id: Option<String>,
+    session_id: String,
     window: WebviewWindow,
 ) -> AppResult<SuccessResult> {
     Ok(SuccessResult {
-        success: crate::process::debugger::stop(&window, session_id.as_deref())?,
+        success: crate::process::debugger::stop(&window, &session_id)?,
     })
 }
 
@@ -145,11 +152,7 @@ pub async fn process_debug_command(
     request: DebugCommandRequest,
     window: WebviewWindow,
 ) -> AppResult<SuccessResult> {
-    crate::process::debugger::send_command(
-        &window,
-        request.session_id.as_deref(),
-        request.command,
-    )?;
+    crate::process::debugger::send_command(&window, &request.session_id, request.command)?;
     Ok(SuccessResult { success: true })
 }
 
@@ -160,7 +163,7 @@ pub async fn process_debug_evaluate(
 ) -> AppResult<SuccessResult> {
     crate::process::debugger::evaluate(
         &window,
-        request.session_id.as_deref(),
+        &request.session_id,
         request.expression,
         request.id,
     )?;
@@ -169,12 +172,11 @@ pub async fn process_debug_evaluate(
 
 #[tauri::command]
 pub async fn process_terminal_start(
-    request: Option<TerminalStartRequest>,
+    request: TerminalStartRequest,
     on_event: Channel<TerminalEvent>,
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> AppResult<TerminalStartResult> {
-    let request = request.unwrap_or_default();
     let cwd = match request.cwd {
         Some(path) => state.files.access.resolve(
             window.label(),
@@ -205,26 +207,11 @@ pub async fn process_terminal_start(
 }
 
 #[tauri::command]
-pub async fn process_terminal_exec(
-    input: String,
-    on_event: Channel<TerminalEvent>,
-    window: WebviewWindow,
-    state: State<'_, AppState>,
-) -> AppResult<TerminalStartResult> {
-    crate::process::terminal::exec(
-        window,
-        on_event,
-        input,
-        state.files.home_dir().to_path_buf(),
-    )
-}
-
-#[tauri::command]
 pub async fn process_terminal_write(
     request: TerminalWriteRequest,
     window: WebviewWindow,
 ) -> AppResult<SuccessResult> {
-    crate::process::terminal::write(&window, request.session_id.as_deref(), request.data)?;
+    crate::process::terminal::write(&window, &request.session_id, request.data)?;
     Ok(SuccessResult { success: true })
 }
 
@@ -233,21 +220,16 @@ pub async fn process_terminal_resize(
     request: TerminalResizeRequest,
     window: WebviewWindow,
 ) -> AppResult<SuccessResult> {
-    crate::process::terminal::resize(
-        &window,
-        request.session_id.as_deref(),
-        request.cols,
-        request.rows,
-    )?;
+    crate::process::terminal::resize(&window, &request.session_id, request.cols, request.rows)?;
     Ok(SuccessResult { success: true })
 }
 
 #[tauri::command]
 pub async fn process_terminal_kill(
-    session_id: Option<String>,
+    session_id: String,
     window: WebviewWindow,
 ) -> AppResult<SuccessResult> {
     Ok(SuccessResult {
-        success: crate::process::terminal::kill(window.label(), session_id.as_deref())?,
+        success: crate::process::terminal::kill(window.label(), &session_id)?,
     })
 }

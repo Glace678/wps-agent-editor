@@ -30,6 +30,7 @@ export const DESKTOP_COMMANDS = {
     editPresentation: 'documents_edit_presentation',
     saveText: 'documents_save_text',
     listFonts: 'documents_list_fonts',
+    readFont: 'documents_read_font',
     copyImageToClipboard: 'documents_write_png_clipboard',
     setCurrentFile: 'documents_set_current_file',
   },
@@ -68,7 +69,9 @@ export const DESKTOP_COMMANDS = {
     debugStop: 'process_debug_stop',
     debugCommand: 'process_debug_command',
     debugEvaluate: 'process_debug_evaluate',
-    terminalExec: 'process_terminal_exec',
+    terminalStart: 'process_terminal_start',
+    terminalWrite: 'process_terminal_write',
+    terminalResize: 'process_terminal_resize',
     terminalKill: 'process_terminal_kill',
   },
   app: {
@@ -85,5 +88,6 @@ export const DESKTOP_COMMANDS = {
     installUpdate: 'app_update_install',
     markStartupHealthy: 'app_startup_healthy',
     takeStartupFiles: 'app_take_startup_files',
+    takeRecoveryNotices: 'app_take_recovery_notices',
   },
 } as const

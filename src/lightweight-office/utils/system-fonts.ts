@@ -3,12 +3,17 @@ import { t } from '@/lib/i18n/translate'
 import type { LanguageCode } from '@/lib/i18n'
 
 export interface SystemFontFace {
+  fontId: string
   familyName: string
   displayName: string
   faceName: string
+  faceIndex: number
   weight: number
   style: 'normal' | 'italic' | 'oblique'
   stretch: number
+  embedding: 'installable' | 'editable' | 'preview-print' | 'restricted' | 'unknown'
+  subsetAllowed: boolean
+  outlineEmbeddingAllowed: boolean
 }
 
 /**
@@ -52,10 +57,10 @@ export function createFallbackSystemFontFaces(language: LanguageCode): SystemFon
       ? FALLBACK_CHINESE_FONT_DISPLAY_NAMES[familyName] || familyName
       : familyName
     return [
-      { familyName, displayName, faceName: t('fontFace.regular', language), weight: 400, style: 'normal' as const, stretch: 5 },
-      { familyName, displayName, faceName: t('fontFace.italic', language), weight: 400, style: 'italic' as const, stretch: 5 },
-      { familyName, displayName, faceName: t('fontFace.bold', language), weight: 700, style: 'normal' as const, stretch: 5 },
-      { familyName, displayName, faceName: t('fontFace.boldItalic', language), weight: 700, style: 'italic' as const, stretch: 5 },
+      { fontId: '', familyName, displayName, faceName: t('fontFace.regular', language), faceIndex: 0, weight: 400, style: 'normal' as const, stretch: 5, embedding: 'unknown' as const, subsetAllowed: false, outlineEmbeddingAllowed: false },
+      { fontId: '', familyName, displayName, faceName: t('fontFace.italic', language), faceIndex: 0, weight: 400, style: 'italic' as const, stretch: 5, embedding: 'unknown' as const, subsetAllowed: false, outlineEmbeddingAllowed: false },
+      { fontId: '', familyName, displayName, faceName: t('fontFace.bold', language), faceIndex: 0, weight: 700, style: 'normal' as const, stretch: 5, embedding: 'unknown' as const, subsetAllowed: false, outlineEmbeddingAllowed: false },
+      { fontId: '', familyName, displayName, faceName: t('fontFace.boldItalic', language), faceIndex: 0, weight: 700, style: 'italic' as const, stretch: 5, embedding: 'unknown' as const, subsetAllowed: false, outlineEmbeddingAllowed: false },
     ]
   })
 }

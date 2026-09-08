@@ -25,8 +25,8 @@ configureTauriBindings({
   invoke: async <T>(command: string, args?: InvokeBody): Promise<T> => {
     const payload = args as Record<string, unknown> | undefined
     if (payload?.onEvent) channels.push(payload.onEvent as DesktopChannel<unknown>)
-    if (command === 'process_terminal_exec') {
-      return { started: true, cwd: '.', sessionId: `terminal-${channels.length}` } as T
+    if (command === 'process_terminal_start') {
+      return { started: true, cwd: '.', sessionId: (payload?.request as { sessionId: string }).sessionId } as T
     }
     if (command === 'process_debug_start') {
       return { ok: true, kind: 'node', sessionId: `debug-${channels.length}` } as T
@@ -61,16 +61,24 @@ async function main(): Promise<void> {
   assert.equal(preparedWord.normalizedLegacyImageCount, 2)
   assert.equal(preparedWord.normalizedTableCount, 3)
   assert.equal(preparedWord.removedUnderlineRunCount, 4)
-  await desktopApi.agents.chat('agent', [])
-  await desktopApi.agents.chat('agent', [])
-  await desktopApi.process.terminalExec('echo one')
-  await desktopApi.process.terminalExec('echo two')
-  await desktopApi.process.debugStart('C:\\workspace\\example.ts', [])
-  await desktopApi.process.debugStart('C:\\workspace\\example.ts', [])
+  const delivered: string[] = []
+  await desktopApi.agents.chat('agent', [], undefined, 'agent-1', (event) => delivered.push(event.runId))
+  await desktopApi.agents.chat('agent', [], undefined, 'agent-2', (event) => delivered.push(event.runId))
+  await desktopApi.process.terminalStart('terminal-1', undefined, (event) => delivered.push(event.sessionId))
+  await desktopApi.process.terminalStart('terminal-2', undefined, (event) => delivered.push(event.sessionId))
+  await desktopApi.process.debugStart('debug-1', 'C:\\workspace\\example.ts', [], (event) => delivered.push(event.sessionId))
+  await desktopApi.process.debugStart('debug-2', 'C:\\workspace\\example.ts', [], (event) => delivered.push(event.sessionId))
 
   assert.equal(channels.length, 6)
   assert.equal(new Set(channels).size, channels.length)
   assert.deepEqual(channels.map((channel) => channel.id), [1, 2, 3, 4, 5, 6])
+  channels[0].onmessage?.({ runId: 'agent-2' })
+  channels[0].onmessage?.({ runId: 'agent-1' })
+  channels[2].onmessage?.({ sessionId: 'terminal-2' })
+  channels[2].onmessage?.({ sessionId: 'terminal-1' })
+  channels[4].onmessage?.({ sessionId: 'debug-2' })
+  channels[4].onmessage?.({ sessionId: 'debug-1' })
+  assert.deepEqual(delivered, ['agent-1', 'terminal-1', 'debug-1'])
   console.log('Desktop Channel lifecycle checks passed')
 }
 

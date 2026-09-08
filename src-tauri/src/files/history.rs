@@ -8,7 +8,10 @@ use tokio::sync::Mutex;
 
 use crate::{
     error::AppResult,
-    state::{ensure_data_version, DATA_SCHEMA_VERSION},
+    state::{
+        atomic_write_json, new_recovery_notices, read_versioned_json, RecoveryNotices,
+        DATA_SCHEMA_VERSION,
+    },
 };
 
 use super::{
@@ -29,16 +32,31 @@ struct HistoryIndexFile {
     entries: Vec<HistoryIndexEntry>,
 }
 
+impl Default for HistoryIndexFile {
+    fn default() -> Self {
+        Self {
+            version: DATA_SCHEMA_VERSION,
+            entries: Vec::new(),
+        }
+    }
+}
+
 pub struct HistoryStore {
     root: PathBuf,
     lock: Mutex<()>,
+    notices: RecoveryNotices,
 }
 
 impl HistoryStore {
     pub fn new(root: PathBuf) -> Self {
+        Self::new_with_recovery(root, new_recovery_notices())
+    }
+
+    pub fn new_with_recovery(root: PathBuf, notices: RecoveryNotices) -> Self {
         Self {
             root,
             lock: Mutex::new(()),
+            notices,
         }
     }
 
@@ -180,29 +198,24 @@ impl HistoryStore {
 
     fn read_index(&self, directory: &Path) -> AppResult<Vec<HistoryIndexEntry>> {
         let path = directory.join("index.json");
-        match std::fs::read(path) {
-            Ok(data) => {
-                let file: HistoryIndexFile = serde_json::from_slice(&data)?;
-                ensure_data_version("file history index", file.version)?;
-                Ok(file
-                    .entries
-                    .into_iter()
-                    .filter(|entry| valid_version_id(&entry.id))
-                    .take(MAX_VERSIONS)
-                    .collect())
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(error) => Err(error.into()),
-        }
+        let file: HistoryIndexFile =
+            read_versioned_json(&path, "file history index", &self.notices)?;
+        Ok(file
+            .entries
+            .into_iter()
+            .filter(|entry| valid_version_id(&entry.id))
+            .take(MAX_VERSIONS)
+            .collect())
     }
 
     fn write_index(&self, directory: &Path, entries: &[HistoryIndexEntry]) -> AppResult<()> {
-        let mut data = serde_json::to_vec_pretty(&HistoryIndexFile {
-            version: DATA_SCHEMA_VERSION,
-            entries: entries.to_vec(),
-        })?;
-        data.push(b'\n');
-        write_atomic(&directory.join("index.json"), &data)
+        atomic_write_json(
+            &directory.join("index.json"),
+            &HistoryIndexFile {
+                version: DATA_SCHEMA_VERSION,
+                entries: entries.to_vec(),
+            },
+        )
     }
 }
 

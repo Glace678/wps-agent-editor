@@ -13,9 +13,7 @@ pub struct AgentChatRequest {
     #[serde(default)]
     #[cfg_attr(test, ts(optional))]
     pub conversation_id: Option<String>,
-    #[serde(default)]
-    #[cfg_attr(test, ts(optional))]
-    pub run_id: Option<String>,
+    pub run_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -25,9 +23,7 @@ pub struct AgentChatRequest {
 pub struct AgentRunTaskRequest {
     pub agent_ids: Vec<String>,
     pub task: String,
-    #[serde(default)]
-    #[cfg_attr(test, ts(optional))]
-    pub run_id: Option<String>,
+    pub run_id: String,
     #[serde(default)]
     #[cfg_attr(test, ts(optional))]
     pub root_agent_id: Option<String>,

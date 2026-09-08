@@ -10,7 +10,7 @@ React renderer
   -> OS APIs, files, keyring, HTTP providers, optional local tools
 ```
 
-The renderer owns DOM-bound editors: SuperDoc, Fortune Sheet, PDF.js, pptx-renderer and Monaco. Rust owns all privileged operations. There is no production localhost bridge, embedded Node runtime, generic shell plugin or general-purpose filesystem plugin.
+The renderer owns DOM-bound editors: SuperDoc, Fortune Sheet, MuPDF.js, pptx-renderer and Monaco. Rust owns all privileged operations. There is no production localhost bridge, embedded Node runtime, generic shell plugin or general-purpose filesystem plugin.
 
 ## Rust domains
 
@@ -39,14 +39,14 @@ Non-secret repositories are versioned JSON files below the platform app-data dir
 
 DOCX/XLSX/PPTX/PDF and text/code use the bundled renderer engines. Current PPTX mutations are applied directly to OOXML while retaining unknown ZIP entries and relationships. Legacy formats use detected system WPS, Office or LibreOffice executables. On Windows, WMF/EMF presentation media is rasterized through the system PowerShell/System.Drawing stack with strict time, entry and output limits; failed images and non-Windows platforms retain the original media and report zero successful normalizations.
 
-The code runner never downloads a compiler. It uses system toolchains, enforces a 30-second default timeout and 4 MiB output limit, and terminates the whole process tree on cancellation. The renderer and Agents never receive unrestricted shell access.
+The code runner never downloads a compiler. It uses system toolchains, enforces a 30-second default timeout and 4 MiB output limit, and terminates the whole process tree on cancellation. The user-facing terminal is a general interactive shell. It is not registered as an Agent tool, and Agents cannot invoke it.
 
 ## Security and release
 
 The main webview has a strict CSP: no remote navigation or scripts; only the required local, `blob:` and `data:` sources for workers, images and fonts are allowed. Release builds disable source maps, enable Rust LTO/strip/abort-on-panic, and are rejected if a primary artifact exceeds 100 MiB or contains Electron, Chromium, Node modules or OnlyOffice.
 
-GitHub Actions builds seven architecture-specific artifacts. Pull Requests upload unsigned test bundles. Tag matrix jobs sign and smoke their native bundles, including file-association metadata, core document operations, Agent SSE, and a signed rejected-install fixture, then upload immutable parts. A single elevated finalize job checks the complete matrix and size limits, creates checksums and exact-tag updater metadata, SBOMs and provenance, then publishes a prerelease. Build jobs remain read-only and never retain checkout credentials.
+GitHub Actions builds six architecture-specific artifacts. Pull Requests upload unsigned test bundles. Tag matrix jobs sign and smoke their native bundles, including file-association metadata, core document operations, Agent SSE, and a signed rejected-install fixture, then upload immutable parts. A single elevated finalize job checks the complete matrix and size limits, creates checksums and exact-tag updater metadata, SBOMs and provenance, then publishes a prerelease. Build jobs remain read-only and never retain checkout credentials.
 
-The staging workflow runs that prerelease through exact-tag signature rejection, rejected-install preservation, upgrade, restart, renderer/native startup health confirmation, and independent version/hash checks on all seven targets. It then reinstalls the previous release, injects a post-update startup failure, and externally verifies that the previous payload was restored and relaunched. Only a separate promotion job, explicitly requested after the matrix succeeds, can switch the prerelease to the stable channel. `invalidInstallPreserved` remains distinct from the separately reported startup-health rollback.
+The staging workflow runs that prerelease through exact-tag signature rejection, rejected-install preservation, upgrade, restart, renderer/native startup health confirmation, and independent version/hash checks on all six targets. It then reinstalls the previous release, injects a post-update startup failure, and externally verifies that the previous payload was restored and relaunched. Only a separate promotion job, explicitly requested after the matrix succeeds, can switch the prerelease to the stable channel. `invalidInstallPreserved` remains distinct from the separately reported startup-health rollback.
 
 After a signed payload has downloaded, the old application copies the complete installed payload (Windows install directory, macOS app bundle, or Linux AppImage) and an executable guardian under versioned `v2/updater-health/` storage. The transaction state is atomically replaced; Windows also captures and permission-checks its uninstall registry version. The guardian survives platform replacement, watches the new process, and restores the backup and platform metadata if the renderer does not complete an IPC health confirmation within five minutes or exits first. Rollback is intentionally fail-closed for non-writable installations, backups above 512 MiB, or unsupported filesystem entries.

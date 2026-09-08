@@ -45,6 +45,7 @@ function persistBreakpoints(breakpoints: BreakpointMap): void {
 let consoleId = 0
 
 interface DebugState {
+  sessionId: string | null
   status: DebugStatus
   kind: 'node' | 'python' | null
   sessionFile: string | null
@@ -59,7 +60,7 @@ interface DebugState {
 
   toggleBreakpoint: (file: string, line: number) => void
   clearBreakpoints: (file: string) => void
-  startSession: (file: string, kind: 'node' | 'python') => void
+  startSession: (sessionId: string, file: string, kind: 'node' | 'python') => void
   setStatus: (status: DebugStatus, message?: string) => void
   setPaused: (frames: DebugFrame[], variables: DebugVariable[]) => void
   setResumed: () => void
@@ -69,6 +70,7 @@ interface DebugState {
 }
 
 export const useDebugStore = create<DebugState>((set, get) => ({
+  sessionId: null,
   status: 'idle',
   kind: null,
   sessionFile: null,
@@ -105,10 +107,11 @@ export const useDebugStore = create<DebugState>((set, get) => ({
     }
   },
 
-  startSession: (file, kind) => {
+  startSession: (sessionId, file, kind) => {
     consoleId += 1
     set({
       status: 'running',
+      sessionId,
       kind,
       sessionFile: file,
       currentFile: null,
@@ -149,6 +152,7 @@ export const useDebugStore = create<DebugState>((set, get) => ({
     consoleId += 1
     set((state) => ({
       status: 'idle',
+      sessionId: null,
       kind: null,
       sessionFile: null,
       currentFile: null,

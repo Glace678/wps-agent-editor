@@ -6214,6 +6214,7 @@ dependencies = [
  "tokio-util",
  "trash",
  "ts-rs",
+ "ttf-parser",
  "tungstenite",
  "url",
  "uuid",

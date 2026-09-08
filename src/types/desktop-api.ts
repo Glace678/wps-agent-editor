@@ -180,12 +180,17 @@ export interface PreparedPresentationDocument {
 }
 
 export interface SystemFontFace {
+  fontId: string
   familyName: string
   displayName: string
   faceName: string
+  faceIndex: number
   weight: number
   style: 'normal' | 'italic' | 'oblique'
   stretch: number
+  embedding: 'installable' | 'editable' | 'preview-print' | 'restricted' | 'unknown'
+  subsetAllowed: boolean
+  outlineEmbeddingAllowed: boolean
 }
 
 export interface DocumentsApi {
@@ -197,6 +202,7 @@ export interface DocumentsApi {
   editPresentation: (request: PresentationEditRequest) => Promise<PresentationEditResult>
   saveText: (filePath: string, text: string, encoding: string) => Promise<{ success: boolean }>
   listFonts: (language?: LanguageCode) => Promise<SystemFontFace[]>
+  readFont: (fontId: string) => Promise<Uint8Array>
   copyImageToClipboard: (dataUrl: string) => Promise<{
     success: true
     width: number
@@ -219,17 +225,18 @@ export interface AgentsApi {
   chat: (
     agentId: string,
     messages: ChatMessage[],
-    conversationId?: string,
-    runId?: string,
-  ) => Promise<AgentTaskResult | { error: string }>
+    conversationId: string | undefined,
+    runId: string,
+    onEvent: (event: AgentCollaborationEvent) => void,
+  ) => Promise<{ runId: string; result: AgentTaskResult | { error: string } }>
   runTask: (
     agentIds: string[],
     task: string,
-    runId?: string,
-    rootAgentId?: string,
-  ) => Promise<AgentTaskResult[] | { error: string }>
+    runId: string,
+    rootAgentId: string | undefined,
+    onEvent: (event: AgentCollaborationEvent) => void,
+  ) => Promise<{ runId: string; result: AgentTaskResult[] | { error: string } }>
   cancel: (runId: string) => Promise<{ success: boolean; alreadyFinished?: boolean }>
-  onEvent: (callback: (event: AgentCollaborationEvent) => void) => () => void
   sendDocumentResult: (requestId: string, result: unknown) => Promise<{ success: boolean }>
   sendDocumentEvent: (event: unknown) => Promise<{ success: boolean }>
 }
@@ -262,14 +269,23 @@ export interface ProvidersApi {
 export interface ProcessApi {
   probeDependencies: () => Promise<DependencyStatus[]>
   runCode: (filePath: string) => Promise<CodeRunResult>
-  debugStart: (filePath: string, breakpoints: DebugBreakpoint[]) => Promise<DebugStartResult>
-  debugStop: () => Promise<{ success: boolean }>
-  debugCommand: (command: DebugCommand) => Promise<{ success: boolean }>
-  debugEvaluate: (expression: string, id: string) => Promise<{ success: boolean }>
-  onDebugEvent: (callback: (event: RoutedDebugEvent) => void) => () => void
-  terminalExec: (input: string) => Promise<{ started: boolean; cwd: string; sessionId: string }>
-  terminalKill: () => Promise<{ success: boolean }>
-  onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
+  debugStart: (
+    sessionId: string,
+    filePath: string,
+    breakpoints: DebugBreakpoint[],
+    onEvent: (event: RoutedDebugEvent) => void,
+  ) => Promise<DebugStartResult>
+  debugStop: (sessionId: string) => Promise<{ success: boolean }>
+  debugCommand: (sessionId: string, command: DebugCommand) => Promise<{ success: boolean }>
+  debugEvaluate: (sessionId: string, expression: string, id: string) => Promise<{ success: boolean }>
+  terminalStart: (
+    sessionId: string,
+    options: { cwd?: string; cols?: number; rows?: number } | undefined,
+    onEvent: (event: TerminalEvent) => void,
+  ) => Promise<{ started: boolean; cwd: string; sessionId: string }>
+  terminalWrite: (sessionId: string, data: string) => Promise<{ success: boolean }>
+  terminalResize: (sessionId: string, cols: number, rows: number) => Promise<{ success: boolean }>
+  terminalKill: (sessionId: string) => Promise<{ success: boolean }>
 }
 
 export interface TerminalEvent {
@@ -301,7 +317,15 @@ export interface AppApi {
   installUpdate: () => Promise<{ success: boolean }>
   markStartupHealthy: () => Promise<{ success: boolean }>
   takeStartupFiles: () => Promise<GrantedPath[]>
+  takeRecoveryNotices: () => Promise<RecoveryNotice[]>
   listen: <T>(channel: string, callback: (payload: T) => void) => Promise<() => void>
+}
+
+export interface RecoveryNotice {
+  resource: string
+  action: 'restored-backup' | 'quarantined' | 'rebuilt-index' | 'record-corrupt'
+  path: string
+  message: string
 }
 
 export interface DesktopApi {

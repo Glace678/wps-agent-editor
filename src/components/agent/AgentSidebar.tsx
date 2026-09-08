@@ -18,7 +18,7 @@ import { TaskStatus } from './TaskStatus'
 import { ProviderSettings } from './ProviderSettings'
 import { CollaborationTimeline } from './CollaborationTimeline'
 import { CollaborationConfigDialog } from './CollaborationConfigDialog'
-import type { AgentAttachment, AgentConfig, AgentReasoningSelection, ChatMessage } from '@/types/agent'
+import type { AgentAttachment, AgentCollaborationEvent, AgentConfig, AgentReasoningSelection, ChatMessage } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
 import type { ConversationMessage } from '@/types/generated'
 
@@ -121,15 +121,11 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     return () => { cancelled = true }
   }, [])
 
-  useEffect(() => {
-    if (!AGENT_COLLABORATION_ENABLED) return
-    const unsubscribe = desktopApi.agents.onEvent((event) => {
-      addCollaborationEvent(event)
-      if (event.type === 'agent-stream' && event.agentId && event.content) {
-        appendAssistantStream(event.agentId, event.runId, event.content)
-      }
-    })
-    return () => unsubscribe?.()
+  const handleAgentEvent = useCallback((event: AgentCollaborationEvent) => {
+    addCollaborationEvent(event)
+    if (event.type === 'agent-stream' && event.agentId && event.content) {
+      appendAssistantStream(event.agentId, event.runId, event.content)
+    }
   }, [addCollaborationEvent, appendAssistantStream])
 
   const activeAgent = agents.find((a) => a.id === activeAgentId)
@@ -149,7 +145,13 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     const conversationId = ensureConversationId(activeAgentId)
     try {
       await persistConversation(conversationId, history)
-      const result = await desktopApi.agents.chat(activeAgentId, history, conversationId, runId)
+      const { result } = await desktopApi.agents.chat(
+        activeAgentId,
+        history,
+        conversationId,
+        runId,
+        handleAgentEvent,
+      )
 
       if ('error' in result) {
         if (useAgentStore.getState().isStopping) {
@@ -199,7 +201,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [activeAgentId, addMessage, clearCollaborationEvents, completeAssistantStream, ensureConversationId, messages, persistConversation, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [activeAgentId, addMessage, clearCollaborationEvents, completeAssistantStream, ensureConversationId, handleAgentEvent, messages, persistConversation, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
 
   const handleLoadConversation = useCallback(async (conversationId: string) => {
     if (!activeAgentId || isRunning) return
@@ -231,11 +233,12 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     setTaskStatus(t('agentUi.collaborating'))
 
     try {
-      const results = await desktopApi.agents.runTask(
+      const { result: results } = await desktopApi.agents.runTask(
         agentIds,
         task,
         runId,
         rootAgentId,
+        handleAgentEvent,
       )
       if (!Array.isArray(results)) {
         setTaskStatus(useAgentStore.getState().isStopping
@@ -261,7 +264,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [clearCollaborationEvents, completeAssistantStream, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [clearCollaborationEvents, completeAssistantStream, handleAgentEvent, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
 
   const handleStop = useCallback(() => {
     if (!activeRunId || isStopping) return

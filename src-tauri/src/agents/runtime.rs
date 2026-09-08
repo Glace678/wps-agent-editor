@@ -100,11 +100,11 @@ pub struct AgentRuntime {
 impl AgentRuntime {
     pub fn begin_run(
         &self,
-        requested_run_id: Option<&str>,
+        requested_run_id: &str,
         window_label: &str,
         events: Channel<AgentCollaborationEvent>,
     ) -> AppResult<(String, CancellationToken)> {
-        let run_id = normalized_id(requested_run_id, "run")?;
+        let run_id = normalized_id(Some(requested_run_id), "run")?;
         let cancellation = CancellationToken::new();
         let mut runs = self.active_runs.lock();
         if runs.contains_key(&run_id) {
@@ -1808,17 +1808,17 @@ mod tests {
     fn active_run_ids_are_unique_until_finished() {
         let runtime = AgentRuntime::default();
         let channel = || Channel::new(|_| Ok(()));
-        let (run_id, _) = runtime.begin_run(Some("run-1"), "main", channel()).unwrap();
+        let (run_id, _) = runtime.begin_run("run-1", "main", channel()).unwrap();
         assert_eq!(run_id, "run-1");
         assert_eq!(
             runtime
-                .begin_run(Some("run-1"), "main", channel())
+                .begin_run("run-1", "main", channel())
                 .unwrap_err()
                 .code,
             "run-already-active"
         );
         runtime.finish_run("run-1");
-        assert!(runtime.begin_run(Some("run-1"), "main", channel()).is_ok());
+        assert!(runtime.begin_run("run-1", "main", channel()).is_ok());
     }
 
     #[test]

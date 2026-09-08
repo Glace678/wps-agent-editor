@@ -4,5 +4,9 @@
   "description": "Minimal capability set for local application windows. Privileged operations are exposed only through validated Rust commands.",
   "local": true,
   "windows": ["main", "document-*"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:webview:deny-internal-toggle-devtools"
+  ]
 }

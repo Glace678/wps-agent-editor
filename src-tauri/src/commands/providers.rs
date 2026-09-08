@@ -1,20 +1,15 @@
 use crate::{
     error::{AppError, AppResult},
-    providers::{
-        client::{stream_json_sse, ProviderStreamEvent, SseRequest},
-        store::{
-            validate_base_url, AuthStatus, CustomProviderConfig, ProviderDefinition, ProviderModel,
-            ProviderProtocol,
-        },
+    providers::store::{
+        validate_base_url, AuthStatus, CustomProviderConfig, ProviderDefinition, ProviderModel,
+        ProviderProtocol,
     },
     state::AppState,
 };
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use tauri::{ipc::Channel, State};
-use url::Url;
+use tauri::State;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,13 +46,6 @@ pub struct CustomProviderTestResult {
     pub models: Vec<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<&'static str>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderChatStreamRequest {
-    pub provider_id: String,
-    pub body: Value,
 }
 
 #[tauri::command]
@@ -260,50 +248,6 @@ pub async fn providers_custom_test(
         models,
         error: (!success).then_some("no-models"),
     })
-}
-
-#[tauri::command]
-pub async fn providers_stream_chat(
-    request: ProviderChatStreamRequest,
-    on_event: Channel<ProviderStreamEvent>,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    let provider = providers_get(request.provider_id.clone(), state.clone())
-        .await?
-        .ok_or_else(|| AppError::not_found("Unknown provider"))?;
-    if !matches!(
-        provider.protocol,
-        ProviderProtocol::Openai | ProviderProtocol::OpenaiCompatible
-    ) {
-        return Err(AppError::unsupported(
-            "Streaming for non-OpenAI-compatible provider protocols",
-        ));
-    }
-    let mut body = request.body;
-    let object = body
-        .as_object_mut()
-        .ok_or_else(|| AppError::invalid("Provider request body must be a JSON object"))?;
-    object.insert("stream".into(), Value::Bool(true));
-    let url = Url::parse(&format!(
-        "{}/chat/completions",
-        provider.api.trim_end_matches('/')
-    ))?;
-    let mut headers = HeaderMap::new();
-    headers.insert(ACCEPT, HeaderValue::from_static("text/event-stream"));
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    if !provider.is_local {
-        let key = state.providers.api_key(&provider.id)?;
-        let value = HeaderValue::from_str(&format!("Bearer {key}"))
-            .map_err(|_| AppError::invalid("API key cannot be encoded as an HTTP header"))?;
-        headers.insert(AUTHORIZATION, value);
-    }
-    stream_json_sse(
-        &state.providers.client,
-        SseRequest { url, body },
-        headers,
-        on_event,
-    )
-    .await
 }
 
 fn builtin_providers() -> Vec<ProviderDefinition> {
