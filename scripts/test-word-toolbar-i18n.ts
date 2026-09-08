@@ -122,12 +122,36 @@ async function testDisabledTooltipLocalization(): Promise<void> {
   `
   document.body.append(chineseContextMenu)
 
+  const chineseLinkPopover = document.createElement('div')
+  chineseLinkPopover.className = 'link-input-ctn'
+  chineseLinkPopover.innerHTML = `
+    <div class="link-title">Add link</div>
+    <div class="link-input-wrapper">
+      <div class="input-row text-input-row">
+        <input type="text" name="text" placeholder="Text" />
+      </div>
+      <div class="input-row url-input-row">
+        <input type="text" name="link" placeholder="Type or paste a link" />
+      </div>
+      <div class="input-row link-buttons">
+        <button class="remove-btn"><div class="remove-btn__icon"></div> Remove </button>
+        <button class="sd-submit-btn"> Apply </button>
+      </div>
+    </div>
+  `
+  document.body.append(chineseLinkPopover)
+
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(chineseTooltip.querySelector('span')?.textContent, '(不可用)')
   assert.equal(chineseContextMenu.querySelector('.context-menu-search-header-label')?.textContent, '搜索:')
   assert.equal(chineseContextMenu.querySelectorAll('.context-menu-item')[0]?.textContent?.trim(), '在上方插入行')
   assert.equal(chineseContextMenu.querySelectorAll('.context-menu-item')[1]?.textContent?.trim(), '合并单元格')
   assert.equal(chineseContextMenu.querySelectorAll('.context-menu-item')[2]?.textContent?.trim(), '剪切')
+  assert.equal(chineseLinkPopover.querySelector('.link-title')?.textContent?.trim(), '添加链接')
+  assert.equal(chineseLinkPopover.querySelector<HTMLInputElement>('input[name="text"]')?.placeholder, '显示文本')
+  assert.equal(chineseLinkPopover.querySelector<HTMLInputElement>('input[name="link"]')?.placeholder, '键入或粘贴链接')
+  assert.equal(chineseLinkPopover.querySelector('.sd-submit-btn')?.textContent?.trim(), '应用')
+  assert.equal(chineseLinkPopover.querySelector('.remove-btn')?.textContent?.trim(), '移除')
   uninstallChineseLocalization()
 
   const uninstallJapaneseLocalization = installWordToolbarTooltipLocalization('ja')
@@ -145,11 +169,33 @@ async function testDisabledTooltipLocalization(): Promise<void> {
   `
   document.body.append(japaneseContextMenu)
 
+  const japaneseLinkPopover = document.createElement('div')
+  japaneseLinkPopover.className = 'link-input-ctn'
+  japaneseLinkPopover.innerHTML = `
+    <div class="link-title">Edit link</div>
+    <div class="link-input-wrapper">
+      <div class="input-row text-input-row">
+        <input type="text" name="text" placeholder="Text" />
+      </div>
+      <div class="input-row url-input-row">
+        <input type="text" name="link" placeholder="Type or paste a link" />
+      </div>
+      <div class="input-row link-buttons">
+        <button class="sd-submit-btn"> Apply </button>
+      </div>
+    </div>
+  `
+  document.body.append(japaneseLinkPopover)
+
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(japaneseTooltip.querySelector('span')?.textContent, '(無効)')
   assert.equal(japaneseContextMenu.querySelector('.context-menu-search-header-label')?.textContent, '検索:')
   assert.equal(japaneseContextMenu.querySelectorAll('.context-menu-item')[0]?.textContent?.trim(), '上に行を挿入')
   assert.equal(japaneseContextMenu.querySelectorAll('.context-menu-item')[1]?.textContent?.trim(), 'セルの結合')
+  assert.equal(japaneseLinkPopover.querySelector('.link-title')?.textContent?.trim(), 'リンクを編集')
+  assert.equal(japaneseLinkPopover.querySelector<HTMLInputElement>('input[name="text"]')?.placeholder, '表示テキスト')
+  assert.equal(japaneseLinkPopover.querySelector<HTMLInputElement>('input[name="link"]')?.placeholder, 'リンクを入力または貼り付け')
+  assert.equal(japaneseLinkPopover.querySelector('.sd-submit-btn')?.textContent?.trim(), '適用')
   uninstallJapaneseLocalization()
 }
 

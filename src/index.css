@@ -696,11 +696,10 @@
 .notepad-markdown-preview tr[data-notepad-row-insert-after="true"] > :last-child::after {
   content: '';
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  /* Match one empty cell: one line box + the cell's vertical padding/borders. */
-  height: calc(2.25em + 2px);
-  max-height: calc(100% - 2px);
+  top: 0;
+  /* 参照 Windows 记事本：光标高度与当前行的实际行高一致，
+   * 用 100% 精确贴合单元格高度，不会撑大或超出表格行。 */
+  height: 100%;
   box-sizing: border-box;
   contain: size layout paint;
   left: calc(100% + 4px);

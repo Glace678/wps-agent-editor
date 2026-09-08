@@ -37,68 +37,22 @@ const DEFAULT_TWO_PAGE_BASE_WIDTH =
 /** onReady 后 PresentationEditor / 对开 DOM 可能尚未就绪，轮询等待 */
 const APPLY_RETRY_MS = 120
 const APPLY_RETRY_LIMIT = 25
-/** 缩放/模式切换后等待引擎稳定再测双页、再补几何，避免在缩放手势末尾闪跳 */
+/** 缩放停止后等待引擎稳定再测双页适配，避免在缩放手势中途切换排版模式 */
 const ZOOM_SETTLE_MS = 180
-
 /**
- * 修正 book 模式的宿主几何：SuperDoc 1.44 的 #applyZoom 只有 horizontal 与
- * 默认（vertical）两个分支，book 模式落入默认分支——
- * - 宽度按单页算 → 对开的两页左右各被裁掉约半页（取所有 spread 最大宽度修正）；
- * - 高度按单列堆叠总高算 → 末尾多出约一半的空白滚动区（按实际内容高度修正）。
- * 引擎的指针换算基于 client rect 与页面元素实际偏移，几何改写后依然自洽
- *（由文档缩放金丝雀测试覆盖）。
+ * 模式切换后保留克隆覆盖层的时间：引擎重绘提交后新页面里的图片可能还在
+ * 解码，覆盖层多留一两帧再撤，保证双页↔单页切换全程无白帧。
  */
+const MODE_SWAP_COVER_MS = 180
+/** paginationUpdate 事件丢失时的兜底超时（正常在事件回调里立即收尾）。 */
+const MODE_SWAP_FALLBACK_MS = 900
+
 function getOrderedPages(container: ParentNode): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>('.superdoc-page[data-page-index]'))
     .sort((a, b) => {
       const aIndex = Number.parseInt(a.dataset.pageIndex ?? '', 10)
-      const bIndex = Number.parseInt(b.dataset.pageIndex ?? '', 10)
-      return aIndex - bIndex
+      return aIndex - Number.parseInt(b.dataset.pageIndex ?? '', 10)
     })
-}
-
-/**
- * SuperDoc 的 book 模式把封面页单独放在第一行。Word「多页」则从第 1 页开始
- * 每两页一行，因此复用引擎创建的 spread，只移动页面节点、不复制页面内容。
- */
-function pairBookPages(pagesHost: HTMLElement): boolean {
-  const pages = getOrderedPages(pagesHost)
-  const existingSpreads = Array.from(
-    pagesHost.querySelectorAll<HTMLElement>(':scope > .superdoc-spread'),
-  )
-  if (pages.length < 2 || existingSpreads.length === 0) return false
-
-  const spreadCount = Math.ceil(pages.length / 2)
-  const directChildren = Array.from(pagesHost.children)
-  const alreadyPaired =
-    directChildren.length === spreadCount &&
-    directChildren.every((child, spreadIndex) => {
-      if (!(child instanceof HTMLElement) || !child.classList.contains('superdoc-spread')) {
-        return false
-      }
-      const expectedPages = pages.slice(spreadIndex * 2, spreadIndex * 2 + 2)
-      const actualPages = Array.from(child.children)
-      return (
-        actualPages.length === expectedPages.length &&
-        actualPages.every((page, pageIndex) => page === expectedPages[pageIndex])
-      )
-    })
-  if (alreadyPaired) {
-    pagesHost.style.gap = `${BOOK_PAGE_GAP}px`
-    return true
-  }
-
-  const template = existingSpreads[0]
-  const spreads = existingSpreads.slice(0, spreadCount)
-  while (spreads.length < spreadCount) {
-    spreads.push(template.cloneNode(false) as HTMLElement)
-  }
-  for (let index = 0; index < spreadCount; index += 1) {
-    spreads[index].replaceChildren(...pages.slice(index * 2, index * 2 + 2))
-  }
-  pagesHost.replaceChildren(...spreads)
-  pagesHost.style.gap = `${BOOK_PAGE_GAP}px`
-  return true
 }
 
 function measureTwoPageBaseWidth(container: HTMLElement): number {
@@ -112,64 +66,71 @@ function measureTwoPageBaseWidth(container: HTMLElement): number {
   return first + second + BOOK_PAGE_GAP + BOOK_SIDE_GUTTER
 }
 
-/** 切回 vertical 前清掉 book 模式写死的内联尺寸，避免旧几何继续影响单列重排。 */
-function resetBookHostGeometry(container: HTMLElement): void {
-  const viewport = container.querySelector<HTMLElement>('.presentation-editor__viewport')
-  const pagesHost = container.querySelector<HTMLElement>('.presentation-editor__pages')
-  const overlay = container.querySelector<HTMLElement>('.presentation-editor__selection-overlay')
-  if (pagesHost) {
-    pagesHost.style.width = ''
-    pagesHost.style.minHeight = ''
-    pagesHost.style.marginBottom = ''
-    pagesHost.style.gap = ''
-  }
-  if (viewport) {
-    viewport.style.width = ''
-    viewport.style.minWidth = ''
-    viewport.style.height = ''
-    viewport.style.minHeight = ''
-  }
-  if (overlay) {
-    overlay.style.width = ''
-    overlay.style.height = ''
-  }
+interface ScrollAnchor {
+  pageIndex: number
+  /** 切换前该页相对视口左上的视距（像素，已含缩放） */
+  deltaX: number
+  deltaY: number
 }
 
-function patchBookHostGeometry(container: HTMLElement, zoomFactor: number): boolean {
-  const viewport = container.querySelector<HTMLElement>('.presentation-editor__viewport')
-  const pagesHost = container.querySelector<HTMLElement>('.presentation-editor__pages')
-  const overlay = container.querySelector<HTMLElement>('.presentation-editor__selection-overlay')
-  if (!viewport || !pagesHost || !pairBookPages(pagesHost)) return false
-  const spreads = Array.from(pagesHost.querySelectorAll<HTMLElement>(':scope > .superdoc-spread'))
-  const baseWidth = parseFloat(pagesHost.style.width) || pagesHost.clientWidth
-  const spreadWidth = Math.max(baseWidth, ...spreads.map((el) => el.scrollWidth))
-  if (!spreadWidth || !Number.isFinite(spreadWidth)) return false
-  pagesHost.style.width = `${spreadWidth}px`
-  viewport.style.width = `${spreadWidth * zoomFactor}px`
-  viewport.style.minWidth = `${spreadWidth * zoomFactor}px`
-  if (overlay) overlay.style.width = `${spreadWidth}px`
-
-  // scrollHeight 是布局像素、与 transform 是否已应用无关（rect 会因引擎异步
-  // 补 transform 的时序而失真）；先清掉引擎写入的 minHeight 再测真实内容高
-  pagesHost.style.minHeight = '0px'
-  const contentHeight = pagesHost.scrollHeight
-  if (Number.isFinite(contentHeight) && contentHeight > 0) {
-    pagesHost.style.minHeight = `${contentHeight}px`
-    // 引擎公式：marginBottom 补偿「布局高(未缩放) vs 视觉高(已缩放)」的差；
-    // 但作为末子元素它会与父级底边塌陷、逃逸到视口外，不参与视口高度，
-    // 所以视口必须显式写 height（视觉高度），不能只写 minHeight
-    pagesHost.style.marginBottom =
-      zoomFactor !== 1 ? `${contentHeight * zoomFactor - contentHeight}px` : ''
-    viewport.style.height = `${contentHeight * zoomFactor}px`
-    viewport.style.minHeight = `${contentHeight * zoomFactor}px`
-    if (overlay) overlay.style.height = `${contentHeight}px`
+/** 记录切换前沿视口顶部可见的第一页，切换后把它放回同一视觉位置。 */
+function captureScrollAnchor(viewport: HTMLElement, pagesHost: HTMLElement): ScrollAnchor | null {
+  const vpRect = viewport.getBoundingClientRect()
+  for (const page of getOrderedPages(pagesHost)) {
+    const rect = page.getBoundingClientRect()
+    if (rect.bottom <= vpRect.top + 8) continue
+    if (rect.top >= vpRect.bottom) break
+    const pageIndex = Number.parseInt(page.dataset.pageIndex ?? '', 10)
+    if (!Number.isFinite(pageIndex)) return null
+    return {
+      pageIndex,
+      deltaX: rect.left - vpRect.left,
+      deltaY: rect.top - vpRect.top,
+    }
   }
-  return true
+  return null
+}
+
+function restoreScrollAnchor(viewport: HTMLElement, pagesHost: HTMLElement, anchor: ScrollAnchor): void {
+  const page = pagesHost.querySelector<HTMLElement>(
+    `.superdoc-page[data-page-index="${anchor.pageIndex}"]`,
+  )
+  if (!page) return
+  const vpRect = viewport.getBoundingClientRect()
+  const rect = page.getBoundingClientRect()
+  viewport.scrollLeft += rect.left - vpRect.left - anchor.deltaX
+  viewport.scrollTop += rect.top - vpRect.top - anchor.deltaY
+}
+
+/**
+ * 模式切换会触发引擎全量重绘（setLayoutMode → 异步 measure → paint）。
+ * 重绘提交是同步的、旧 DOM 在异步空档期也一直保留，但新页面元素里的
+ * 图片需要重新解码，极端情况下会透出一两帧空白。这里把切换前的页面宿主
+ * 深克隆一张「截图」盖在布局容器上（不随滚动移动、不接收指针事件），
+ * 重绘与滚动锚定都在覆盖层下方完成，到点后撤走——用户全程只看到旧画面
+ * 原地变成新画面，与 Word/WPS 的双页↔单页切换一致。
+ * 返回撤收函数。
+ */
+function coverWithPagesClone(container: HTMLElement, pagesHost: HTMLElement): () => void {
+  const clone = pagesHost.cloneNode(true) as HTMLElement
+  clone.removeAttribute('id')
+  clone.setAttribute('aria-hidden', 'true')
+  clone.dataset.wordModeSwapCover = 'true'
+  const containerRect = container.getBoundingClientRect()
+  const hostRect = pagesHost.getBoundingClientRect()
+  clone.style.position = 'absolute'
+  clone.style.margin = '0'
+  clone.style.pointerEvents = 'none'
+  clone.style.zIndex = '30'
+  clone.style.left = `${hostRect.left - containerRect.left}px`
+  clone.style.top = `${hostRect.top - containerRect.top}px`
+  container.appendChild(clone)
+  return () => clone.remove()
 }
 
 /**
  * Word 页面布局模式：缩放 ≤ 60% 且宽度足够时切到 SuperDoc 原生 'book'
- * 布局，并把引擎默认的「封面单页」整理为 Word 多页视图的「从第 1 页起两页一排」；
+ * 布局（引擎已按「从第 1 页起两页一排」输出，并原生处理缩放几何）；
  * 否则回默认 'vertical' 单列。
  *
  * 必须走 SuperDoc 原生 setLayoutMode / setZoom：真正的编辑器位于 body 上的
@@ -192,6 +153,7 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
   const modeRef = useRef<WordPageLayoutMode>('vertical')
   const twoPageBaseWidthRef = useRef(DEFAULT_TWO_PAGE_BASE_WIDTH)
   const scheduleTwoPageMeasureRef = useRef<(refreshBase?: boolean) => void>(() => {})
+  const coverCleanupRef = useRef<(() => void) | null>(null)
   zoomFactorRef.current = zoom
 
   /** 左下角瞬时提示，模式切换与页面拼接共用 */
@@ -205,6 +167,7 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
   const pendingMeasureRef = useRef<{ refreshBase: boolean } | null>(null)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // 双页适配测量：缩放/容器尺寸稳定后，比对容器宽度与双页所需宽度。
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -226,10 +189,6 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
       if (next !== fitsTwoPagesRef.current) {
         fitsTwoPagesRef.current = next
         setFitsTwoPages(next)
-      }
-      // 缩放稳定后，如果仍在 book 模式，补一次几何修正
-      if (modeRef.current === 'book') {
-        patchBookHostGeometry(el, zoomFactorRef.current)
       }
     }
 
@@ -272,6 +231,7 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     }
   }, [superdoc])
 
+  // 缩放变化：重置稳定计时，手势结束后再重新评估双页适配
   useEffect(() => {
     lastZoomChangeRef.current = performance.now()
     if (settleTimerRef.current) {
@@ -280,30 +240,6 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     }
     scheduleTwoPageMeasureRef.current()
   }, [zoom])
-
-  // 缩放变化时立即（下一帧）修正 book 模式宿主几何，避免等待 180ms 的
-  // measure 造成「闪一下才显示缩放后页面」。measure effect 仍会在手势
-  // 结束后补一次双页适配测量与几何修正，作为兜底。
-  useEffect(() => {
-    if (!superdoc) return
-    const container = containerRef.current
-    if (!container) return
-    if (modeRef.current !== 'book') return
-    if (container.closest('[data-panel-resizing="true"]')) return
-    let raf: number | null = null
-    let cancelled = false
-    const patch = () => {
-      raf = null
-      if (cancelled || modeRef.current !== 'book') return
-      if (container.closest('[data-panel-resizing="true"]')) return
-      patchBookHostGeometry(container, zoomFactorRef.current)
-    }
-    raf = requestAnimationFrame(patch)
-    return () => {
-      cancelled = true
-      if (raf != null) cancelAnimationFrame(raf)
-    }
-  }, [superdoc, zoom])
 
   // 总页数已知且页面已渲染后，用真实页面宽度再量一次双页基宽。
   useEffect(() => {
@@ -318,6 +254,7 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     zoom <= BOOK_MODE_MAX_ZOOM && fitsTwoPages && bookEligible ? 'book' : 'vertical'
   modeRef.current = mode
 
+  // 模式应用：setLayoutMode 前后做滚动锚定与克隆覆盖，保证切换无白帧。
   useEffect(() => {
     if (!superdoc) {
       appliedRef.current = { superdoc: null, mode: null }
@@ -338,29 +275,56 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
       timers.add(id)
     }
     let presentation: PresentationEditorLike | null = null
-    let paginationPatchTimer: ReturnType<typeof setTimeout> | null = null
-
-    const patch = (): boolean => {
-      if (cancelled || modeRef.current !== 'book') return true
-      const container = containerRef.current
-      return container ? patchBookHostGeometry(container, zoomFactorRef.current) : false
-    }
-
-    const schedulePatch = () => {
-      if (paginationPatchTimer !== null) {
-        clearTimeout(paginationPatchTimer)
-        timers.delete(paginationPatchTimer)
-      }
-      const timer = setTimeout(() => {
-        timers.delete(timer)
-        paginationPatchTimer = null
-        if (!cancelled) patch()
-      }, 150)
-      paginationPatchTimer = timer
-      timers.add(timer)
-    }
-
+    let paginationHandler: (() => void) | null = null
     let modeAttempts = 0
+
+    const swapMode = (next: WordPageLayoutMode) => {
+      const container = containerRef.current
+      const viewport = container?.querySelector<HTMLElement>('.presentation-editor__viewport') ?? null
+      const pagesHost = container?.querySelector<HTMLElement>('.presentation-editor__pages') ?? null
+      const anchor = viewport && pagesHost ? captureScrollAnchor(viewport, pagesHost) : null
+      const removeCover = container && pagesHost ? coverWithPagesClone(container, pagesHost) : null
+      coverCleanupRef.current = removeCover
+      try {
+        presentation?.setLayoutMode?.(next)
+      } catch (err) {
+        console.warn('[WordDocumentLayout] setLayoutMode 失败:', err)
+        removeCover?.()
+        coverCleanupRef.current = null
+        return
+      }
+      appliedRef.current = { superdoc, mode: next }
+      showHint(next === 'book' ? t('wordLayout.twoPages') : t('wordLayout.singlePage'))
+
+      let settled = false
+      const finish = () => {
+        if (settled || cancelled) return
+        settled = true
+        if (paginationHandler) presentation?.off?.('paginationUpdate', paginationHandler)
+        paginationHandler = null
+        // 新 DOM 已提交：立刻按锚点校正滚动（覆盖层不随滚动移动，
+        // 校正过程用户不可见），下一帧布局稳定后再补一次。
+        const correct = () => {
+          const c = containerRef.current
+          const vp = c?.querySelector<HTMLElement>('.presentation-editor__viewport') ?? null
+          const ph = c?.querySelector<HTMLElement>('.presentation-editor__pages') ?? null
+          if (vp && ph && anchor) restoreScrollAnchor(vp, ph, anchor)
+        }
+        correct()
+        requestAnimationFrame(() => {
+          if (cancelled) return
+          correct()
+          later(() => {
+            removeCover?.()
+            if (coverCleanupRef.current === removeCover) coverCleanupRef.current = null
+          }, MODE_SWAP_COVER_MS)
+        })
+      }
+      paginationHandler = () => finish()
+      presentation?.on?.('paginationUpdate', paginationHandler)
+      later(finish, MODE_SWAP_FALLBACK_MS)
+    }
+
     const applyMode = () => {
       if (cancelled) return
       presentation = resolvePresentationEditor(superdoc)
@@ -371,37 +335,8 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
         }
         return
       }
-      if (appliedRef.current.mode !== mode) {
-        // 从 book 切回 vertical 前先把写死的几何清掉，避免引擎用旧尺寸重排导致卡顿/闪跳
-        if (mode === 'vertical' && appliedRef.current.mode === 'book') {
-          const container = containerRef.current
-          if (container) resetBookHostGeometry(container)
-        }
-        try {
-          presentation.setLayoutMode(mode)
-          appliedRef.current = { superdoc, mode }
-          showHint(mode === 'book' ? t('wordLayout.twoPages') : t('wordLayout.singlePage'))
-        } catch (err) {
-          console.warn('[WordDocumentLayout] setLayoutMode 失败:', err)
-          return
-        }
-      }
-      if (mode === 'book') {
-        // setLayoutMode 的重绘是异步的，轮询到对开 DOM 出现后修宽
-        let patchAttempts = 0
-        const tryPatch = () => {
-          if (cancelled) return
-          if (patch()) {
-            // 引擎会异步补 transform/样式，稍后再修一拍
-            later(() => patch(), 200)
-          } else if (patchAttempts < APPLY_RETRY_LIMIT) {
-            patchAttempts += 1
-            later(tryPatch, APPLY_RETRY_MS)
-          }
-        }
-        tryPatch()
-        // 缩放手势已由 measure effect 在稳定后统一补几何；这里只处理内容分页变化
-        presentation.on?.('paginationUpdate', schedulePatch)
+      if (appliedRef.current.mode !== modeRef.current) {
+        swapMode(modeRef.current)
       }
     }
     applyMode()
@@ -409,13 +344,17 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     return () => {
       cancelled = true
       for (const id of timers) clearTimeout(id)
-      presentation?.off?.('paginationUpdate', schedulePatch)
+      if (paginationHandler) presentation?.off?.('paginationUpdate', paginationHandler)
+      coverCleanupRef.current?.()
+      coverCleanupRef.current = null
     }
   }, [superdoc, mode, t, showHint])
 
   useEffect(
     () => () => {
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
+      coverCleanupRef.current?.()
+      coverCleanupRef.current = null
     },
     [],
   )
@@ -423,7 +362,7 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
   return (
     <div
       ref={containerRef}
-      className="word-document-layout relative min-h-0 w-full flex-1"
+      className="word-document-layout relative min-h-0 w-full flex-1 overflow-hidden"
       data-word-layout-mode={mode}
       data-word-page-count={totalPages ?? undefined}
       data-word-two-page-fit={fitsTwoPages ? 'true' : 'false'}

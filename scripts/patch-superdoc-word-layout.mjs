@@ -8,7 +8,7 @@
 //
 // Keep this as an install-time patch so layout changes stay in memory and the
 // source DOCX remains byte-for-byte untouched. The package is pinned to 1.44.0.
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -350,6 +350,101 @@ const layoutReplacements = [
     from: `\tconst imageH = line.maxImageHeight ?? 0;\n\tif (imageH > metrics.lineHeight) metrics.lineHeight = imageH;\n\treturn metrics;`,
     to: `\tconst imageH = line.maxImageHeight ?? 0;\n\tif (imageH > metrics.lineHeight) metrics.lineHeight = imageH;\n\tmetrics.lineHeight = snapLineHeightToDocumentGrid(metrics.lineHeight, spacing);\n\treturn metrics;`,
   },
+  {
+    label: 'skip full document re-render on zoom in paginated modes',
+    // setZoom() 在写完 #applyZoom（transform/视口尺寸，同步、纯视觉）和
+    // painter.setZoom（virtual 滚动窗口同步刷新）之后，仍然挂 pendingDocChange
+    // 触发整份文档 getJSON→toFlowBlocks→resolveLayout→paint 全量重绘。
+    // 分页模式下页面物理尺寸固定、内容不随缩放重排，重绘纯属浪费；且 book
+    // 模式每次重绘都 innerHTML 重建全部页面，再由应用层 120ms 轮询把页面
+    // 搬回两页一排——搬运窗口期就是双页缩放到一半「闪一下」的根源。
+    // semantic flow 模式的内容宽度随缩放变化（width:100/zoom%），仍需重排。
+    from: `\t\tthis.#pendingDocChange = true;
+\t\tthis.#scheduleRerender();
+\t}
+\tdestroy() {`,
+    to: `\t\tif (this.#isSemanticFlowMode()) {
+\t\t\tthis.#pendingDocChange = true;
+\t\t\tthis.#scheduleRerender();
+\t\t}
+\t}
+\tdestroy() {`,
+  },
+  {
+    label: 'pair book-mode pages two-up from the first page',
+    // 引擎 book 排法模仿书籍封面：第 1 页单独一行，之后才两页一排；
+    // 应用层（WordDocumentLayout.pairBookPages）要在每次重绘后异步搬运
+    // DOM 节点才能得到 Word「多页」的 (1,2)(3,4) 排法，搬运窗口期页面
+    // 会闪回封面排法。这里直接让引擎按 Word 排法输出，与 #applyZoom
+    // book 分支的几何假设（spreadCount = ceil(页数/2)）天然一致；
+    // 指针换算全部基于真实页面元素的 getBoundingClientRect，排列变化
+    // 后依然自洽。spread 之间补纵向间距（原引擎只在 vertical/horizontal
+    // 路径写 mount.style.gap，book 路径遗漏）。
+    from: `\trenderBookMode(layout, mount) {
+\t\tif (!this.doc) return;
+\t\tmount.innerHTML = "";
+\t\tconst pages = layout.pages;
+\t\tif (pages.length === 0) return;
+\t\tconst firstPage = pages[0];
+\t\tconst firstPageEl = this.renderPage(firstPage.width, firstPage.height, firstPage, 0);
+\t\tmount.appendChild(firstPageEl);
+\t\tfor (let i = 1; i < pages.length; i += 2) {
+\t\t\tconst spreadEl = this.doc.createElement("div");
+\t\t\tspreadEl.classList.add(CLASS_NAMES$1.spread);
+\t\t\tapplyStyles(spreadEl, spreadStyles);
+\t\t\tconst leftPage = pages[i];
+\t\t\tconst leftPageEl = this.renderPage(leftPage.width, leftPage.height, leftPage, i);
+\t\t\tspreadEl.appendChild(leftPageEl);
+\t\t\tif (i + 1 < pages.length) {
+\t\t\t\tconst rightPage = pages[i + 1];
+\t\t\t\tconst rightPageEl = this.renderPage(rightPage.width, rightPage.height, rightPage, i + 1);
+\t\t\t\tspreadEl.appendChild(rightPageEl);
+\t\t\t}
+\t\t\tmount.appendChild(spreadEl);
+\t\t}
+\t}`,
+    to: `\trenderBookMode(layout, mount) {
+\t\tif (!this.doc) return;
+\t\tmount.innerHTML = "";
+\t\tconst pages = layout.pages;
+\t\tif (pages.length === 0) return;
+\t\tmount.style.gap = \`\${this.pageGap}px\`;
+\t\tfor (let i = 0; i < pages.length; i += 2) {
+\t\t\tconst spreadEl = this.doc.createElement("div");
+\t\t\tspreadEl.classList.add(CLASS_NAMES$1.spread);
+\t\t\tapplyStyles(spreadEl, spreadStyles);
+\t\t\tconst leftPage = pages[i];
+\t\t\tconst leftPageEl = this.renderPage(leftPage.width, leftPage.height, leftPage, i);
+\t\t\tspreadEl.appendChild(leftPageEl);
+\t\t\tif (i + 1 < pages.length) {
+\t\t\t\tconst rightPage = pages[i + 1];
+\t\t\t\tconst rightPageEl = this.renderPage(rightPage.width, rightPage.height, rightPage, i + 1);
+\t\t\t\tspreadEl.appendChild(rightPageEl);
+\t\t\t}
+\t\t\tmount.appendChild(spreadEl);
+\t\t}
+\t}`,
+  },
+  {
+    label: 'support book mode geometry natively in #applyZoom',
+    from: `\t\tif (layoutMode === "horizontal") {\n\t\t\tconst scaledWidth$1 = totalWidth * zoom;\n\t\t\tconst scaledHeight$1 = maxHeight * zoom;\n\t\t\tthis.#viewportHost.style.width = \`\${scaledWidth$1}px\`;\n\t\t\tthis.#viewportHost.style.minWidth = \`\${scaledWidth$1}px\`;\n\t\t\tthis.#viewportHost.style.minHeight = \`\${scaledHeight$1}px\`;\n\t\t\tthis.#viewportHost.style.height = "";\n\t\t\tthis.#viewportHost.style.overflow = "";\n\t\t\tthis.#viewportHost.style.transform = "";\n\t\t\tthis.#painterHost.style.width = \`\${totalWidth}px\`;\n\t\t\tthis.#painterHost.style.minHeight = \`\${maxHeight}px\`;\n\t\t\tthis.#painterHost.style.marginBottom = zoom !== 1 ? \`\${maxHeight * zoom - maxHeight}px\` : "";\n\t\t\tthis.#painterHost.style.transformOrigin = "top left";\n\t\t\tthis.#painterHost.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\tthis.#selectionOverlay.style.width = \`\${totalWidth}px\`;\n\t\t\tthis.#selectionOverlay.style.height = \`\${maxHeight}px\`;\n\t\t\tthis.#selectionOverlay.style.transformOrigin = "top left";\n\t\t\tthis.#selectionOverlay.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\treturn;\n\t\t}`,
+    to: `\t\tif (layoutMode === "horizontal") {\n\t\t\tconst scaledWidth$1 = totalWidth * zoom;\n\t\t\tconst scaledHeight$1 = maxHeight * zoom;\n\t\t\tthis.#viewportHost.style.width = \`\${scaledWidth$1}px\`;\n\t\t\tthis.#viewportHost.style.minWidth = \`\${scaledWidth$1}px\`;\n\t\t\tthis.#viewportHost.style.minHeight = \`\${scaledHeight$1}px\`;\n\t\t\tthis.#viewportHost.style.height = \`\${scaledHeight$1}px\`;\n\t\t\tthis.#viewportHost.style.overflow = "";\n\t\t\tthis.#viewportHost.style.transform = "";\n\t\t\tthis.#painterHost.style.width = \`\${totalWidth}px\`;\n\t\t\tthis.#painterHost.style.minHeight = \`\${maxHeight}px\`;\n\t\t\tthis.#painterHost.style.marginBottom = zoom !== 1 ? \`\${maxHeight * zoom - maxHeight}px\` : "";\n\t\t\tthis.#painterHost.style.transformOrigin = "top left";\n\t\t\tthis.#painterHost.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\tthis.#selectionOverlay.style.width = \`\${totalWidth}px\`;\n\t\t\tthis.#selectionOverlay.style.height = \`\${maxHeight}px\`;\n\t\t\tthis.#selectionOverlay.style.transformOrigin = "top left";\n\t\t\tthis.#selectionOverlay.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\treturn;\n\t\t}\n\t\tif (layoutMode === "book") {\n\t\t\tconst spreadCount = Math.max(1, Math.ceil((Array.isArray(pages) ? pages.length : 1) / 2));\n\t\t\tconst bookWidth = maxWidth * 2 + pageGap;\n\t\t\tconst bookHeight = spreadCount * maxHeight + Math.max(0, spreadCount - 1) * pageGap;\n\t\t\tconst scaledWidth = bookWidth * zoom;\n\t\t\tconst scaledHeight = bookHeight * zoom;\n\t\t\tthis.#viewportHost.style.width = \`\${scaledWidth}px\`;\n\t\t\tthis.#viewportHost.style.minWidth = \`\${scaledWidth}px\`;\n\t\t\tthis.#viewportHost.style.minHeight = \`\${scaledHeight}px\`;\n\t\t\tthis.#viewportHost.style.height = \`\${scaledHeight}px\`;\n\t\t\tthis.#viewportHost.style.overflow = "";\n\t\t\tthis.#viewportHost.style.transform = "";\n\t\t\tthis.#painterHost.style.width = \`\${bookWidth}px\`;\n\t\t\tthis.#painterHost.style.minHeight = \`\${bookHeight}px\`;\n\t\t\tthis.#painterHost.style.marginBottom = zoom !== 1 ? \`\${bookHeight * zoom - bookHeight}px\` : "";\n\t\t\tthis.#painterHost.style.transformOrigin = "top left";\n\t\t\tthis.#painterHost.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\tthis.#selectionOverlay.style.width = \`\${bookWidth}px\`;\n\t\t\tthis.#selectionOverlay.style.height = \`\${bookHeight}px\`;\n\t\t\tthis.#selectionOverlay.style.transformOrigin = "top left";\n\t\t\tthis.#selectionOverlay.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\treturn;\n\t\t}`,
+    // 旧版补丁的 horizontal/book 分支把 viewportHost.height 留空（auto），
+    // 靠 painterHost 负 marginBottom 补偿缩放高度；负 margin 在本应用的
+    // DOM 链（transform + overflow 传播）中不收缩祖先滚动区，会留下数千 px
+    // 的可滚动空白。新版显式设置缩放后高度（与宽度对称）。
+    legacy: [
+      `\t\tif (layoutMode === "horizontal") {\n\t\t\tconst scaledWidth$1 = totalWidth * zoom;\n\t\t\tconst scaledHeight$1 = maxHeight * zoom;\n\t\t\tthis.#viewportHost.style.width = \`\${scaledWidth$1}px\`;\n\t\t\tthis.#viewportHost.style.minWidth = \`\${scaledWidth$1}px\`;\n\t\t\tthis.#viewportHost.style.minHeight = \`\${scaledHeight$1}px\`;\n\t\t\tthis.#viewportHost.style.height = "";\n\t\t\tthis.#viewportHost.style.overflow = "";\n\t\t\tthis.#viewportHost.style.transform = "";\n\t\t\tthis.#painterHost.style.width = \`\${totalWidth}px\`;\n\t\t\tthis.#painterHost.style.minHeight = \`\${maxHeight}px\`;\n\t\t\tthis.#painterHost.style.marginBottom = zoom !== 1 ? \`\${maxHeight * zoom - maxHeight}px\` : "";\n\t\t\tthis.#painterHost.style.transformOrigin = "top left";\n\t\t\tthis.#painterHost.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\tthis.#selectionOverlay.style.width = \`\${totalWidth}px\`;\n\t\t\tthis.#selectionOverlay.style.height = \`\${maxHeight}px\`;\n\t\t\tthis.#selectionOverlay.style.transformOrigin = "top left";\n\t\t\tthis.#selectionOverlay.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\treturn;\n\t\t}\n\t\tif (layoutMode === "book") {\n\t\t\tconst spreadCount = Math.max(1, Math.ceil((Array.isArray(pages) ? pages.length : 1) / 2));\n\t\t\tconst bookWidth = maxWidth * 2 + pageGap;\n\t\t\tconst bookHeight = spreadCount * maxHeight + Math.max(0, spreadCount - 1) * pageGap;\n\t\t\tconst scaledWidth = bookWidth * zoom;\n\t\t\tconst scaledHeight = bookHeight * zoom;\n\t\t\tthis.#viewportHost.style.width = \`\${scaledWidth}px\`;\n\t\t\tthis.#viewportHost.style.minWidth = \`\${scaledWidth}px\`;\n\t\t\tthis.#viewportHost.style.minHeight = \`\${scaledHeight}px\`;\n\t\t\tthis.#viewportHost.style.height = "";\n\t\t\tthis.#viewportHost.style.overflow = "";\n\t\t\tthis.#viewportHost.style.transform = "";\n\t\t\tthis.#painterHost.style.width = \`\${bookWidth}px\`;\n\t\t\tthis.#painterHost.style.minHeight = \`\${bookHeight}px\`;\n\t\t\tthis.#painterHost.style.marginBottom = zoom !== 1 ? \`\${bookHeight * zoom - bookHeight}px\` : "";\n\t\t\tthis.#painterHost.style.transformOrigin = "top left";\n\t\t\tthis.#painterHost.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\tthis.#selectionOverlay.style.width = \`\${bookWidth}px\`;\n\t\t\tthis.#selectionOverlay.style.height = \`\${bookHeight}px\`;\n\t\t\tthis.#selectionOverlay.style.transformOrigin = "top left";\n\t\t\tthis.#selectionOverlay.style.transform = zoom === 1 ? "" : \`scale(\${zoom})\`;\n\t\t\treturn;\n\t\t}`,
+    ],
+  },
+  {
+    label: 'size the vertical viewport host to the scaled height in #applyZoom',
+    // vertical 默认分支与旧版 horizontal/book 同样把 height 留空：缩小时
+    // 未缩放内容高度经 overflow:visible 链传播到滚动容器，页面下方出现
+    // 数千 px 的可滚动空白（「下拉到不存在的空页面」）。显式设置高度。
+    from: `\t\tthis.#viewportHost.style.minHeight = \`\${scaledHeight}px\`;\n\t\tthis.#viewportHost.style.height = "";\n\t\tthis.#viewportHost.style.overflow = "";\n\t\tthis.#viewportHost.style.transform = "";\n\t\tthis.#painterHost.style.width = \`\${maxWidth}px\`;`,
+    to: `\t\tthis.#viewportHost.style.minHeight = \`\${scaledHeight}px\`;\n\t\tthis.#viewportHost.style.height = \`\${scaledHeight}px\`;\n\t\tthis.#viewportHost.style.overflow = "";\n\t\tthis.#viewportHost.style.transform = "";\n\t\tthis.#painterHost.style.width = \`\${maxWidth}px\`;`,
+  },
 ]
 
 for (const file of converterChunks) {
@@ -370,6 +465,20 @@ for (const file of layoutChunks) {
     source,
   )
   if (output !== source) writeFileSync(target, output, 'utf8')
+}
+
+// Vite 依赖预打包缓存里是打补丁前的 superdoc；补丁改写 node_modules 后
+// lockfile 哈希不变，dev server 重启也不会重新预打包（页面继续跑旧引擎）。
+// 清掉缓存，下次 dev 启动强制重新预打包。生产 build 每次从 node_modules
+// 重新打包，不受影响。
+for (const cacheDir of [
+  path.join(root, 'node_modules', '.vite'),
+  path.join(root, 'node_modules', '.vite-temp'),
+]) {
+  if (existsSync(cacheDir)) {
+    rmSync(cacheDir, { recursive: true, force: true })
+    console.log(`cleared stale Vite dependency cache: ${path.relative(root, cacheDir)}`)
+  }
 }
 
 console.log('superdoc Word layout patch applied (idempotent)')

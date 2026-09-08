@@ -1,0 +1,457 @@
+/* Word uses the same 8x8 swatch palette as Fortune Sheet/Excel. The menu is
+ * teleported to body by SuperDoc, so all selectors intentionally stay global. */
+body .toolbar-dropdown-menu[data-word-font-color-menu],
+body .sd-toolbar-dropdown-menu[data-word-font-color-menu] {
+  width: 236px !important;
+  min-width: 236px !important;
+  max-width: min(356px, calc(100vw - 16px)) !important;
+  padding: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+body .toolbar-dropdown-menu[data-word-font-color-menu]:has(.word-font-color-picker--custom),
+body .sd-toolbar-dropdown-menu[data-word-font-color-menu]:has(.word-font-color-picker--custom) {
+  width: 356px !important;
+  min-width: min(356px, calc(100vw - 16px)) !important;
+}
+
+body .toolbar-dropdown-menu[data-word-font-color-menu]
+  .toolbar-dropdown-option.word-font-color-render-option,
+body .sd-toolbar-dropdown-menu[data-word-font-color-menu]
+  .toolbar-dropdown-option.word-font-color-render-option {
+  display: block !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  cursor: default;
+}
+
+body .toolbar-dropdown-menu[data-word-font-color-menu] .word-font-color-render-host,
+body .sd-toolbar-dropdown-menu[data-word-font-color-menu] .word-font-color-render-host {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body .word-font-color-picker {
+  --word-color-picker-bg: var(--sd-ui-dropdown-bg, #ffffff);
+  --word-color-picker-text: var(--sd-ui-dropdown-text, #252525);
+  --word-color-picker-border: var(--sd-ui-dropdown-border, #d4d4d4);
+  --word-color-picker-hover: var(--sd-ui-dropdown-hover-bg, #f0f0f0);
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  color: var(--word-color-picker-text);
+  background: var(--word-color-picker-bg);
+  font-family: var(--sd-ui-font-family, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif);
+  font-size: 12px;
+  line-height: 1.2;
+  user-select: none;
+}
+
+body .word-font-color-picker__palette {
+  display: grid;
+  grid-template-columns: repeat(8, 22px);
+  grid-auto-rows: 22px;
+  gap: 4px;
+  justify-content: center;
+  width: 100%;
+}
+
+body .word-font-color-picker__swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: transform 100ms ease, box-shadow 100ms ease;
+}
+
+body .word-font-color-picker__swatch:hover,
+body .word-font-color-picker__swatch:focus-visible {
+  z-index: 1;
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px var(--word-color-picker-bg), 0 0 0 3px #1683e8;
+}
+
+body .word-font-color-picker__swatch[aria-pressed='true'] {
+  box-shadow: 0 0 0 2px var(--word-color-picker-bg), 0 0 0 3px #1683e8;
+}
+
+body .word-font-color-picker__check {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgb(255 255 255 / 25%);
+  pointer-events: none;
+}
+
+body .word-font-color-picker__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--word-color-picker-border);
+}
+
+body .word-font-color-picker__reset,
+body .word-font-color-picker__custom,
+body .word-font-color-picker__back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--word-color-picker-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: none;
+  font: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+body .word-font-color-picker__reset:hover,
+body .word-font-color-picker__reset:focus-visible,
+body .word-font-color-picker__custom:hover,
+body .word-font-color-picker__custom:focus-visible,
+body .word-font-color-picker__back:hover,
+body .word-font-color-picker__back:focus-visible {
+  background: var(--word-color-picker-hover);
+  border-color: var(--word-color-picker-border);
+}
+
+body .word-font-color-picker__custom {
+  color: var(--sd-ui-action, #1355ff);
+}
+
+body .word-font-color-picker__custom-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 8px;
+  color: var(--word-color-picker-text);
+  font-weight: 600;
+}
+
+body .word-font-color-picker__back {
+  width: 28px;
+  min-width: 28px;
+  padding: 4px;
+}
+
+/* The circular picker is shared with Excel; these scoped rules provide the
+ * same geometry when the Word chunk is loaded without Fortune's stylesheet. */
+body .word-font-color-picker .excel-circular-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  user-select: none;
+  font-family: inherit;
+}
+
+body .word-font-color-picker .excel-color-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 2px;
+}
+
+body .word-font-color-picker .excel-color-reset-btn {
+  padding: 4px 12px;
+  color: #252525;
+  background: #f1f1f1;
+  border: 1px solid #c9c9c9;
+  border-radius: 4px;
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+body .word-font-color-picker .excel-color-reset-btn:hover,
+body .word-font-color-picker .excel-color-reset-btn:focus-visible {
+  background: #e5e5e5;
+  border-color: #a9a9a9;
+}
+
+body .word-font-color-picker .excel-color-confirm-btn {
+  padding: 4px 16px;
+  color: #ffffff;
+  background: #0188fb;
+  border: 1px solid #0188fb;
+  border-radius: 4px;
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+body .word-font-color-picker .excel-color-confirm-btn:hover,
+body .word-font-color-picker .excel-color-confirm-btn:focus-visible {
+  background: #0077df;
+}
+
+body .word-font-color-picker .excel-color-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+body .word-font-color-picker .excel-color-wheel-wrap {
+  position: relative;
+  width: 148px;
+  height: 148px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: visible;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+body .word-font-color-picker .excel-color-wheel-disk {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, #ffffff 0%, rgb(255 255 255 / 0%) 100%),
+    conic-gradient(from 90deg at 50% 50%, #ff0000 0deg, #ffff00 60deg, #00ff00 120deg, #00ffff 180deg, #0000ff 240deg, #ff00ff 300deg, #ff0000 360deg);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 18%), 0 2px 8px rgb(0 0 0 / 35%);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+body .word-font-color-picker .excel-color-wheel-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+body .word-font-color-picker .excel-color-wheel-handle {
+  position: absolute;
+  z-index: 2;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 3px 1.5px rgb(0 0 0 / 80%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+body .word-font-color-picker .excel-color-preview-bar {
+  width: 28px;
+  height: 148px;
+  flex-shrink: 0;
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 4px;
+  box-shadow: inset 0 0 1px rgb(0 0 0 / 30%);
+  box-sizing: border-box;
+}
+
+body .word-font-color-picker .excel-color-slider {
+  position: relative;
+  width: 14px;
+  height: 148px;
+  flex-shrink: 0;
+  border: 1px solid rgb(0 0 0 / 25%);
+  border-radius: 7px;
+  box-shadow: inset 0 0 1px rgb(0 0 0 / 40%);
+  cursor: pointer;
+  touch-action: none;
+  box-sizing: border-box;
+}
+
+body .word-font-color-picker .excel-color-slider-thumb {
+  position: absolute;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border: 1.5px solid #222222;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 60%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+body .word-font-color-picker .excel-color-values-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 114px;
+  height: 148px;
+  flex-shrink: 0;
+}
+
+body .word-font-color-picker .excel-color-row {
+  display: flex;
+  align-items: center;
+}
+
+body .word-font-color-picker .excel-color-hex-input,
+body .word-font-color-picker .excel-color-mode-select,
+body .word-font-color-picker .excel-color-channel-input {
+  min-width: 0;
+  height: 24px;
+  color: #252525;
+  background: #ffffff;
+  border: 1px solid #c9c9c9;
+  border-radius: 4px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+body .word-font-color-picker .excel-color-hex-input {
+  width: 100%;
+  padding: 0 8px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+body .word-font-color-picker .excel-color-mode-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 8px;
+  color: #454545;
+  font-size: 12px;
+}
+
+body .word-font-color-picker .excel-color-chevron {
+  color: #777777;
+  font-size: 10px;
+}
+
+body .word-font-color-picker .excel-color-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body .word-font-color-picker .excel-color-channel-input {
+  width: 60px;
+  padding: 0 6px;
+  text-align: left;
+  font-size: 12px;
+  -moz-appearance: textfield;
+}
+
+body .word-font-color-picker .excel-color-channel-input::-webkit-inner-spin-button,
+body .word-font-color-picker .excel-color-channel-input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+body .word-font-color-picker .excel-color-channel-label {
+  color: #454545;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+body .word-font-color-picker .excel-color-hex-input:focus,
+body .word-font-color-picker .excel-color-channel-input:focus {
+  border-color: #0188fb;
+  box-shadow: 0 0 0 2px rgb(1 136 251 / 18%);
+}
+
+/* Dark Word theme: keep the picker surface raised above the black document
+ * while retaining high-contrast tokens and clear focus states. */
+.dark body .word-font-color-picker {
+  --word-color-picker-bg: #1e1e1e;
+  --word-color-picker-text: #f5f5f5;
+  --word-color-picker-border: #383838;
+  --word-color-picker-hover: rgba(255, 255, 255, 0.08);
+}
+
+.dark body .word-font-color-picker__swatch {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.dark body .word-font-color-picker__swatch:hover,
+.dark body .word-font-color-picker__swatch:focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 2px #1e1e1e, 0 0 0 3.5px #3b82f6 !important;
+}
+
+.dark body .word-font-color-picker__swatch[aria-pressed='true'] {
+  outline: none !important;
+  box-shadow: 0 0 0 2px #1e1e1e, 0 0 0 3.5px #3b82f6 !important;
+}
+
+.dark body .word-font-color-picker .excel-color-reset-btn {
+  color: #f0f0f0;
+  background: #2a2a2a;
+  border-color: #4a4a4a;
+  outline: none !important;
+}
+
+.dark body .word-font-color-picker .excel-color-reset-btn:hover,
+.dark body .word-font-color-picker .excel-color-reset-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: #60a5fa;
+  outline: none !important;
+}
+
+.dark body .word-font-color-picker .excel-color-hex-input,
+.dark body .word-font-color-picker .excel-color-mode-select,
+.dark body .word-font-color-picker .excel-color-channel-input {
+  color: #ffffff;
+  background: #262626;
+  border-color: #3e3e3e;
+  outline: none !important;
+}
+
+.dark body .word-font-color-picker .excel-color-hex-input:focus,
+.dark body .word-font-color-picker .excel-color-channel-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.dark body .word-font-color-picker .excel-color-mode-select,
+.dark body .word-font-color-picker .excel-color-channel-label {
+  color: #dcdcdc;
+}
+
+.dark body .word-font-color-picker .excel-color-chevron {
+  color: #999999;
+}
+
+.dark body .word-font-color-picker .excel-color-preview-bar {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.dark body .word-font-color-picker .excel-color-wheel-disk {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15), 0 2px 8px rgba(0, 0, 0, 0.5);
+}

@@ -38,7 +38,7 @@ import { openAgentAssistant } from '@/lib/code-editor-events'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { useAgentStore } from '@/stores/agent.store'
-import { useDebugStore } from '@/stores/debug.store'
+import { handleDebugEvent, useDebugStore } from '@/stores/debug.store'
 import { usePanelStore } from '@/stores/panel.store'
 import type { DebugCommand } from '@/types/code'
 import type { DocumentEvent } from '@/types/document'
@@ -628,9 +628,15 @@ export function CodeEditor({
     useDebugStore.getState().setStatus('starting')
     usePanelStore.getState().openTab('debug-console')
     setStatus(t('codeEditor.debugStarting'))
-    const result = await desktopApi.process.debugStart(filePath, breakpoints)
+    const sessionId = crypto.randomUUID()
+    const result = await desktopApi.process.debugStart(
+      sessionId,
+      filePath,
+      breakpoints,
+      (event) => handleDebugEvent(event),
+    )
     if (result.ok) {
-      useDebugStore.getState().startSession(filePath, result.kind ?? 'node')
+      useDebugStore.getState().startSession(result.sessionId ?? sessionId, filePath, result.kind ?? 'node')
       setStatus(t('codeEditor.debugRunning'))
     } else if (result.error === 'unsupported') {
       useDebugStore.getState().endSession()
@@ -642,13 +648,15 @@ export function CodeEditor({
   }, [debuggable, filePath, saveCurrent, t])
 
   const stopDebug = useCallback(() => {
-    void desktopApi.process.debugStop()
+    const sessionId = useDebugStore.getState().sessionId
+    if (sessionId) void desktopApi.process.debugStop(sessionId)
     useDebugStore.getState().endSession()
     setStatus(t('codeEditor.debugSessionEnded'))
   }, [t])
 
   const debugCommand = useCallback((command: DebugCommand) => {
-    void desktopApi.process.debugCommand(command)
+    const sessionId = useDebugStore.getState().sessionId
+    if (sessionId) void desktopApi.process.debugCommand(sessionId, command)
   }, [])
 
   const toggleDebug = useCallback(() => {

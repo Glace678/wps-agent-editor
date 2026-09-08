@@ -113,6 +113,7 @@ export function hexToRgb(hex: string): RGB | null {
 
 const WHEEL_SIZE = 148
 const WHEEL_RADIUS = WHEEL_SIZE / 2 - 4
+const DEFAULT_INITIAL_COLOR = '#7092BE'
 
 export interface ExcelCircularColorPickerProps {
   initialColor?: string
@@ -122,7 +123,7 @@ export interface ExcelCircularColorPickerProps {
 }
 
 export function ExcelCircularColorPicker({
-  initialColor = '#7092BE',
+  initialColor = DEFAULT_INITIAL_COLOR,
   onSelectColor,
   onConfirm,
   onReset,
@@ -500,6 +501,34 @@ export function ExcelCircularColorPicker({
 /** Mount root registry so roots can be properly cleaned up */
 const activeRoots = new WeakMap<HTMLElement, Root>()
 
+function disposeActiveRoot(container: HTMLElement) {
+  const root = activeRoots.get(container)
+  if (!root) return
+  try {
+    root.unmount()
+  } catch {
+    // FortuneSheet can remove the popup children before our decorator re-runs.
+  }
+  activeRoots.delete(container)
+}
+
+function getLegacyColorPickerElements(container: HTMLElement) {
+  return {
+    nativeInput: container.querySelector<HTMLInputElement>('input[type="color"]'),
+    oldCustomColor: container.querySelector<HTMLElement>('.custom-color'),
+    oldColorPicker: container.querySelector<HTMLElement>('.fortune-toolbar-color-picker'),
+    oldReset: container.querySelector<HTMLElement>('.color-reset'),
+    oldConfirm: container.querySelector<HTMLElement>('.button-primary'),
+  }
+}
+
+function hideLegacyColorPicker(container: HTMLElement) {
+  const { oldCustomColor, oldColorPicker, oldReset } = getLegacyColorPickerElements(container)
+  if (oldCustomColor) oldCustomColor.style.display = 'none'
+  if (oldColorPicker) oldColorPicker.style.display = 'none'
+  if (oldReset) oldReset.style.display = 'none'
+}
+
 /**
  * Decorate a FortuneSheet custom color popup container with the ExcelCircularColorPicker.
  */
@@ -513,12 +542,17 @@ export function mountExcelCircularColorPicker(
   },
 ): void {
   if (container.dataset.excelCircularColorPickerMounted === 'true') {
-    return
+    hideLegacyColorPicker(container)
+    if (container.querySelector('.excel-circular-color-picker-mount') && activeRoots.has(container)) {
+      return
+    }
+    disposeActiveRoot(container)
+    delete container.dataset.excelCircularColorPickerMounted
   }
   container.dataset.excelCircularColorPickerMounted = 'true'
 
   // Look for native input[type="color"] to get the initial color
-  const nativeInput = container.querySelector<HTMLInputElement>('input[type="color"]')
+  const { nativeInput } = getLegacyColorPickerElements(container)
   let initialColor = options?.initialColor
   if (!initialColor) {
     const comboContainer = container.closest('.fortune-toobar-combo-container')
@@ -533,18 +567,11 @@ export function mountExcelCircularColorPicker(
     initialColor = nativeInput.value
   }
   if (!initialColor) {
-    initialColor = '#7092BE'
+    initialColor = DEFAULT_INITIAL_COLOR
   }
 
   // Hide the old FortuneSheet custom-color UI and palette without removing DOM nodes
-  const oldCustomColor = container.querySelector<HTMLElement>('.custom-color')
-  const oldColorPicker = container.querySelector<HTMLElement>('.fortune-toolbar-color-picker')
-  const oldReset = container.querySelector<HTMLElement>('.color-reset')
-  const oldConfirm = container.querySelector<HTMLElement>('.button-primary')
-
-  if (oldCustomColor) oldCustomColor.style.display = 'none'
-  if (oldColorPicker) oldColorPicker.style.display = 'none'
-  if (oldReset) oldReset.style.display = 'none'
+  hideLegacyColorPicker(container)
 
   // Create a mount point
   let mountPoint = container.querySelector<HTMLElement>('.excel-circular-color-picker-mount')
@@ -555,6 +582,7 @@ export function mountExcelCircularColorPicker(
   }
 
   const handleSelect = (color: string) => {
+    const { nativeInput } = getLegacyColorPickerElements(container)
     if (nativeInput) {
       const nativeSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
@@ -571,16 +599,18 @@ export function mountExcelCircularColorPicker(
     handleSelect(color)
     if (options?.onConfirm) {
       options.onConfirm(color)
-    } else if (oldConfirm) {
-      oldConfirm.click()
+    } else {
+      const { oldConfirm } = getLegacyColorPickerElements(container)
+      oldConfirm?.click()
     }
   }
 
   const handleReset = () => {
     if (options?.onReset) {
       options.onReset()
-    } else if (oldReset) {
-      oldReset.click()
+    } else {
+      const { oldReset } = getLegacyColorPickerElements(container)
+      oldReset?.click()
     }
   }
 

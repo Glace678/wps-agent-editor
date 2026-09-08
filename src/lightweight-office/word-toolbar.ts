@@ -18,7 +18,6 @@ export const FULL_WORD_TOOLBAR_GROUPS = {
     'undo',
     'redo',
     'search',
-    'documentMode',
   ],
   center: [
     // 文本格式

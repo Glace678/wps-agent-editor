@@ -80,6 +80,12 @@ test('overflow / three-dots chrome is styled and not zero-width', () => {
   assert.match(css, /position:\s*absolute/)
 })
 
+test('document mode selector is removed while the editor remains mounted in editing mode', () => {
+  assert.doesNotMatch(toolbar, /'documentMode'/)
+  assert.doesNotMatch(overflowPolicy, /documentMode/)
+  assert.match(wordEditor, /documentMode="editing"/)
+})
+
 test('the current font name is centered in the toolbar combobox', () => {
   assert.match(
     css,
@@ -102,6 +108,13 @@ test('the Word font-size combobox uses a compact width without changing the font
   assert.match(overflowPolicy, /fontSize:\s*50/)
 })
 
+test('the Word line-height dropdown uses a compact width and centers option numbers', () => {
+  assert.match(css, /:has\(\.toolbar-dropdown-option\[data-item='btn-lineHeight-option'\]\)[\s\S]*?width:\s*58px\s*!important/)
+  assert.match(css, /:has\(\.toolbar-dropdown-option\[data-item='btn-lineHeight-option'\]\)[\s\S]*?justify-content:\s*center\s*!important/)
+  assert.match(css, /:has\(\.toolbar-dropdown-option\[data-item='btn-lineHeight-option'\]\)[\s\S]*?\.toolbar-dropdown-option__icon[\s\S]*?display:\s*none\s*!important/)
+  assert.match(css, /:has\(\.toolbar-dropdown-option\[data-item='btn-lineHeight-option'\]\)[\s\S]*?\.toolbar-dropdown-option__label[\s\S]*?text-align:\s*center\s*!important/)
+})
+
 test('overflow policy measures rendered controls and avoids the old fixed 96px reserve', () => {
   assert.match(overflowPolicy, /getBoundingClientRect\(\)\.width/)
   assert.match(overflowPolicy, /data-item\^='btn-'/)
@@ -112,7 +125,6 @@ test('overflow policy measures rendered controls and avoids the old fixed 96px r
 test('resize reuses the complete item set and explicitly refreshes the Vue toolbar', () => {
   assert.match(overflowPolicy, /orderedItems\.length === 0/)
   assert.match(overflowPolicy, /toolbar\.emit\('toolbar-items-changed'\)/)
-  assert.match(overflowPolicy, /documentMode\.group\.value = 'center'/)
 })
 
 test('WordEditor still mounts full modules from createFullWordEditorModules', () => {

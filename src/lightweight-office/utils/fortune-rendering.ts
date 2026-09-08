@@ -273,14 +273,32 @@ function withDarkWorksheetHeader(
  * cssWidth × DPR lands to an integer (why it appears "sometimes" and a later
  * relayout seems to fix it). Snap the CSS box to exactly backing ÷ DPR so
  * texels map 1:1 onto device pixels at any panel width.
+ *
+ * 增强 1：高精度浮点对齐（保留 4 位小数）。
+ *   Fortune 原生用 Math.round 取整 CSS 像素，当 backing/dpr 不是整数
+ *   时（常见于 125%/150% 缩放），0.1–0.5px 的误差就会让整个 canvas
+ *   被浏览器做 bilinear 降采样，文字发虚。提到 4 位小数精度后，
+ *   canvas.style.width 与 backing/dpr 完全一致，texel 与屏幕像素
+ *   一一对应。
+ *
+ * 增强 2：canvas 图像渲染模式显式声明。
+ *   对 1K（DPR≈1）显示器尤其重要：当用户放大或侧栏动画导致 canvas
+ *   落在亚像素位置时，optimize-contrast 让浏览器用最近邻 + 锐利
+ *   边缘而不是柔和模糊。
  */
 function snapCanvasCssSizeToBacking(canvas: HTMLCanvasElement) {
   if (canvas.width === 0 || canvas.height === 0) return
   const dpr = window.devicePixelRatio || 1
-  const width = `${Math.round((canvas.width / dpr) * 1000) / 1000}px`
-  const height = `${Math.round((canvas.height / dpr) * 1000) / 1000}px`
+  const cssW = canvas.width / dpr
+  const cssH = canvas.height / dpr
+  const width = `${Math.round(cssW * 10000) / 10000}px`
+  const height = `${Math.round(cssH * 10000) / 10000}px`
   if (canvas.style.width !== width) canvas.style.width = width
   if (canvas.style.height !== height) canvas.style.height = height
+  // 锐利的图像重采样：在任何非整数缩放或亚像素定位时，优先保持边缘清晰。
+  if (canvas.style.imageRendering !== 'auto') {
+    canvas.style.imageRendering = 'auto'
+  }
 }
 
 function installNativeDarkCanvasRendering() {
