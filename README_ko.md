@@ -1,44 +1,73 @@
 # WPS Agent Editor
 
-[简体中文](./README.md) | [English](./README_en.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md) | **한국어** | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md) | [Русский](./README_ru.md) | [Português](./README_pt.md) | [العربية](./README_ar.md)
+[简体中文](./README.md#zh-cn) | [English](./README_en.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md) | **한국어** | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md) | [Русский](./README_ru.md) | [Português](./README_pt.md) | [العربية](./README_ar.md)
 
 ---
 
-WPS Agent Editor 2는 Tauri v2, React 및 Rust를 기반으로 구축된 크로스 플랫폼 문서 편집기이자 멀티 에이전트 워크벤치입니다. 데스크톱 애플리케이션은 네이티브 시스템 WebView를 사용하며 번들된 Electron, Chromium, Node.js 또는 OnlyOffice Document Server를 완전히 제거했습니다.
+**WPS Agent Editor 2**는 **Tauri v2**, **React**, **Rust**를 기반으로 개발된 차세대 크로스 플랫폼 문서 편집기이자 멀티 에이전트 AI 워크벤치입니다. 운영체제 내장 WebView를 활용하여 Electron, Chromium, Node.js, OnlyOffice Document Server와 같은 무거운 런타임 번들링을 완전히 배제했습니다.
 
-## 내장 기능
+---
 
-- **Word**: SuperDoc
-- **Excel**: Fortune Sheet
-- **PDF**: PDF.js
-- **PowerPoint**: pptx-renderer; 일반적인 PPTX 편집은 Rust OOXML 백엔드에서 처리
-- **텍스트 및 Markdown**: 내장 에디터
-- **코드**: Monaco; 실행 및 디버깅은 로컬에 설치된 언어 툴체인을 사용
-- **Agent**: OpenAI, Anthropic, Google, Ollama 및 OpenAI 호환 공급자(Provider)
+## 멀티 AI 대화 및 멀티 에이전트 협업 엔진
 
-기존 레거시 `.doc`, `.ppt` 및 복합 미디어 변환에는 시스템에 설치된 WPS, Microsoft Office 또는 LibreOffice가 필요합니다. JavaScript/TypeScript 실행에는 시스템 Node.js가 필요하며, 기타 언어 역시 시스템 툴체인을 사용합니다. 누락된 종속성은 런타임 중 대용량 구성 요소를 무단으로 다운로드하지 않고 식별 가능한 `dependency-missing` 오류를 반환합니다.
+WPS Agent Editor는 다양한 최첨단 AI 모델을 하나의 체계적인 문서 처리 팀으로 조율하는 강력한 협업 엔진을 제공합니다:
 
-## 개발
+- **광범위한 AI 공급자 지원**: OpenAI(GPT-4o, o1), Anthropic(Claude 3.5 Sonnet), Google Gemini, DeepSeek, Ollama(로컬 오프라인 모델), Volcengine(Doubao) 및 표준 OpenAI 호환 API를 기본 지원합니다.
+- **두 가지 협업 워크플로**:
+  - **총괄 지휘 모드 (Directed Mode)**: 총괄 Agent(Director)가 복잡한 업무를 분석하고, 세부 하위 작업(`delegate_task`)을 각 분야 전문 모델(데이터 분석, 기술 문서 작성, 코드 리뷰 등)에 위임한 후 결과를 종합하여 최종 결과물을 도출합니다.
+  - **병렬 협업 모드 (Parallel Mode)**: 여러 AI 모델이 동일한 문서의 서로 다른 섹션을 동시에 작성, 교정 및 검증하며 실시간 스트리밍 및 핸드오프(Handoff)를 지원합니다.
+- **시각화된 협업 타임라인**: 작업 생성 및 할당, 모델 간 대화, 추론 사고 과정(Reasoning), 도구 실행 및 작업 인계를 이벤트 스트림으로 한눈에 추적합니다.
+- **지능형 컨텍스트 압축 및 Codex 마이그레이션**: 장문 대화는 전송 시 자동으로 휴대용 컨텍스트 창으로 압축됩니다. `CODEX_HOME`(`~/.codex`)의 로컬 JSONL 기록을 멱등성 있게 원클릭 동기화할 수 있습니다.
 
-요구 사항:
+---
 
+## 지능형 문서 협업 처리 기능
+
+대화형 AI와 문서 엔진을 직접 연결하여 실질적인 문서 조작을 수행합니다:
+
+- **원자적 문서 조작 (Atomic Operations)**: 텍스트 답변 생성에 그치지 않고, 삽입, 서식 지정, 교체, 주석 달기 등의 정밀 명령을 문서 엔진에 직접 전달합니다.
+- **커서 및 선택 영역 실시간 추적**: 사용자와 Agent의 커서 위치, 선택한 텍스트 범위, 수정 구역을 실시간으로 감지합니다.
+- **리비전 추적 및 충돌 해결**: 내장된 리비전 제어로 동시 편집 충돌을 사전에 방지하고 트랜잭션 상태를 유지하여 원클릭 실행 취소(Undo)를 지원합니다.
+- **사용자 승인 워크플로 (Human-in-the-Loop)**: 민감하거나 중요한 문서 수정에 대해 사용자 승인(`approval-required`) 단계를 설정할 수 있습니다.
+
+---
+
+## 지원 파일 형식 목록
+
+| 구분 | 확장자 | 지원 엔진 및 핵심 기능 |
+| :--- | :--- | :--- |
+| **Word 문서** | `.docx`, `.doc`, `.odt` | **SuperDoc** 리치 텍스트 엔진. 서식 스타일, 표, 이미지 완벽 지원. 구형 포맷 자동 변환. |
+| **스프레드시트** | `.xlsx`, `.xls`, `.csv`, `.ods` | **Fortune Sheet** 탑재. 방대한 함수 수식, 멀티 시트 탭, 서식 및 초고속 계산 지원. |
+| **프레젠테이션** | `.pptx`, `.ppt`, `.odp` | **pptx-renderer**를 통한 고해상도 렌더링 및 **Rust OOXML** 고속 백엔드 슬라이드 편집. |
+| **PDF 문서** | `.pdf` | **PDF.js** 및 **MuPDF** 듀얼 엔진. 초고속 열람 및 영구 저장 가능한 편집용 주석(형광펜, 펜, 텍스트) 지원. |
+| **텍스트 및 Markdown** | `.md`, `.markdown`, `.txt`, `.log` | 실시간 미리보기 및 즉시 로딩을 지원하는 내장 경량 에디터. |
+| **소스 코드** | `.js`, `.ts`, `.tsx`, `.py`, `.rs`, `.go`, `.java`, `.c`, `.cpp`, `.html`, `.css`, `.json`, `.yaml`, `.sh`, `.bat` 등 | **Monaco Editor** 탑재. 구문 강조, 코드 완성, 로컬 도구 체인을 통한 실행 및 디버깅 지원. |
+| **이미지 미리보기** | `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`, `.ico`, `.tif`, `.tiff` | 고성능 네이티브 이미지 뷰어. |
+
+*참고: 구형 `.doc`, `.ppt` 변환은 시스템에 설치된 WPS, Microsoft Office 또는 LibreOffice를 사용합니다. 코드 실행은 로컬 툴체인(Node.js, Python, Cargo 등)을 활용합니다. 종속성 부재 시 명확한 `dependency-missing` 알림을 제공하며 불필요한 대용량 다운로드를 수행하지 않습니다.*
+
+---
+
+## 개발 환경 설정
+
+### 요구 사항
 - Node.js 22+
-- Rust stable 및 해당 컴파일 타깃
-- [Tauri v2 플랫폼 필수 구성 요소](https://v2.tauri.app/start/prerequisites/)
+- Rust stable 및 컴파일 타깃
+- [Tauri v2 필수 구성 요소](https://v2.tauri.app/start/prerequisites/)
 
+### 빠른 시작
 ```bash
+# 종속성 설치
 npm ci
+
+# 데스크톱 앱 개발 모드 실행
 npm run dev
-```
 
-브라우저 UI만 실행:
-
-```bash
+# 브라우저 UI 전용 실행
 npm run dev:web
 ```
 
-검증 및 테스트:
-
+### 검증 및 테스트
 ```bash
 npm run typecheck
 npm run build:web
@@ -46,32 +75,19 @@ npm run check:rust
 npm run test:rust
 ```
 
-## 배포 대상
+---
 
-Release 빌드는 다음 데스크톱 바이너리를 생성합니다:
+## 배포 타깃 및 보안
 
+Release 빌드는 가볍고 빠른 네이티브 데스크톱 바이너리를 생성합니다:
 - **Windows 10+**: x86_64 및 ARM64 NSIS 설치 프로그램
 - **macOS**: Intel 및 Apple Silicon DMG
 - **Linux**: x86_64 및 ARM64 AppImage
 
-각 주요 다운로드 패키지의 CI 상한선은 100 MiB입니다. 태그는 `package.json`, Cargo 및 `tauri.conf.json`의 버전과 일치해야 합니다. 안정화 릴리스의 경우 Windows Authenticode, macOS Developer ID/공증 및 Tauri updater Ed25519 서명 키가 추가로 요구됩니다.
+CI 단계에서 주요 패키지 용량을 100 MiB 이내로 제한합니다. 위변조 방지 서명 및 복구 테스트를 거치며, 모든 API 키는 운영체제의 보안 자격 증명 보관함에 안전하게 저장됩니다.
 
-Pull Request는 6개 네이티브 타깃에 대해 단기 보존되는 미서명 테스트 패키지를 생성합니다. `v*-rc.*` 태그는 체크섬, SBOM, AGPL 대응 소스코드 아카이브 및 GitHub 빌드 증명을 포함한 공개 미서명 릴리스 후보(RC)를 빌드하지만, updater 메타데이터를 생성하지 않으며 자동 업데이트 채널에 진입하지 않습니다. 프로덕션 태그 빌드는 플랫폼별 서명, 파일 연결, 핵심 문서, Agent 스트리밍 응답, 설치, 실행, 콘텐츠 검사, 제거 스모크 테스트를 통과한 후에만 단일 finalize 작업에 진입합니다. finalize 작업은 updater 메타데이터, 거부 테스트 픽스처, 체크섬, SBOM, 소스 아카이브 및 빌드 증명을 통합 생성하고 먼저 prerelease로 게시합니다.
-
-`Signed staging release smoke`는 정확한 태그를 사용하여 6개 플랫폼에서 서명 변조 거부, 손상된 설치 복구, 실제 업그레이드, 재부팅, 실행 상태 점검, 실패 롤백 및 외부 버전/해시 일치 여부를 검증합니다. 또한 각 대상 플랫폼은 이전 버전을 재설치하고, 업데이트 후 실행 실패를 주입하여 프로세스 외부에서 이전 페이로드가 정상 복원 및 재시작되는지 확인합니다. 워크플로는 기본적으로 검증만 수행하며, 명시적으로 `promote`를 선택하고 전체 매트릭스가 통과한 경우에만 최소 권한 격리 작업이 prerelease를 안정화 릴리스로 승격합니다. `v2.0.0` 이후에는 이전에 릴리스된 태그를 반드시 제공해야 하며 업그레이드 검증을 생략할 수 없습니다. 전체 RC, 서명 자격 증명 및 안정화 버전 프로세스는 [RELEASING.md](./RELEASING.md)를 참조하십시오.
-
-## v2 데이터 전략
-
-v2는 새로운 `v2/` 애플리케이션 데이터 디렉터리에 설정을 저장합니다. 기존 Electron 설정 및 사용자 문서는 읽거나 이전하거나 삭제하지 않습니다. API 키는 다시 입력해야 하며 시스템 자격 증명 보관함(Credential Vault)에만 안전하게 보관됩니다. 업데이트 전 `v2/updater-health/`에 제한된 백업과 원자적 트랜잭션 상태가 생성됩니다. 새 버전은 React가 마운트되고 네이티브 IPC 왕복을 완료해야만 정상 상태로 확인되며, 그렇지 않으면 독립된 이전 버전 guardian 프로세스가 이전 설치 페이로드로 롤백합니다.
-
-## Codex 대화 마이그레이션
-
-Agent 패널을 처음 실행할 때 현재 사용자의 `CODEX_HOME`(설정되지 않은 경우 `~/.codex`)에 있는 활성 및 아카이브된 JSONL 세션을 검색하여 멱등성(idempotent) 방식으로 `v2/conversations/`에 동기화합니다. 기록 패널의 다운로드 버튼을 통해 언제든지 다시 검색할 수 있습니다. 이미 동기화된 파일은 중복 가져오기되지 않으며, 새로 추가되거나 변경된 대화는 증분 업데이트됩니다.
-
-가져오기는 재개 가능한 사용자, 어시스턴트, 시스템 메시지만 유지하며 제목, 프로젝트 경로, 원래 공급자/모델 및 아카이브 상태를 보존합니다. 개발자 지침, 내부 추론(Reasoning), 도구 호출 출력, Codex 자격 증명 파일 및 첨부 파일 원본 데이터는 읽거나 대화 컨텍스트에 포함되지 않습니다. 메시지 본문에 수동으로 붙여넣은 민감한 정보는 그대로 유지되므로 공유 전에 직접 확인하십시오. 대화 기록을 선택한 후 구성된 OpenAI, Anthropic, Google, Ollama 또는 OpenAI 호환 공급자로 즉시 전환하여 작업을 계속할 수 있습니다. 긴 기록은 전송 시 휴대용 컨텍스트 창으로 자동 압축되지만 원본 로컬 기록은 손상 없이 보존됩니다.
-
-Codex의 shell/process 세션, 승인 상태 및 실행 중인 도구는 마이그레이션되지 않습니다. 외부 모델은 가져온 가시적인 메시지와 현재 앱에서 사용 가능한 도구를 기반으로 작업을 계속 실행합니다.
+---
 
 ## 라이선스
 
-본 프로젝트는 GNU Affero General Public License v3.0 only에 따라 배포됩니다. [LICENSE](./LICENSE) 및 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)를 참조하십시오. 바이너리를 배포할 때는 해당 버전에 해당하는 전체 소스코드를 함께 제공해야 합니다.
+본 프로젝트는 **GNU Affero General Public License v3.0 only** (AGPL-3.0-only)에 따라 배포됩니다. 자세한 내용은 [LICENSE](./LICENSE) 및 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)를 확인하세요.
