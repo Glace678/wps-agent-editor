@@ -1467,5 +1467,15 @@
       "sourceType": "official-site-icon",
       "officialColor": false
     }
+  },
+  "aliasAssets": {
+    "volcengine": {
+      "name": "Volcengine Ark (火山方舟)",
+      "assetFile": "volcengine.svg",
+      "sourceUrl": "https://www.volcengine.com/",
+      "pageUrl": "https://www.volcengine.com/product/ark",
+      "sourceType": "official-site-logo",
+      "officialColor": true
+    }
   }
 }
