@@ -1,5 +1,9 @@
 # WPS Agent Editor
 
+**简体中文** | [English](./README_en.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md) | [Русский](./README_ru.md) | [Português](./README_pt.md) | [العربية](./README_ar.md)
+
+---
+
 WPS Agent Editor 2 是基于 Tauri v2、React 和 Rust 的跨平台文档编辑器与多 Agent 工作台。桌面端使用系统 WebView，不再捆绑 Electron、Chromium、Node.js 或 OnlyOffice Document Server。
 
 ## 内置能力
