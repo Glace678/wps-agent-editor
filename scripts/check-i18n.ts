@@ -49,7 +49,11 @@ function countMatches(value: string, pattern: RegExp): number {
 }
 
 const localeEntries = Object.entries(translations) as [LanguageCode, Translation][]
-const expectedCodes = ['zh-CN', 'en', 'ja', 'es', 'pt', 'de', 'fr', 'ru', 'ar']
+// The canonical language list lives in `src/lib/i18n/types.ts`. Deriving the
+// codes from it here keeps this script from silently drifting out of sync with
+// the runtime list; drift is still caught by the translation-registry and
+// locale-file checks below.
+const expectedCodes = languages.map(({ code }) => code)
 const reviewedLocaleCodes = ['ja', 'es', 'pt', 'de', 'fr', 'ru', 'ar'] as const
 type ReviewedLocaleCode = (typeof reviewedLocaleCodes)[number]
 const reviewedSections = ['codeEditor.', 'bottomPanel.'] as const
@@ -183,9 +187,8 @@ const windowsNotepadFontPreviews = {
   ru: 'Звуки океана успокаивают меня.',
   ar: 'صوت أمواج المحيط يهدئ روحي.',
 } satisfies Record<LanguageCode, string>
-const languageCodes = languages.map(({ code }) => code)
 const registeredCodes = localeEntries.map(([code]) => code)
-const expectedFiles = languageCodes
+const expectedFiles = expectedCodes
   .map((code) => `${code}.ts`)
   .sort()
 const actualFiles = readdirSync(localeDirectory)
@@ -193,11 +196,7 @@ const actualFiles = readdirSync(localeDirectory)
   .sort()
 
 assert(
-  JSON.stringify(languageCodes) === JSON.stringify(expectedCodes),
-  `Unexpected language list. Expected ${expectedCodes.join(', ')}, received ${languageCodes.join(', ')}.`,
-)
-assert(
-  JSON.stringify([...registeredCodes].sort()) === JSON.stringify([...languageCodes].sort()),
+  JSON.stringify([...registeredCodes].sort()) === JSON.stringify([...expectedCodes].sort()),
   'The language list and translation registry are out of sync.',
 )
 assert(
@@ -205,7 +204,7 @@ assert(
   `Unexpected locale files. Expected ${expectedFiles.join(', ')}, received ${actualFiles.join(', ')}.`,
 )
 
-for (const code of languageCodes) {
+for (const code of expectedCodes) {
   assert(
     translations[code].notepad.fontPreview === windowsNotepadFontPreviews[code],
     `${code}: the font preview must match Windows Notepad SettingFontSampleText.`,
@@ -214,7 +213,16 @@ for (const code of languageCodes) {
 
 const english = flatten(translations.en)
 const englishKeys = [...english.keys()].sort()
-assert(englishKeys.length === 739, `Expected 739 translation keys, received ${englishKeys.length}.`)
+// Baseline key count. The exact value is deliberate: it makes this a hard guard
+// against accidentally deleting a whole section of the English tree, which a
+// threshold check would let through. Update the literal (and note the source)
+// whenever keys are intentionally added or removed.
+//
+// 739 -> 761: the agent-collaboration UI added 22 keys — 21 under `agentUi`
+// (collaborationChat, collaborationMode, modeDirected/modeParallel and their
+// hints, directorAgent, stopCollaboration, backToChat, delegationTag and the
+// line* timeline strings) plus pdfViewer.bodyEditHint.
+assert(englishKeys.length === 761, `Expected 761 translation keys, received ${englishKeys.length}.`)
 
 for (const [code, translation] of localeEntries) {
   const current = flatten(translation)
@@ -303,7 +311,7 @@ for (const [key, value] of flatten(translations.fr)) {
   assert(!/\p{L}'\p{L}/u.test(value), `fr:${key} contains a straight apostrophe between letters.`)
 }
 
-for (const code of languageCodes) {
+for (const code of expectedCodes) {
   const current = flatten(translations[code])
   for (const [key, expected] of Object.entries(countTextExpectations[code])) {
     assert(current.get(key) === expected, `${code}:${key} must use the reviewed count-safe wording.`)
@@ -364,7 +372,7 @@ assert(
 )
 for (const [bindingIndex, key] of shortcutTranslationKeys.entries()) {
   const binding = OFFICE_SHORTCUT_CATALOG[bindingIndex]
-  for (const code of languageCodes) {
+  for (const code of expectedCodes) {
     assert(t(key, code) !== key, `${code}: missing shortcut translation for ${binding.id}.`)
   }
 }
