@@ -33,7 +33,6 @@ interface AgentState {
   loadConversation: (agentId: string, conversation: ConversationRecord) => void
   setConversationSummaries: (summaries: ConversationSummary[]) => void
   upsertConversationSummary: (summary: ConversationSummary) => void
-  removeConversationSummary: (conversationId: string) => void
   setCodexImportResult: (result: CodexImportResult | null) => void
   setIsImportingCodex: (value: boolean) => void
   setIsRunning: (v: boolean) => void
@@ -134,11 +133,6 @@ export const useAgentStore = create<AgentState>((set) => ({
       summary,
       ...state.conversationSummaries.filter((item) => item.id !== summary.id),
     ].sort((left, right) => right.updatedAt - left.updatedAt),
-  })),
-  removeConversationSummary: (conversationId) => set((state) => ({
-    conversationSummaries: state.conversationSummaries.filter(
-      (summary) => summary.id !== conversationId,
-    ),
   })),
   setCodexImportResult: (codexImportResult) => set({ codexImportResult }),
   setIsImportingCodex: (isImportingCodex) => set({ isImportingCodex }),
