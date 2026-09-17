@@ -100,7 +100,10 @@ export function AgentList({
   useEffect(() => {
     if (!isOpen) return
     const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setIsOpen(false)
+      const target = event.target
+      // Narrow at runtime: event.target is EventTarget|null, and only a Node
+      // can be contained by the dropdown root.
+      if (target instanceof Node && !rootRef.current?.contains(target)) setIsOpen(false)
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setIsOpen(false)
