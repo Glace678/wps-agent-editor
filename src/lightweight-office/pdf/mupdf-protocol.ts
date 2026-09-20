@@ -90,9 +90,26 @@ export type PdfWorkerRequest =
       documentId: string
     }
   | {
+      type: 'loadTextLayer'
+      requestId: string
+      documentId: string
+      pageIndex: number
+    }
+  | {
       type: 'upsertText'
       requestId: string
       documentId: string
+      annotation: PdfTextAnnotationRecord
+      fontData?: ArrayBuffer
+    }
+  | {
+      // 直接修改 PDF 正文行：先用 Redaction 抹除原字，再在同位置写入 WAE FreeText。
+      // text 为空表示仅抹除该行原文。
+      type: 'replaceBodyText'
+      requestId: string
+      documentId: string
+      pageIndex: number
+      redactionRect: PdfNormalizedRect
       annotation: PdfTextAnnotationRecord
       fontData?: ArrayBuffer
     }
@@ -136,6 +153,26 @@ export interface PdfRenderResult {
 
 export interface PdfSaveResult {
   data: ArrayBuffer
+}
+
+/** 一行可选文字（坐标已归一化到页面 CropBox 的 0..1，未旋转坐标系） */
+export interface PdfTextLine {
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+  /** 正文行的字体信息（用于“点原文直接改”时的就地编辑匹配） */
+  fontFamily?: string
+  fontSize?: number
+  fontBold?: boolean
+  fontItalic?: boolean
+  color?: string
+}
+
+export interface PdfTextLayer {
+  pageIndex: number
+  lines: PdfTextLine[]
 }
 
 export type PdfWorkerSuccess = {

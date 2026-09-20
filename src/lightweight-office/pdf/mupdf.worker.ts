@@ -10,6 +10,8 @@ import type {
   PdfRotation,
   PdfSaveResult,
   PdfTextAnnotationRecord,
+  PdfTextLayer,
+  PdfTextLine,
   PdfWorkerRequest,
   PdfWorkerResponse,
 } from './mupdf-protocol'
@@ -694,6 +696,66 @@ function upsertTextAnnotation(
   }
 }
 
+/**
+ * 直接修改 PDF 正文行（WPS 式点原文改字）：在同一个 journal 操作内
+ * 1) 用 Redaction 注释抹除该行原有字形（不涂黑块、不动图片与矢量内容）；
+ * 2) 在同位置创建 WAE FreeText 注释写入新文字。空文本表示仅抹除。
+ */
+function replaceBodyText(
+  state: OpenDocumentState,
+  pageIndex: number,
+  redactionRect: PdfNormalizedRect,
+  record: PdfTextAnnotationRecord,
+  fontData?: ArrayBuffer,
+): void {
+  const page = state.document.loadPage(pageIndex)
+  try {
+    const sourceRect = denormalizeRect(page, redactionRect)
+    // 略微扩大涂除范围以盖住伸出部分；行高很小时按比例收窄，避免误伤相邻行。
+    const lineHeight = sourceRect[3] - sourceRect[1]
+    const padding = Math.min(1, Math.max(0.2, lineHeight * 0.12))
+    const eraseRect: [number, number, number, number] = [
+      sourceRect[0] - padding,
+      sourceRect[1] - padding,
+      sourceRect[2] + padding,
+      sourceRect[3] + padding,
+    ]
+    const redaction = page.createAnnotation('Redact')
+    try {
+      redaction.setRect(eraseRect)
+      redaction.update()
+      // black_boxes=false：不绘制填充块；图片/矢量保持原样（NONE）；只移除文字。
+      page.applyRedactions(
+        false,
+        mupdf.PDFPage.REDACT_IMAGE_NONE,
+        mupdf.PDFPage.REDACT_LINE_ART_NONE,
+        mupdf.PDFPage.REDACT_TEXT_REMOVE,
+      )
+    } finally {
+      // applyRedactions 会一并删除 Redact 注释本身；这里兜底释放引用。
+      try {
+        page.deleteAnnotation(redaction)
+      } catch {
+        // 注释已被 applyRedactions 移除。
+      }
+      destroyObject(redaction)
+    }
+
+    if (record.text) {
+      const annotation = page.createAnnotation('FreeText')
+      try {
+        annotation.setName(`WAE:${record.id}`)
+        annotation.setCreationDate(new Date())
+        applyTextAppearance(state, page, annotation, record, fontData)
+      } finally {
+        destroyObject(annotation)
+      }
+    }
+  } finally {
+    destroyObject(page)
+  }
+}
+
 function deleteAnnotation(state: OpenDocumentState, annotationId: string): void {
   const located = findEditableAnnotation(state, annotationId)
   if (!located) throw new PdfWorkerError('annotation-not-found', 'The annotation no longer exists')
@@ -760,6 +822,114 @@ function renderPage(
   }
 }
 
+const MAX_TEXT_LINES_PER_PAGE = 8_000
+const MAX_TEXT_LINE_CHARS = 4_096
+
+/** MuPDF 结构化文本里的子集字体会带 6 字母前缀，如 "LNUHNF+SimSun"。 */
+function stripSubsetFontPrefix(name: string): string {
+  return name.replace(/^[A-Z]{6}\+/, '')
+}
+
+function colorToHex(color: number[] | null | undefined): string | undefined {
+  if (!Array.isArray(color) || color.length < 3) return undefined
+  const channel = (value: number) => Math.min(Math.max(Math.round(value * 255), 0), 255)
+    .toString(16)
+    .padStart(2, '0')
+  return `#${channel(color[0])}${channel(color[1])}${channel(color[2])}`
+}
+
+interface ActiveTextLine {
+  bbox: [number, number, number, number]
+  wmode: number
+  horizontal: boolean
+  text: string
+  fontFamily?: string
+  fontSize?: number
+  fontBold?: boolean
+  fontItalic?: boolean
+  color?: string
+}
+
+/**
+ * 把 MuPDF 结构化文本转成归一化坐标的行数据，供前端渲染透明可选文字层，
+ * 同时携带每行首个字符的字体/字号/颜色，供「点原文直接改」就地编辑时匹配样式。
+ * 坐标与注释共用同一套 CropBox 归一化空间（未旋转系，旋转由 CSS 层处理）。
+ */
+function textLayerForPage(
+  state: OpenDocumentState,
+  pageIndex: number,
+): PdfTextLayer {
+  const page = state.document.loadPage(pageIndex)
+  try {
+    const structuredText = page.toStructuredText({})
+    const lines: PdfTextLine[] = []
+    let active: ActiveTextLine | null = null
+    // walk 在整个 span 期间复用同一个 Font 对象，不能在 onChar 里提前销毁，
+    // 否则后续字符/行的取字会失效；统一在遍历结束后释放。
+    const seenFonts: InstanceType<typeof mupdf.Font>[] = []
+    const finalizeLine = () => {
+      if (!active) return
+      const line = active
+      active = null
+      if (lines.length >= MAX_TEXT_LINES_PER_PAGE || line.wmode === 1 || !line.horizontal) return
+      const text = line.text.trim()
+      const [x0, y0, x1, y1] = line.bbox
+      if (!text || x1 - x0 <= 0 || y1 - y0 <= 0) return
+      const rect = normalizeRect(page, line.bbox)
+      if (rect.width <= 0 || rect.height <= 0) return
+      lines.push({
+        text: text.length > MAX_TEXT_LINE_CHARS ? `${text.slice(0, MAX_TEXT_LINE_CHARS)}…` : text,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        fontFamily: line.fontFamily,
+        fontSize: typeof line.fontSize === 'number' && Number.isFinite(line.fontSize)
+          ? Math.min(Math.max(line.fontSize, 4), 288)
+          : undefined,
+        fontBold: line.fontBold,
+        fontItalic: line.fontItalic,
+        color: line.color,
+      })
+    }
+    try {
+      structuredText.walk({
+        beginLine(bbox, wmode, direction) {
+          finalizeLine()
+          active = {
+            bbox: [bbox[0], bbox[1], bbox[2], bbox[3]],
+            wmode,
+            horizontal: Math.abs(direction[1]) <= 0.1 && Math.abs(direction[0]) >= 0.9,
+            text: '',
+          }
+        },
+        onChar(c, _origin, font, size, _quad, color) {
+          if (!active) return
+          if (active.text.length < MAX_TEXT_LINE_CHARS) active.text += c
+          if (!seenFonts.includes(font)) seenFonts.push(font)
+          if (active.fontFamily === undefined) {
+            active.fontFamily = stripSubsetFontPrefix(font.getName())
+            active.fontSize = size
+            active.fontBold = font.isBold()
+            active.fontItalic = font.isItalic()
+            active.color = colorToHex(color)
+          }
+        },
+        endLine() {
+          finalizeLine()
+        },
+      })
+      finalizeLine()
+    } finally {
+      for (const font of seenFonts) destroyObject(font)
+      destroyObject(structuredText)
+    }
+    return { pageIndex, lines }
+  } finally {
+    destroyObject(page)
+  }
+}
+
 function extractText(state: OpenDocumentState): string {
   const pages: string[] = []
   for (let index = 0; index < state.document.countPages(); index += 1) {
@@ -779,24 +949,35 @@ function extractText(state: OpenDocumentState): string {
 }
 
 function saveDocument(state: OpenDocumentState): PdfSaveResult {
+  // subsetFonts()/garbage 收集会改写 PDF 对象，必须处于 operation 中，否则 MuPDF
+  // 会对每次改写报 “Can't alter an object other than in an operation”。
+  // 用隐式操作：保存属于内部维护，不应进入用户的撤销栈。
+  state.document.beginImplicitOperation()
+  let buffer: InstanceType<typeof mupdf.Buffer>
   try {
-    state.document.subsetFonts()
-  } catch (error) {
-    throw new PdfWorkerError(
-      'font-subset-failed',
-      error instanceof Error ? error.message : 'Could not subset embedded fonts',
+    try {
+      state.document.subsetFonts()
+    } catch (error) {
+      throw new PdfWorkerError(
+        'font-subset-failed',
+        error instanceof Error ? error.message : 'Could not subset embedded fonts',
+      )
+    }
+    buffer = state.document.saveToBuffer(
+      'compress=yes,compress-fonts=yes,garbage=deduplicate,encrypt=keep',
     )
-  }
-  const buffer = state.document.saveToBuffer(
-    'compress=yes,compress-fonts=yes,garbage=deduplicate,encrypt=keep',
-  )
-  try {
     if (buffer.length <= 0) {
       throw new PdfWorkerError('save-failed', 'MuPDF returned an empty PDF')
     }
     if (buffer.length > MAX_SAVE_BYTES) {
       throw new PdfWorkerError('pdf-too-large', 'The edited PDF exceeds the 100 MiB save limit')
     }
+  } catch (error) {
+    state.document.abandonOperation()
+    throw error
+  }
+  state.document.endOperation()
+  try {
     return { data: copyArrayBuffer(buffer.asUint8Array()) }
   } finally {
     destroyObject(buffer)
@@ -865,9 +1046,37 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     return { result, transfer: [result.png] }
   }
   if (request.type === 'extractText') return { result: extractText(state) }
+  if (request.type === 'loadTextLayer') {
+    if (
+      !Number.isInteger(request.pageIndex)
+      || request.pageIndex < 0
+      || request.pageIndex >= state.document.countPages()
+    ) {
+      throw new PdfWorkerError('invalid-page', 'The requested PDF page is out of range')
+    }
+    return { result: textLayerForPage(state, request.pageIndex) }
+  }
   if (request.type === 'upsertText') {
     withOperation(state, 'Edit PDF text', () => {
       upsertTextAnnotation(state, request.annotation, request.fontData)
+    })
+    const result = mutationResult(state)
+    return {
+      result,
+      transfer: result.annotations.flatMap((record) => (
+        record.type === 'image' && record.previewPng ? [record.previewPng] : []
+      )),
+    }
+  }
+  if (request.type === 'replaceBodyText') {
+    withOperation(state, 'Edit PDF text', () => {
+      replaceBodyText(
+        state,
+        request.pageIndex,
+        request.redactionRect,
+        request.annotation,
+        request.fontData,
+      )
     })
     const result = mutationResult(state)
     return {

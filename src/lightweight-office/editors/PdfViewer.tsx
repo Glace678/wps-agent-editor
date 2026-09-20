@@ -40,6 +40,8 @@ import type {
   PdfPageInfo,
   PdfRotation,
   PdfTextAnnotationRecord,
+  PdfTextLayer,
+  PdfTextLine,
 } from '../pdf/mupdf-protocol'
 
 const MAX_PAGE_CSS_WIDTH = 896
@@ -312,7 +314,7 @@ export function PdfViewer({
   const [fitZoom, setFitZoom] = useState<number | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [renderTargets, setRenderTargets] = useState<number[]>([])
-  const [, setRenderRevision] = useState(0)
+  const [renderRevision, setRenderRevision] = useState(0)
   const [canAnnotate, setCanAnnotate] = useState(false)
   const [hasSignatures, setHasSignatures] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -339,6 +341,8 @@ export function PdfViewer({
   const documentGenerationRef = useRef(0)
   const renderEpochRef = useRef(0)
   const renderedPagesRef = useRef(new Map<number, RenderedPage>())
+  // 正文替换后这些页需要无视缓存强制重绘（redaction 已改变页面内容）
+  const forcedRerenderRef = useRef(new Set<number>())
   const previewUrlsRef = useRef(new Map<string, string>())
   const pagesRef = useRef<PdfPageInfo[]>([])
   const annotationsRef = useRef<PdfUiAnnotation[]>([])
@@ -355,7 +359,23 @@ export function PdfViewer({
   const dragStateRef = useRef<DragState | null>(null)
   const editStyleRef = useRef({ bold: false, italic: false, underline: false })
   const editModeRef = useRef(editMode)
+  const currentToolRef = useRef(currentTool)
   const selectedAnnotIdRef = useRef<string | null>(null)
+  // 文本工具在页面上新建的文本框：等 worker 在页面对应位置生成注释、元素挂载后立即进入编辑
+  const pendingTextEditRef = useRef<Set<string>>(new Set())
+  // 刚创建、用户尚未输入任何内容的文本框（blur/退出编辑时为空或仍是占位符则自动删除）
+  const freshTextAnnotationsRef = useRef<Set<string>>(new Set())
+  // 页面对应的 MuPDF 结构化文字层（懒加载，按可见页缓存）
+  const textLayersRef = useRef(new Map<number, PdfTextLayer>())
+  const [textLayerVersion, setTextLayerVersion] = useState(0)
+  // “点原文直接改”的本地草稿（未提交的 WAE FreeText 占位，失焦才落盘到 worker）
+  const bodyDraftsRef = useRef(new Map<string, {
+    annotation: PdfTextAnnotationRecord
+    redactionRect: PdfNormalizedRect
+    originalText: string
+  }>())
+  // 正文被涂改的页：撤销/重做后这些页的位图与文字层都要重新拉取
+  const bodyEditedPagesRef = useRef(new Set<number>())
 
   const setSelectedAnnotationId = useCallback((annotationId: string | null) => {
     selectedAnnotIdRef.current = annotationId
@@ -370,6 +390,7 @@ export function PdfViewer({
   fitModeRef.current = fitMode
   fitZoomRef.current = fitZoom
   editModeRef.current = editMode
+  currentToolRef.current = currentTool
   selectedAnnotIdRef.current = selectedAnnotId
 
   const eligibleFontFaces = useMemo(
@@ -423,6 +444,14 @@ export function PdfViewer({
       if (nextUrls.get(id) !== url) URL.revokeObjectURL(url)
     }
     previewUrlsRef.current = nextUrls
+    // 未提交的“原文就地编辑”草稿仍在本地：mutation 回包里没有它，需保留以免闪烁丢失
+    if (bodyDraftsRef.current.size > 0) {
+      for (const draft of bodyDraftsRef.current.values()) {
+        if (!nextRecords.some((record) => record.id === draft.annotation.id)) {
+          nextRecords.push(draft.annotation)
+        }
+      }
+    }
     annotationsRef.current = nextRecords
     setAnnotations(nextRecords)
     const selected = selectedAnnotIdRef.current
@@ -475,6 +504,13 @@ export function PdfViewer({
     clientRef.current?.dispose()
     clientRef.current = client
     loadedWorkerFontsRef.current.clear()
+    pendingTextEditRef.current.clear()
+    freshTextAnnotationsRef.current.clear()
+    bodyDraftsRef.current.clear()
+    forcedRerenderRef.current.clear()
+    bodyEditedPagesRef.current.clear()
+    textLayersRef.current.clear()
+    setTextLayerVersion((value) => value + 1)
     mutationQueueRef.current = Promise.resolve()
     baselineRef.current = null
     dirtyRef.current = false
@@ -720,6 +756,19 @@ export function PdfViewer({
     }
     if (changed) setRenderRevision((value) => value + 1)
 
+    // 正文行替换成功后，强制丢弃该页旧位图并重新渲染（与旋转/缩放无关）
+    if (forcedRerenderRef.current.size > 0) {
+      for (const pageIndex of forcedRerenderRef.current) {
+        const stale = renderedPagesRef.current.get(pageIndex)
+        if (stale) {
+          URL.revokeObjectURL(stale.url)
+          renderedPagesRef.current.delete(pageIndex)
+        }
+      }
+      forcedRerenderRef.current.clear()
+      setRenderRevision((value) => value + 1)
+    }
+
     const deviceScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3)
     const targetWidth = Math.max(64, Math.round(displayWidth * deviceScale))
     for (const pageIndex of renderTargets) {
@@ -741,7 +790,39 @@ export function PdfViewer({
         })
         .catch((cause) => console.error('[PdfViewer] page render failed:', pageIndex + 1, cause))
     }
-  }, [displayWidth, pages.length, renderTargets, rotation])
+  }, [displayWidth, pages.length, renderTargets, rotation, renderRevision])
+
+  // 可见页的结构化文字层懒加载（供鼠标划选/复制 PDF 原文），离屏即释放
+  useEffect(() => {
+    const client = clientRef.current
+    if (!client || pages.length === 0) return
+    let cancelled = false
+    const targets = new Set(renderTargets)
+    const cached = textLayersRef.current
+    let changed = false
+    for (const pageIndex of [...cached.keys()]) {
+      if (!targets.has(pageIndex)) {
+        cached.delete(pageIndex)
+        changed = true
+      }
+    }
+    for (const pageIndex of renderTargets) {
+      if (cached.has(pageIndex)) continue
+      void client.loadTextLayer(pageIndex)
+        .then((layer) => {
+          if (cancelled || clientRef.current !== client) return
+          textLayersRef.current.set(pageIndex, layer)
+          setTextLayerVersion((value) => value + 1)
+        })
+        .catch((cause) => {
+          if (!cancelled && clientRef.current === client) {
+            console.error('[PdfViewer] text layer failed:', pageIndex + 1, cause)
+          }
+        })
+    }
+    if (changed) setTextLayerVersion((value) => value + 1)
+    return () => { cancelled = true }
+  }, [pages.length, renderTargets])
 
   const selectFontFace = useCallback((family: string, bold: boolean, italic: boolean): SystemFontFace => {
     const key = normalizeSystemFontFamilyName(family)
@@ -773,6 +854,7 @@ export function PdfViewer({
     operation: () => Promise<PdfMutationResult>,
     description: string,
     synchronizeSelection = false,
+    afterCommit?: (result: PdfMutationResult) => void,
   ) => {
     const run = async () => {
       if (clientRef.current !== client) return
@@ -780,6 +862,7 @@ export function PdfViewer({
         const result = await operation()
         if (clientRef.current === client) {
           applyMutationResult(result)
+          afterCommit?.(result)
           if (synchronizeSelection && selectedAnnotIdRef.current) {
             const selected = result.annotations.find(
               (record) => record.id === selectedAnnotIdRef.current,
@@ -814,16 +897,317 @@ export function PdfViewer({
     queueMutation(client, () => upsertText(client, record), 'edit text')
   }, [queueMutation, upsertText])
 
+  const isCJKText = useCallback(
+    (value: string): boolean => /[㐀-䶿一-鿿豈-﫿]/.test(value),
+    [],
+  )
+
+  /**
+   * 正文行就地编辑时，按 PDF 提取到的字体族（已剥子集前缀）匹配可嵌入的系统字体；
+   * 匹配不到时：含中文的行优先用微软雅黑，其余回退 Helvetica。
+   */
+  const matchBodyFontFace = useCallback((
+    family: string | undefined,
+    text: string,
+    bold: boolean,
+    italic: boolean,
+  ): SystemFontFace => {
+    if (family) {
+      const key = normalizeSystemFontFamilyName(family)
+      const sameFamily = eligibleFontFaces.filter(
+        (face) => normalizeSystemFontFamilyName(face.familyName) === key,
+      )
+      if (sameFamily.length > 0) {
+        const targetWeight = bold ? 700 : 400
+        return [...sameFamily].sort((left, right) => {
+          const leftItalic = left.style !== 'normal'
+          const rightItalic = right.style !== 'normal'
+          return Math.abs(left.weight - targetWeight) - Math.abs(right.weight - targetWeight)
+            || Number(leftItalic !== italic) - Number(rightItalic !== italic)
+        })[0]
+      }
+    }
+    if (isCJKText(text)) {
+      const cjk = selectFontFace('Microsoft YaHei', bold, italic)
+      if (cjk.fontId) return cjk
+    }
+    return PDF_BASE_FONT
+  }, [eligibleFontFaces, isCJKText, selectFontFace])
+
+  /** 就地编辑草稿失焦：有改动则「涂白原文 + 原位写新字」；无改动/Esc 则丢弃草稿。 */
+  const commitBodyDraft = useCallback((
+    annotationId: string,
+    raw: string,
+    cancel: boolean,
+  ) => {
+    const draft = bodyDraftsRef.current.get(annotationId)
+    if (!draft) return false
+    const client = clientRef.current
+    const unchanged = raw === draft.originalText
+    if (cancel || !client) {
+      bodyDraftsRef.current.delete(annotationId)
+      const next = annotationsRef.current.filter((record) => record.id !== annotationId)
+      annotationsRef.current = next
+      setAnnotations(next)
+      if (selectedAnnotIdRef.current === annotationId) setSelectedAnnotationId(null)
+      return true
+    }
+    const current = annotationsRef.current.find(
+      (record): record is PdfTextAnnotationRecord => record.id === annotationId && record.type === 'text',
+    )
+    const resolved = current ?? draft.annotation
+    if (unchanged) {
+      bodyDraftsRef.current.delete(annotationId)
+      const next = annotationsRef.current.filter((record) => record.id !== annotationId)
+      annotationsRef.current = next
+      setAnnotations(next)
+      if (selectedAnnotIdRef.current === annotationId) setSelectedAnnotationId(null)
+      return true
+    }
+    bodyDraftsRef.current.delete(annotationId)
+    const record: PdfTextAnnotationRecord = { ...resolved, text: raw }
+    const pageIndex = record.pageIndex
+    bodyEditedPagesRef.current.add(pageIndex)
+    const refreshPage = () => {
+      forcedRerenderRef.current.add(pageIndex)
+      setRenderRevision((value) => value + 1)
+      // 原文已被涂除：丢弃本地与 client 的文字层缓存并重新提取
+      textLayersRef.current.delete(pageIndex)
+      client.invalidateTextLayer(pageIndex)
+      void client.loadTextLayer(pageIndex)
+        .then((layer) => {
+          if (clientRef.current === client) {
+            textLayersRef.current.set(pageIndex, layer)
+            setTextLayerVersion((value) => value + 1)
+          }
+        })
+        .catch((cause) => console.error('[PdfViewer] text layer reload failed:', pageIndex + 1, cause))
+    }
+    queueMutation(
+      client,
+      async () => {
+        try {
+          const data = await fontTransfer(record.font)
+          const result = await client.replaceBodyText(pageIndex, draft.redactionRect, record, data)
+          if (!record.font.fontId.startsWith('builtin:')) {
+            loadedWorkerFontsRef.current.add(record.font.fontId)
+          }
+          return result
+        } catch (cause) {
+          // 提交失败：移除仅存在于本地的草稿注释，避免页面残留无法提交的孤儿框
+          const reverted = annotationsRef.current.filter((item) => item.id !== record.id)
+          annotationsRef.current = reverted
+          setAnnotations(reverted)
+          if (selectedAnnotIdRef.current === record.id) setSelectedAnnotationId(null)
+          throw cause
+        }
+      },
+      'edit body text',
+      false,
+      refreshPage,
+    )
+    return true
+  }, [fontTransfer, queueMutation, setSelectedAnnotationId])
+
+  /**
+   * 清理所有「新建但从未输入」的文本框（点击别处/退出编辑/保存时调用）。
+   * 只删除 worker 已确认存在的注释，避免创建失败后误报 not-found。
+   */
+  const discardFreshAnnotations = useCallback(() => {
+    const client = clientRef.current
+    const freshIds = [...freshTextAnnotationsRef.current]
+    if (!client || freshIds.length === 0) return
+    // 正在编辑的框交给即将发生的 blur 处理，避免重复删除
+    const activeId = document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest('[data-annot-id]')?.getAttribute('data-annot-id')
+      : null
+    for (const id of freshIds) {
+      if (id === activeId) continue
+      freshTextAnnotationsRef.current.delete(id)
+      if (annotationsRef.current.some((record) => record.id === id)) {
+        queueMutation(client, () => client.deleteAnnotation(id), 'discard empty annotation')
+      }
+    }
+  }, [queueMutation])
+
+  /**
+   * 文本框结束编辑：有改动则提交；空内容、或新建后一字未输（仍是占位文字）则删除，
+   * 避免页面上残留无人认领的「双击编辑文字」空框。失焦目标是工具栏时先保留
+   * （用户可能还要调字体/颜色），由 discardFreshAnnotations 在决定性时机统一清理。
+   */
+  const finishTextAnnotationEdit = useCallback((
+    annotation: PdfTextAnnotationRecord,
+    element: HTMLElement,
+    relatedTarget: EventTarget | null,
+    cancel = false,
+  ) => {
+    if (!element.isContentEditable) return
+    // 「点原文直接改」的本地草稿：提交 = 涂白原字+原位写新字；取消/未改 = 丢弃草稿
+    const draft = bodyDraftsRef.current.get(annotation.id)
+    if (draft) {
+      const movingToToolbar = relatedTarget instanceof Node
+        && (rootRef.current?.querySelector('[data-testid="pdf-toolbar"]')?.contains(relatedTarget)
+          || (relatedTarget instanceof Element
+            && !!relatedTarget.closest('[role="listbox"][data-testid$="-menu"]')))
+      const raw = element.innerText.replace(/\r\n?/g, '\n').replace(/\n+$/, '')
+      // 焦点只是移到工具栏（改字体/颜色）且内容未改时，保持草稿不丢（退出可编辑态）
+      if (!cancel && movingToToolbar && raw === draft.originalText) {
+        element.contentEditable = 'false'
+        return
+      }
+      element.contentEditable = 'false'
+      const selection = window.getSelection()
+      if (selection && element.contains(selection.anchorNode)) selection.removeAllRanges()
+      commitBodyDraft(annotation.id, raw, cancel)
+      return
+    }
+    const toolbar = rootRef.current?.querySelector('[data-testid="pdf-toolbar"]')
+    // 字体/字号/颜色菜单通过 portal 挂在 body 下，不属于工具栏 DOM，需单独识别
+    const movingToFormatMenu = relatedTarget instanceof Element
+      && !!relatedTarget.closest('[role="listbox"][data-testid$="-menu"]')
+    const movingToToolbar = movingToFormatMenu
+      || (relatedTarget instanceof Node && toolbar?.contains(relatedTarget))
+    const raw = element.innerText.replace(/\r\n?/g, '\n').replace(/\n+$/, '')
+    const isEmpty = !raw.trim()
+    const unchangedPlaceholder = raw === annotation.text
+      && freshTextAnnotationsRef.current.has(annotation.id)
+    if ((isEmpty || unchangedPlaceholder) && movingToToolbar) {
+      // 暂存：退出可编辑态但保留空框，等新建/退出编辑/保存时再清理
+      element.contentEditable = 'false'
+      return
+    }
+    element.contentEditable = 'false'
+    freshTextAnnotationsRef.current.delete(annotation.id)
+    const selection = window.getSelection()
+    if (selection && element.contains(selection.anchorNode)) selection.removeAllRanges()
+    const client = clientRef.current
+    if (isEmpty || unchangedPlaceholder) {
+      if (client) {
+        queueMutation(client, () => client.deleteAnnotation(annotation.id), 'discard empty annotation')
+      }
+      return
+    }
+    if (raw !== annotation.text) commitText({ ...annotation, text: raw })
+  }, [commitBodyDraft, commitText, queueMutation])
+
+  const blurActiveTextEditor = useCallback(() => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.classList.contains('pdf-annot-text')) {
+      active.blur()
+    }
+  }, [])
+
   const selectAnnotation = useCallback((record: PdfUiAnnotation) => {
     setSelectedAnnotationId(record.id)
     if (record.type !== 'text') return
     syncTextEditState(record)
   }, [setSelectedAnnotationId, syncTextEditState])
 
+  const enterTextAnnotationEdit = useCallback((annotationId: string, selectAll: boolean) => {
+    const element = rootRef.current?.querySelector<HTMLElement>(
+      `[data-annot-id="${annotationId}"] .pdf-annot-text`,
+    )
+    if (!element || element.isContentEditable) return
+    element.contentEditable = 'true'
+    element.focus()
+    if (selectAll) {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    }
+  }, [])
+
+  /** 点击 PDF 正文行：建本地草稿并立即进入就地编辑（类似 WPS 点字即改）。 */
+  const startBodyLineEdit = useCallback((
+    pageIndex: number,
+    line: PdfTextLine,
+  ) => {
+    const existingId = annotationsRef.current
+      .find((annotation) => annotation.type === 'text'
+        && annotation.pageIndex === pageIndex
+        && Math.abs(annotation.rect.x - line.x) < 0.002
+        && Math.abs(annotation.rect.y - line.y) < 0.002)?.id
+    if (existingId) {
+      setSelectedAnnotationId(existingId)
+      enterTextAnnotationEdit(existingId, false)
+      return
+    }
+    // 进入前先提交正在编辑的其他框
+    blurActiveTextEditor()
+    discardFreshAnnotations()
+    const fontSize = line.fontSize && Number.isFinite(line.fontSize) ? line.fontSize : 12
+    const face = matchBodyFontFace(line.fontFamily, line.text, Boolean(line.fontBold), Boolean(line.fontItalic))
+    const canonicalRect: PdfNormalizedRect = { x: line.x, y: line.y, width: line.width, height: line.height }
+    const annotation: PdfTextAnnotationRecord = {
+      id: crypto.randomUUID(),
+      type: 'text',
+      pageIndex,
+      rect: canonicalRect,
+      text: line.text,
+      font: fontDescriptor(face),
+      fontSize,
+      underline: false,
+      color: line.color ?? '#000000',
+    }
+    bodyDraftsRef.current.set(annotation.id, {
+      annotation,
+      redactionRect: canonicalRect,
+      originalText: line.text,
+    })
+    const next = [...annotationsRef.current, annotation]
+    annotationsRef.current = next
+    setAnnotations(next)
+    setSelectedAnnotationId(annotation.id)
+    syncTextEditState(annotation)
+    pendingTextEditRef.current.add(annotation.id)
+  }, [
+    blurActiveTextEditor,
+    discardFreshAnnotations,
+    enterTextAnnotationEdit,
+    matchBodyFontFace,
+    setSelectedAnnotationId,
+    syncTextEditState,
+  ])
+
+  useEffect(() => {
+    const pending = pendingTextEditRef.current
+    if (pending.size === 0) return
+    for (const annotationId of pending) {
+      if (annotations.some((record) => record.id === annotationId && record.type === 'text')) {
+        pending.delete(annotationId)
+        enterTextAnnotationEdit(annotationId, true)
+      }
+    }
+  }, [annotations, enterTextAnnotationEdit])
+
   const updateSelectedText = useCallback((update: PdfTextUpdate) => {
     const client = clientRef.current
     const annotationId = selectedAnnotIdRef.current
-    if (!client || !annotationId) return
+    if (!annotationId) return
+    // 正文就地编辑的草稿尚未写入 worker，字体/字号/颜色只做本地更新，随提交一起落盘
+    if (bodyDraftsRef.current.has(annotationId)) {
+      const record = annotationsRef.current.find(
+        (annotation): annotation is PdfTextAnnotationRecord => (
+          annotation.id === annotationId && annotation.type === 'text'
+        ),
+      )
+      if (!record) return
+      const next = typeof update === 'function' ? update(record) : { ...record, ...update }
+      bodyDraftsRef.current.set(annotationId, {
+        ...bodyDraftsRef.current.get(annotationId)!,
+        annotation: next,
+      })
+      const updated = annotationsRef.current.map((annotation) => (
+        annotation.id === annotationId ? next : annotation
+      ))
+      annotationsRef.current = updated
+      setAnnotations(updated)
+      syncTextEditState(next)
+      return
+    }
+    if (!client) return
     queueMutation(client, () => {
       const record = annotationsRef.current.find(
         (annotation): annotation is PdfTextAnnotationRecord => (
@@ -836,7 +1220,7 @@ export function PdfViewer({
       const next = typeof update === 'function' ? update(record) : { ...record, ...update }
       return upsertText(client, next)
     }, 'edit text')
-  }, [queueMutation, upsertText])
+  }, [queueMutation, syncTextEditState, upsertText])
 
   const toggleBold = useCallback(() => {
     const bold = !editStyleRef.current.bold
@@ -880,6 +1264,8 @@ export function PdfViewer({
     pageWidth: number,
     pageHeight: number,
   ) => {
+    // 新建另一个文本框时，之前暂存的空框统一清理
+    discardFreshAnnotations()
     const face = selectFontFace(editFontFamily, editFontBold, editFontItalic)
     const viewRect = normalizePdfRect({
       x: viewX,
@@ -899,8 +1285,10 @@ export function PdfViewer({
       color: editFontColor,
     }
     setSelectedAnnotationId(record.id)
+    pendingTextEditRef.current.add(record.id)
+    freshTextAnnotationsRef.current.add(record.id)
     commitText(record)
-  }, [commitText, editFontBold, editFontColor, editFontFamily, editFontItalic, editFontSize, editFontUnderline, selectFontFace, setSelectedAnnotationId, t])
+  }, [commitText, discardFreshAnnotations, editFontBold, editFontColor, editFontFamily, editFontItalic, editFontSize, editFontUnderline, selectFontFace, setSelectedAnnotationId, t])
 
   const handleImageFile = useCallback(async (file: File) => {
     try {
@@ -947,21 +1335,53 @@ export function PdfViewer({
   const removeSelectedAnnotation = useCallback(() => {
     const id = selectedAnnotIdRef.current
     if (!id) return
+    // 未提交的正文草稿只存在于本地，直接丢弃即可
+    if (bodyDraftsRef.current.has(id)) {
+      bodyDraftsRef.current.delete(id)
+      setSelectedAnnotationId(null)
+      const next = annotationsRef.current.filter((record) => record.id !== id)
+      annotationsRef.current = next
+      setAnnotations(next)
+      return
+    }
     const client = clientRef.current
     if (!client) return
     setSelectedAnnotationId(null)
     queueMutation(client, () => client.deleteAnnotation(id), 'delete annotation')
   }, [queueMutation, setSelectedAnnotationId])
 
+  /** 撤销/重做可能恢复或再次涂除正文：重拉相关页的位图与文字层。 */
+  const refreshPagesAfterHistory = useCallback((client: MuPdfWorkerClient) => {
+    if (bodyEditedPagesRef.current.size === 0) return
+    for (const pageIndex of bodyEditedPagesRef.current) {
+      forcedRerenderRef.current.add(pageIndex)
+      textLayersRef.current.delete(pageIndex)
+      client.invalidateTextLayer(pageIndex)
+      void client.loadTextLayer(pageIndex)
+        .then((layer) => {
+          if (clientRef.current === client) {
+            textLayersRef.current.set(pageIndex, layer)
+            setTextLayerVersion((value) => value + 1)
+          }
+        })
+        .catch((cause) => console.error('[PdfViewer] text layer reload failed:', pageIndex + 1, cause))
+    }
+    setRenderRevision((value) => value + 1)
+  }, [])
+
   const undoEdit = useCallback(() => {
     const client = clientRef.current
-    if (client) queueMutation(client, () => client.undo(), 'undo', true)
-  }, [queueMutation])
+    if (client) {
+      queueMutation(client, () => client.undo(), 'undo', true, () => refreshPagesAfterHistory(client))
+    }
+  }, [queueMutation, refreshPagesAfterHistory])
 
   const redoEdit = useCallback(() => {
     const client = clientRef.current
-    if (client) queueMutation(client, () => client.redo(), 'redo', true)
-  }, [queueMutation])
+    if (client) {
+      queueMutation(client, () => client.redo(), 'redo', true, () => refreshPagesAfterHistory(client))
+    }
+  }, [queueMutation, refreshPagesAfterHistory])
 
   const editShortcutActionsRef = useRef({
     redoEdit,
@@ -985,7 +1405,24 @@ export function PdfViewer({
     annotation: PdfUiAnnotation,
   ) => {
     if (!editMode || event.button !== 0) return
+    // 正文就地编辑的草稿尚未写入 worker，不允许拖拽/缩放；单击直接回到编辑态
+    if (bodyDraftsRef.current.has(annotation.id)) {
+      event.preventDefault()
+      event.stopPropagation()
+      selectAnnotation(annotation)
+      enterTextAnnotationEdit(annotation.id, false)
+      return
+    }
     if ((event.target as HTMLElement).isContentEditable) return
+    // preventDefault 会阻止原生失焦：切到别的注释前先让当前编辑框提交内容
+    const activeElement = document.activeElement
+    if (
+      activeElement instanceof HTMLElement
+      && activeElement.classList.contains('pdf-annot-text')
+      && !event.currentTarget.contains(activeElement)
+    ) {
+      activeElement.blur()
+    }
     event.preventDefault()
     event.stopPropagation()
     selectAnnotation(annotation)
@@ -1049,7 +1486,17 @@ export function PdfViewer({
       document.removeEventListener('pointerup', onUp)
       const state = dragStateRef.current
       dragStateRef.current = null
-      if (!state?.moved) return
+      if (!state?.moved) {
+        // 文本工具下单击已有文本框 = 直接编辑（拖动手柄/选择工具下保持仅选中）
+        if (
+          state && !state.resizeCorner
+          && annotation.type === 'text'
+          && currentToolRef.current === 'text'
+        ) {
+          enterTextAnnotationEdit(annotation.id, false)
+        }
+        return
+      }
       const currentAnnotation = annotationsRef.current.find((record) => record.id === annotation.id)
       const client = clientRef.current
       if (currentAnnotation && client) {
@@ -1059,7 +1506,7 @@ export function PdfViewer({
 
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
-  }, [editMode, queueMutation, selectAnnotation])
+  }, [editMode, enterTextAnnotationEdit, queueMutation, selectAnnotation])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1069,7 +1516,8 @@ export function PdfViewer({
       const commandKey = event.ctrlKey || event.metaKey
       const formatShortcut = commandKey && !event.altKey && !event.shiftKey
         && (key === 'b' || key === 'i' || key === 'u')
-      if (isEditableTarget(event.target) && !formatShortcut) return
+      const historyShortcut = commandKey && !event.altKey && (key === 'z' || key === 'y')
+      if (isEditableTarget(event.target) && !formatShortcut && !historyShortcut) return
       if (event.key === 'Escape') {
         setSelectedAnnotationId(null)
         setCurrentTool(null)
@@ -1102,6 +1550,26 @@ export function PdfViewer({
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [setSelectedAnnotationId])
+
+  // 工具栏按钮会 preventDefault 掉 mousedown 以保焦点，因此退出编辑模式时
+  // 必须主动让正在编辑的文本框失焦（触发提交/空框删除）
+  useEffect(() => {
+    if (editMode) return
+    // 工具栏铅笔按钮会阻止 mousedown 失焦：退出时主动收尾编辑框并清理空框
+    discardFreshAnnotations()
+    blurActiveTextEditor()
+    // 未提交的“原文就地编辑”草稿一律丢弃（未改动任何 PDF 内容）
+    if (bodyDraftsRef.current.size > 0) {
+      const draftIds = new Set(bodyDraftsRef.current.keys())
+      bodyDraftsRef.current.clear()
+      const next = annotationsRef.current.filter((record) => !draftIds.has(record.id))
+      annotationsRef.current = next
+      setAnnotations(next)
+      if (selectedAnnotIdRef.current && draftIds.has(selectedAnnotIdRef.current)) {
+        setSelectedAnnotationId(null)
+      }
+    }
+  }, [blurActiveTextEditor, discardFreshAnnotations, editMode, setSelectedAnnotationId])
 
   useEffect(() => {
     const element = rootRef.current
@@ -1166,6 +1634,9 @@ export function PdfViewer({
     if (!client || !dirtyRef.current || saving) return
     setSaving(true)
     try {
+      // 保存前丢弃所有未输入内容的新文本框，并收尾正在编辑的框
+      discardFreshAnnotations()
+      blurActiveTextEditor()
       await mutationQueueRef.current
       if (clientRef.current !== client) {
         throw new MuPdfClientError('stale-document', 'The PDF changed before it could be saved')
@@ -1214,12 +1685,25 @@ export function PdfViewer({
     } finally {
       setSaving(false)
     }
-  }, [filePath, hasSignatures, language, onSaveSuccess, saving, setCurrentFile])
+  }, [blurActiveTextEditor, discardFreshAnnotations, filePath, hasSignatures, language, onSaveSuccess, saving, setCurrentFile])
 
   useEffect(() => {
     onRegisterSave(saveDocument)
     return () => onRegisterSave(null)
   }, [onRegisterSave, saveDocument])
+
+  // 透明文字层的字体与 PDF 内嵌字体不同：按行实测自然宽并 scaleX 拉齐 bbox，
+  // 让划选高亮/光标尽量贴合底图文字
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    root.querySelectorAll<HTMLElement>('[data-pdf-text-line]').forEach((element) => {
+      const natural = element.scrollWidth
+      if (natural <= 0) return
+      const ratio = element.clientWidth / natural
+      element.style.transform = Math.abs(ratio - 1) < 0.005 ? '' : `scaleX(${ratio})`
+    })
+  }, [displayWidth, rotation, textLayerVersion, pages.length])
 
   const previousDisplayWidthRef = useRef(0)
   useLayoutEffect(() => {
@@ -1281,7 +1765,11 @@ export function PdfViewer({
           setCurrentTool(null)
           setSelectedAnnotationId(null)
         }}
-        onSetTool={setCurrentTool}
+        onSetTool={(tool) => {
+          discardFreshAnnotations()
+          blurActiveTextEditor()
+          setCurrentTool(tool)
+        }}
         onSetFontFamily={(family) => {
           setEditFontFamily(family)
           if (selectedText) {
@@ -1349,7 +1837,9 @@ export function PdfViewer({
               const view = pdfViewSize(page, rotation)
               const pageHeight = Math.max(64, Math.round(displayWidth * view.height / view.width))
               const canonicalWidth = rotation === 90 || rotation === 270 ? pageHeight : displayWidth
+              const canonicalHeight = rotation === 90 || rotation === 270 ? displayWidth : pageHeight
               const rendered = renderedPagesRef.current.get(pageIndex)
+              const textLayer = textLayersRef.current.get(pageIndex)
               const pageAnnotations = annotations.filter((record) => record.pageIndex === pageIndex)
               return (
                 <div
@@ -1382,9 +1872,13 @@ export function PdfViewer({
                     onPointerDown={(event) => {
                       if (!editMode || (event.target as HTMLElement).closest('[data-annot-id]')) return
                       if (currentTool !== 'text') {
+                        // 切回选择态：丢弃暂存的空文本框（原生失焦会先提交正在编辑的框）
+                        discardFreshAnnotations()
                         setSelectedAnnotationId(null)
                         return
                       }
+                      // preventDefault 会阻止原生失焦：新建前先结束正在编辑的文本框
+                      blurActiveTextEditor()
                       event.preventDefault()
                       const rect = event.currentTarget.getBoundingClientRect()
                       addTextAnnotation(
@@ -1400,18 +1894,86 @@ export function PdfViewer({
                       className="absolute left-0 top-0"
                       style={canonicalLayerStyle(rotation, displayWidth, pageHeight)}
                     >
+                      {/* 透明可选文字层：浏览模式可鼠标划选 PDF 原文 */}
+                      {textLayer && (
+                        <div
+                          className="absolute inset-0"
+                          data-testid={`pdf-text-layer-${pageIndex}`}
+                          style={{
+                            pointerEvents: editMode ? 'none' : 'auto',
+                            cursor: editMode ? 'default' : 'text',
+                          }}
+                        >
+                          {textLayer.lines.map((line, lineIndex) => (
+                            <div
+                              key={lineIndex}
+                              data-pdf-text-line
+                              className="absolute select-text whitespace-pre text-transparent [&::selection]:bg-blue-600/25"
+                              style={{
+                                left: `${line.x * 100}%`,
+                                top: `${line.y * 100}%`,
+                                width: `${line.width * 100}%`,
+                                height: `${line.height * 100}%`,
+                                fontSize: `${line.height * canonicalHeight}px`,
+                                lineHeight: 1,
+                                transformOrigin: 'left center',
+                              }}
+                            >
+                              {line.text}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* 编辑模式：正文原文行的点击热区（点原文直接改字，类似 WPS） */}
+                      {editMode && textLayer && (
+                        <div
+                          className="absolute inset-0"
+                          data-testid={`pdf-body-edit-layer-${pageIndex}`}
+                          style={{ pointerEvents: 'none' }}
+                        >
+                          {textLayer.lines.map((line, lineIndex) => (
+                            <button
+                              type="button"
+                              key={`body-${lineIndex}`}
+                              data-pdf-body-line
+                              title={t('pdfViewer.bodyEditHint')}
+                              className="absolute whitespace-nowrap rounded-[2px] border border-transparent text-transparent outline-none transition-colors hover:border-[#0f6cbd]/60 hover:bg-[#0f6cbd]/10 focus:border-[#0f6cbd]/60 focus:bg-[#0f6cbd]/10 dark:hover:border-[#60a5fa]/70"
+                              style={{
+                                left: `${line.x * 100}%`,
+                                top: `${line.y * 100}%`,
+                                width: `${line.width * 100}%`,
+                                height: `${line.height * 100}%`,
+                                pointerEvents: 'auto',
+                                cursor: 'text',
+                                padding: 0,
+                              }}
+                              onPointerDown={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                              }}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                startBodyLineEdit(pageIndex, line)
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
                       {pageAnnotations.map((annotation) => {
                         const selected = selectedAnnotId === annotation.id
                         const previewUrl = annotation.type === 'image'
                           ? previewUrlsRef.current.get(annotation.id)
                           : undefined
                         const fontScale = canonicalWidth / page.width
+                        const isBodyDraft = bodyDraftsRef.current.has(annotation.id)
                         return (
                           <div
                             key={annotation.id}
                             data-annot-id={annotation.id}
                             className={cn(
-                              'absolute cursor-move',
+                              'absolute',
+                              isBodyDraft ? 'cursor-text' : 'cursor-move',
                               selected && 'ring-2 ring-[#0f6cbd] ring-offset-1 dark:ring-[#60a5fa]',
                             )}
                             style={{
@@ -1419,24 +1981,23 @@ export function PdfViewer({
                               top: `${annotation.rect.y * 100}%`,
                               width: `${annotation.rect.width * 100}%`,
                               height: `${annotation.rect.height * 100}%`,
+                              // 浏览模式让指针穿透到文字层，编辑模式才能拖动/缩放注释
+                              pointerEvents: editMode ? 'auto' : 'none',
                             }}
                             onPointerDown={(event) => startAnnotationDrag(event, annotation)}
-                            onDoubleClick={(event) => {
-                              if (!editMode || annotation.type !== 'text') return
-                              const text = event.currentTarget.querySelector<HTMLElement>('.pdf-annot-text')
-                              if (!text) return
-                              text.contentEditable = 'true'
-                              text.focus()
-                              const range = document.createRange()
-                              range.selectNodeContents(text)
-                              const selection = window.getSelection()
-                              selection?.removeAllRanges()
-                              selection?.addRange(range)
+                            onDoubleClick={() => {
+                              if (editMode && annotation.type === 'text') {
+                                enterTextAnnotationEdit(annotation.id, true)
+                              }
                             }}
                           >
                             {annotation.type === 'text' ? (
                               <div
-                                className="pdf-annot-text h-full w-full whitespace-pre-wrap break-words outline-none"
+                                className={cn(
+                                  'pdf-annot-text h-full w-full whitespace-pre-wrap break-words outline-none',
+                                  // 正文就地编辑草稿：未提交前用白底盖住底层原文字形，避免重影
+                                  bodyDraftsRef.current.has(annotation.id) && 'bg-white',
+                                )}
                                 dir="auto"
                                 suppressContentEditableWarning
                                 style={{
@@ -1449,17 +2010,29 @@ export function PdfViewer({
                                   textDecoration: annotation.underline ? 'underline' : 'none',
                                   userSelect: editMode ? 'text' : 'none',
                                 }}
-                                onBlur={(event) => {
-                                  if (!event.currentTarget.isContentEditable) return
-                                  event.currentTarget.contentEditable = 'false'
-                                  const text = event.currentTarget.innerText
-                                  if (text !== annotation.text) commitText({ ...annotation, text })
+                                onInput={(event) => {
+                                  // 用户一旦改过内容就不再算“新建未输入”，失焦时按实际内容提交/删除
+                                  if (event.currentTarget.innerText !== annotation.text) {
+                                    freshTextAnnotationsRef.current.delete(annotation.id)
+                                  }
                                 }}
                                 onKeyDown={(event) => {
                                   if (event.key === 'Escape') {
                                     event.preventDefault()
+                                    // Esc = 明确取消：草稿丢弃，空框立即删除，不等失焦目标判断
+                                    event.currentTarget.dataset.cancelEdit = '1'
                                     event.currentTarget.blur()
                                   }
+                                }}
+                                onBlur={(event) => {
+                                  const cancel = event.currentTarget.dataset.cancelEdit === '1'
+                                  delete event.currentTarget.dataset.cancelEdit
+                                  finishTextAnnotationEdit(
+                                    annotation,
+                                    event.currentTarget,
+                                    event.relatedTarget,
+                                    cancel,
+                                  )
                                 }}
                               >
                                 {annotation.text}
@@ -1470,7 +2043,7 @@ export function PdfViewer({
                               <div className="h-full w-full bg-muted/40" />
                             )}
 
-                            {selected && (
+                            {selected && !isBodyDraft && (
                               <>
                                 {(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const).map((corner) => (
                                   <div

@@ -5,9 +5,35 @@ function sourceUrl(relativePath: string): string {
   return `/@fs/${path.resolve(relativePath).replaceAll('\\', '/')}`
 }
 
+/** 构造一页带一行 Helvetica 正文的 PDF（MuPDF 可提取其结构化文字层）。 */
+function buildTextPdfBase64(body: string): string {
+  const content = `BT /F1 18 Tf 40 340 Td (${body.replace(/[()\\]/g, '\\$&')}) Tj ET\n`
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${content.length} >>\nstream\n${content}endstream`,
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets: number[] = []
+  objects.forEach((objectBody, index) => {
+    offsets[index] = pdf.length
+    pdf += `${index + 1} 0 obj\n${objectBody}\nendobj\n`
+  })
+  const xref = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  for (const offset of offsets) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  const bytes = new TextEncoder().encode(pdf)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
 const MINIMAL_PDF_BASE64 = 'JVBERi0xLjcKJcK1wrYKJSBXcml0dGVuIGJ5IE11UERGIDEuMjguMQoKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFIvSW5mbzw8L1Byb2R1Y2VyKE11UERGIDEuMjguMSk+Pj4+CmVuZG9iagoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0NvdW50IDEvS2lkc1s0IDAgUl0+PgplbmRvYmoKCjMgMCBvYmoKPDw+PgplbmRvYmoKCjQgMCBvYmoKPDwvVHlwZS9QYWdlL01lZGlhQm94WzAgMCAzMDAgNDAwXS9Sb3RhdGUgMC9SZXNvdXJjZXMgMyAwIFIvUGFyZW50IDIgMCBSPj4KZW5kb2JqCgp4cmVmCjAgNQowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwNDIgMDAwMDAgbiAKMDAwMDAwMDEyMCAwMDAwMCBuIAowMDAwMDAwMTcyIDAwMDAwIG4gCjAwMDAwMDAxOTMgMDAwMDAgbiAKCnRyYWlsZXIKPDwvU2l6ZSA1L1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKMjg0CiUlRU9GCg=='
 
-async function installPdfDesktopMock(page: Page): Promise<void> {
+async function installPdfDesktopMock(page: Page, fixture = MINIMAL_PDF_BASE64): Promise<void> {
   await page.addInitScript((fixture) => {
     let callbackId = 0
     let currentPdf = Uint8Array.from(atob(fixture), (character) => character.charCodeAt(0))
@@ -91,7 +117,7 @@ async function installPdfDesktopMock(page: Page): Promise<void> {
       __WAE_PDF_SAVE_COUNT__: 0,
       __WAE_SAVED_PDF__: [],
     })
-  }, MINIMAL_PDF_BASE64)
+  }, fixture)
 }
 
 test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async ({ page }) => {
@@ -171,6 +197,7 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
         color: '#0F6CBD',
       }
       const inserted = await withTimeout('insert', client.upsertText(annotation))
+      const layer = await withTimeout('text layer', client.loadTextLayer(0))
       const undone = await withTimeout('undo', client.undo())
       const redone = await withTimeout('redo', client.redo())
       const saved = await withTimeout('save', client.save())
@@ -204,6 +231,8 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
           insertedCount: inserted.annotations.length,
           insertDirty: inserted.dirty,
           insertCanUndo: inserted.canUndo,
+          textLayerPage: layer.pageIndex,
+          textLayerLineCount: layer.lines.length,
           undoCount: undone.annotations.length,
           undoCanRedo: undone.canRedo,
           redoCount: redone.annotations.length,
@@ -233,6 +262,8 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
     insertedCount: 1,
     insertDirty: true,
     insertCanUndo: true,
+    textLayerPage: 0,
+    textLayerLineCount: 0,
     undoCount: 0,
     undoCanRedo: true,
     redoCount: 1,
@@ -256,10 +287,19 @@ test('PDF editor portals its menus and persists edits through Ctrl+S', async ({ 
   await expect(toolbar).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('[data-page-num="1"] img')).toBeVisible({ timeout: 30_000 })
 
+  // 浏览模式：透明文字层接收指针，点击页面不会新建注释
+  const textLayer = page.getByTestId('pdf-text-layer-0')
+  await expect(textLayer).toBeAttached({ timeout: 20_000 })
+  await expect(textLayer).toHaveCSS('pointer-events', 'auto')
+  await page.locator('[data-page-num="1"]').click({ position: { x: 100, y: 100 } })
+  await expect(page.locator('[data-annot-id]')).toHaveCount(0)
+
   const editMode = page.getByTestId('pdf-edit-mode')
   await expect(editMode).not.toHaveAttribute('aria-disabled', 'true')
   await editMode.click()
   await expect(editMode).toHaveAttribute('aria-pressed', 'true')
+  // 编辑模式下文字层不再拦截指针
+  await expect(textLayer).toHaveCSS('pointer-events', 'none')
   await page.getByTestId('pdf-tool-text').click()
 
   const editPage = page.locator('[data-edit-page="0"]')
@@ -267,6 +307,34 @@ test('PDF editor portals its menus and persists edits through Ctrl+S', async ({ 
   const annotation = page.locator('[data-annot-id]').first()
   const annotationText = annotation.locator('.pdf-annot-text')
   await expect(annotation).toBeVisible({ timeout: 20_000 })
+
+  // 选中文本工具后单击页面：新文本框立即进入可编辑状态，无需双击
+  await expect(annotationText).toHaveAttribute('contenteditable', 'true')
+  // 一字未输按 Esc：空框自动消失
+  await annotationText.press('Escape')
+  await expect(page.locator('[data-annot-id]')).toHaveCount(0)
+
+  // 再建空框后先打开字体菜单改字体：空框必须保留（暂存，等决定性时机再清理）
+  await editPage.click({ position: { x: 100, y: 100 } })
+  await expect(annotationText).toHaveAttribute('contenteditable', 'true')
+  await page.getByTestId('pdf-font-family').click()
+  const familyMenu = page.getByTestId('pdf-font-family-menu')
+  await expect(familyMenu).toBeVisible()
+  await familyMenu.getByRole('option', { name: 'Helvetica', exact: true }).click()
+  await expect(page.locator('[data-annot-id]')).toHaveCount(1)
+  // 在另一处新建文本框：暂存的空框被清理，页面始终只有一个框，且新框立即进入编辑
+  await editPage.click({ position: { x: 220, y: 220 } })
+  await expect(page.locator('[data-annot-id]')).toHaveCount(1)
+  await expect(annotationText).toHaveAttribute('contenteditable', 'true')
+  await annotationText.fill('Persisted PDF annotation')
+  await annotationText.press('Tab')
+  await expect(annotationText).toHaveText('Persisted PDF annotation')
+  // 有内容的框：T 工具下单击直接进入编辑，Esc 只退出编辑、不删除
+  await annotation.click()
+  await expect(annotationText).toHaveAttribute('contenteditable', 'true')
+  await annotationText.press('Escape')
+  await expect(annotation).toBeVisible()
+  await expect(annotationText).toHaveText('Persisted PDF annotation')
 
   const assertFixedPortal = async (testId: string) => {
     const popup = page.getByTestId(testId)
@@ -347,5 +415,266 @@ test('PDF editor portals its menus and persists edits through Ctrl+S', async ({ 
   ))
   expect(new TextDecoder().decode(Uint8Array.from(saved.slice(0, 5)))).toBe('%PDF-')
   expect(saved.length).toBeGreaterThan(500)
+  expect(pageErrors).toEqual([])
+})
+
+test('MuPDF worker replaces body text via redaction and restores it through undo', async ({ page }) => {
+  test.setTimeout(90_000)
+  const pageErrors: Error[] = []
+  page.on('pageerror', (error) => pageErrors.push(error))
+  await page.addInitScript(() => {
+    let callbackId = 0
+    const invoke = async (command: string): Promise<unknown> => {
+      if (command === 'plugin:event|listen') return 1
+      if (command === 'plugin:event|unlisten') return null
+      if (command === 'files_get_home') return { path: '/mock/home', grantId: 'home-grant' }
+      if (command === 'files_session_load') {
+        return { mainDirectory: null, currentDirectory: null, recentDirectories: [], openFiles: [], activeFile: null }
+      }
+      if (command === 'files_list' || command === 'files_search' || command === 'files_get_recent') return []
+      if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
+      if (command === 'providers_auth_status') return {}
+      if (command === 'app_take_startup_files' || command === 'app_take_recovery_notices') return []
+      return null
+    }
+    Object.assign(window, {
+      __TAURI_INTERNALS__: {
+        invoke,
+        transformCallback() {
+          callbackId += 1
+          return callbackId
+        },
+        unregisterCallback() {},
+      },
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+    })
+  })
+  await page.goto('/')
+
+  const result = await page.evaluate(async ({ clientUrl, fixture }) => {
+    const withTimeout = <T,>(label: string, promise: Promise<T>): Promise<T> => Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error(`${label} timed out`)), 20_000)
+      }),
+    ])
+    const { MuPdfWorkerClient } = await withTimeout(
+      'client import',
+      import(clientUrl) as Promise<typeof import('../../src/lightweight-office/pdf/mupdf-client')>,
+    )
+    const source = Uint8Array.from(atob(fixture), (character) => character.charCodeAt(0)).buffer
+    const client = new MuPdfWorkerClient(`body-${crypto.randomUUID()}`)
+    try {
+      await withTimeout('open', client.open(source))
+      const before = await withTimeout('text layer', client.loadTextLayer(0))
+      const line = before.lines[0]
+      const replacement = {
+        id: crypto.randomUUID(),
+        type: 'text' as const,
+        pageIndex: 0,
+        rect: { x: line.x, y: line.y, width: line.width, height: line.height },
+        text: 'Hello Edited',
+        font: {
+          fontId: 'builtin:Helvetica',
+          familyName: 'Helvetica',
+          faceIndex: 0,
+          weight: 400,
+          style: 'normal' as const,
+        },
+        fontSize: line.fontSize ?? 12,
+        underline: false,
+        color: line.color ?? '#000000',
+      }
+      const replaced = await withTimeout(
+        'replace body',
+        client.replaceBodyText(0, line, replacement),
+      )
+      // worker 侧缓存仍持有旧层：在 UI 中替换后会显式 invalidate
+      client.invalidateTextLayer(0)
+      const after = await withTimeout('reload layer', client.loadTextLayer(0))
+      const undone = await withTimeout('undo', client.undo())
+      client.invalidateTextLayer(0)
+      const restored = await withTimeout('restored layer', client.loadTextLayer(0))
+      await withTimeout('redo', client.redo())
+      client.invalidateTextLayer(0)
+      const redone = await withTimeout('redone layer', client.loadTextLayer(0))
+      const saved = await withTimeout('save', client.save())
+
+      client.dispose()
+      const reopenedClient = new MuPdfWorkerClient(`body-reopen-${crypto.randomUUID()}`)
+      try {
+        const reopened = await withTimeout('reopen', reopenedClient.open(saved.data.slice(0)))
+        return {
+          original: line.text,
+          annotationCount: replaced.annotations.length,
+          annotationText: replaced.annotations[0]?.type === 'text'
+            ? replaced.annotations[0].text
+            : null,
+          bodyLineAfterReplace: after.lines.map((entry) => entry.text).join('|'),
+          bodyLineAfterUndo: restored.lines.map((entry) => entry.text).join('|'),
+          bodyLineAfterRedo: redone.lines.map((entry) => entry.text).join('|'),
+          undoCount: undone.annotations.length,
+          savedHeader: new TextDecoder().decode(new Uint8Array(saved.data.slice(0, 5))),
+          reopenedAnnotation: reopened.annotations[0]?.type === 'text'
+            ? reopened.annotations[0].text
+            : null,
+        }
+      } finally {
+        reopenedClient.dispose()
+      }
+    } finally {
+      client.dispose()
+    }
+  }, {
+    clientUrl: sourceUrl('src/lightweight-office/pdf/mupdf-client.ts'),
+    fixture: buildTextPdfBase64('Hello Body Text'),
+  })
+
+  expect(result.original).toBe('Hello Body Text')
+  expect(result.annotationCount).toBe(1)
+  expect(result.annotationText).toBe('Hello Edited')
+  // 原字已从正文文字层抹除（新文字是注释，不出现在正文层）
+  expect(result.bodyLineAfterReplace).toBe('')
+  expect(result.bodyLineAfterUndo).toBe('Hello Body Text')
+  expect(result.bodyLineAfterRedo).toBe('')
+  expect(result.undoCount).toBe(0)
+  expect(result.savedHeader).toBe('%PDF-')
+  expect(result.reopenedAnnotation).toBe('Hello Edited')
+  expect(pageErrors).toEqual([])
+})
+
+test('MuPDF worker erases a body line when the replacement text is empty', async ({ page }) => {
+  test.setTimeout(90_000)
+  const pageErrors: Error[] = []
+  page.on('pageerror', (error) => pageErrors.push(error))
+  await page.addInitScript(() => {
+    let callbackId = 0
+    const invoke = async (command: string): Promise<unknown> => {
+      if (command === 'plugin:event|listen') return 1
+      if (command === 'plugin:event|unlisten') return null
+      if (command === 'files_get_home') return { path: '/mock/home', grantId: 'home-grant' }
+      if (command === 'files_session_load') {
+        return { mainDirectory: null, currentDirectory: null, recentDirectories: [], openFiles: [], activeFile: null }
+      }
+      if (command === 'files_list' || command === 'files_search' || command === 'files_get_recent') return []
+      if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
+      if (command === 'providers_auth_status') return {}
+      if (command === 'app_take_startup_files' || command === 'app_take_recovery_notices') return []
+      return null
+    }
+    Object.assign(window, {
+      __TAURI_INTERNALS__: {
+        invoke,
+        transformCallback() {
+          callbackId += 1
+          return callbackId
+        },
+        unregisterCallback() {},
+      },
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+    })
+  })
+  await page.goto('/')
+
+  const result = await page.evaluate(async ({ clientUrl, fixture }) => {
+    const withTimeout = <T,>(label: string, promise: Promise<T>): Promise<T> => Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error(`${label} timed out`)), 20_000)
+      }),
+    ])
+    const { MuPdfWorkerClient } = await withTimeout(
+      'client import',
+      import(clientUrl) as Promise<typeof import('../../src/lightweight-office/pdf/mupdf-client')>,
+    )
+    const source = Uint8Array.from(atob(fixture), (character) => character.charCodeAt(0)).buffer
+    const client = new MuPdfWorkerClient(`erase-${crypto.randomUUID()}`)
+    try {
+      await withTimeout('open', client.open(source))
+      const line = (await withTimeout('text layer', client.loadTextLayer(0))).lines[0]
+      const erased = await withTimeout(
+        'erase',
+        client.replaceBodyText(0, line, {
+          id: crypto.randomUUID(),
+          type: 'text',
+          pageIndex: 0,
+          rect: { x: line.x, y: line.y, width: line.width, height: line.height },
+          text: '',
+          font: {
+            fontId: 'builtin:Helvetica',
+            familyName: 'Helvetica',
+            faceIndex: 0,
+            weight: 400,
+            style: 'normal',
+          },
+          fontSize: line.fontSize ?? 12,
+          underline: false,
+          color: line.color ?? '#000000',
+        }),
+      )
+      client.invalidateTextLayer(0)
+      const after = await withTimeout('reload layer', client.loadTextLayer(0))
+      return {
+        annotations: erased.annotations.length,
+        canUndo: erased.canUndo,
+        remaining: after.lines.map((entry) => entry.text).join('|'),
+      }
+    } finally {
+      client.dispose()
+    }
+  }, {
+    clientUrl: sourceUrl('src/lightweight-office/pdf/mupdf-client.ts'),
+    fixture: buildTextPdfBase64('Erase Me Please'),
+  })
+
+  expect(result.annotations).toBe(0)
+  expect(result.canUndo).toBe(true)
+  expect(result.remaining).toBe('')
+  expect(pageErrors).toEqual([])
+})
+
+test('PDF editor edits original body text in place and saves it', async ({ page }) => {
+  test.setTimeout(90_000)
+  await installPdfDesktopMock(page, buildTextPdfBase64('Hello Body Text'))
+  const pageErrors: Error[] = []
+  page.on('pageerror', (error) => pageErrors.push(error))
+  await page.setViewportSize({ width: 1_000, height: 800 })
+  await page.goto('/?session=pdf')
+
+  await expect(page.locator('[data-page-num="1"] img')).toBeVisible({ timeout: 30_000 })
+  const bodyLine = page.locator('[data-pdf-body-line]').first()
+  // 浏览模式下没有原文热区
+  await expect(bodyLine).toHaveCount(0)
+
+  await page.getByTestId('pdf-edit-mode').click()
+  await expect(bodyLine).toBeAttached({ timeout: 20_000 })
+  const box = await bodyLine.boundingBox()
+  expect(box).not.toBeNull()
+  await bodyLine.click({ position: { x: (box!.width / 2), y: (box!.height / 2) } })
+
+  const editor = page.locator('[data-annot-id] .pdf-annot-text').first()
+  await expect(editor).toHaveAttribute('contenteditable', 'true')
+  await expect(editor).toHaveText('Hello Body Text')
+  await editor.fill('Hello Edited')
+  await editor.press('Tab')
+
+  // 提交后：正文热区消失（该行被涂除），新文字以注释形式存在
+  await expect.poll(async () => page.locator('[data-pdf-body-line]').count()).toBe(0)
+  await expect(editor).toHaveText('Hello Edited')
+
+  // 撤销恢复原文
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => page.locator('[data-pdf-body-line]').count()).toBeGreaterThan(0)
+  await page.keyboard.press('Control+y')
+  await expect.poll(async () => page.locator('[data-pdf-body-line]').count()).toBe(0)
+
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => page.evaluate(() => (
+    (window as unknown as { __WAE_PDF_SAVE_COUNT__: number }).__WAE_PDF_SAVE_COUNT__
+  ))).toBe(1)
+  const saved = await page.evaluate(() => (
+    (window as unknown as { __WAE_SAVED_PDF__: number[] }).__WAE_SAVED_PDF__
+  ))
+  expect(new TextDecoder().decode(Uint8Array.from(saved.slice(0, 5)))).toBe('%PDF-')
   expect(pageErrors).toEqual([])
 })

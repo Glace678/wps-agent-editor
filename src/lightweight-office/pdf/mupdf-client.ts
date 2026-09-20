@@ -7,6 +7,7 @@ import type {
   PdfRotation,
   PdfSaveResult,
   PdfTextAnnotationRecord,
+  PdfTextLayer,
   PdfWorkerRequest,
   PdfWorkerResponse,
 } from './mupdf-protocol'
@@ -35,6 +36,9 @@ export class MuPdfClientError extends Error {
 export class MuPdfWorkerClient {
   private readonly worker: Worker
   private readonly pending = new Map<string, PendingRequest>()
+  // 文字层不可变且按页复用；记忆化 Promise 让 StrictMode 双挂载/多调用方共享同一请求，
+  // 避免「响应被某一任调用方丢弃后不再重试」的竞态
+  private readonly textLayerCache = new Map<number, Promise<PdfTextLayer>>()
   private disposed = false
 
   constructor(readonly documentId: string) {
@@ -107,6 +111,35 @@ export class MuPdfWorkerClient {
     return this.request({ type: 'extractText' })
   }
 
+  loadTextLayer(pageIndex: number): Promise<PdfTextLayer> {
+    const cached = this.textLayerCache.get(pageIndex)
+    if (cached) return cached
+    const promise = this.request<PdfTextLayer>({ type: 'loadTextLayer', pageIndex })
+    this.textLayerCache.set(pageIndex, promise)
+    // 失败后移出缓存，允许后续重试
+    promise.catch(() => {
+      if (this.textLayerCache.get(pageIndex) === promise) this.textLayerCache.delete(pageIndex)
+    })
+    return promise
+  }
+
+  /** 正文行被替换后，该页文字层已失效，必须丢弃缓存以便重新提取。 */
+  invalidateTextLayer(pageIndex: number): void {
+    this.textLayerCache.delete(pageIndex)
+  }
+
+  replaceBodyText(
+    pageIndex: number,
+    redactionRect: PdfTextAnnotationRecord['rect'],
+    annotation: PdfTextAnnotationRecord,
+    fontData?: ArrayBuffer,
+  ): Promise<PdfMutationResult> {
+    return this.request(
+      { type: 'replaceBodyText', pageIndex, redactionRect, annotation, fontData },
+      fontData ? [fontData] : [],
+    )
+  }
+
   upsertText(
     annotation: PdfTextAnnotationRecord,
     fontData?: ArrayBuffer,
@@ -157,5 +190,6 @@ export class MuPdfWorkerClient {
     const error = new MuPdfClientError('pdf-worker-closed', 'The PDF worker is closed')
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
+    this.textLayerCache.clear()
   }
 }
