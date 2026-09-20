@@ -1035,12 +1035,17 @@ export function TextEditor({
     const faces = systemFontFaces.filter((face) => face.familyName === fontFamily)
     if (faces.length > 0) return faces
     return [{
+      fontId: '',
       familyName: fontFamily,
       displayName: fontFamily,
       faceName: fontFaceName,
+      faceIndex: 0,
       weight: fontWeight,
       style: fontStyle,
       stretch: fontStretch,
+      embedding: 'unknown' as const,
+      subsetAllowed: false,
+      outlineEmbeddingAllowed: false,
     }]
   }, [fontFaceName, fontFamily, fontStretch, fontStyle, fontWeight, systemFontFaces])
   const activeSpellCheckFormat = spellCheckFormatForName(displayName)
@@ -1982,7 +1987,7 @@ export function TextEditor({
       } else {
         const firstRegion = root.querySelector<HTMLElement>('[data-notepad-markdown-region], [data-notepad-text-region]')
         if (firstRegion) {
-          firstRegion.focus()
+          firstRegion.focus({ preventScroll: true })
           const range = document.createRange()
           range.selectNodeContents(firstRegion)
           domSelection?.removeAllRanges()
@@ -1990,6 +1995,14 @@ export function TextEditor({
         }
       }
     }
+
+    // 记录格式化前的滚动位置与选区锚点，格式化后还原，
+    // 防止 execCommand 导致视口跳动（如 firstRegion.focus 误触发、行重排等）。
+    const restoreScrollTop = root.scrollTop
+    const restoreScrollLeft = root.scrollLeft
+    const restoreSelection = domSelection && domSelection.rangeCount > 0
+      ? domSelection.getRangeAt(0).cloneRange()
+      : (previewSelectionRef.current?.cloneRange() ?? null)
 
     if (command === 'bold') {
       document.execCommand('bold')
@@ -2037,7 +2050,7 @@ export function TextEditor({
       const host = activeRange
         ? elementForNode(activeRange.startContainer)?.closest<HTMLElement>('[contenteditable="true"]') ?? null
         : null
-      if (host) host.focus()
+      if (host) host.focus({ preventScroll: true })
       if (activeSelection && activeRange) {
         activeSelection.removeAllRanges()
         activeSelection.addRange(activeRange)
@@ -2083,6 +2096,23 @@ export function TextEditor({
     } else if (documentType === 'plain') {
       syncPlainPreviewToSource(true)
     }
+
+    // 格式化操作结束后恢复滚动位置与选区锚点，
+    // 避免 execCommand / DOM 变动造成视口跳动或选区丢失。
+    if (restoreSelection && root.contains(restoreSelection.startContainer)) {
+      try {
+        const sel = window.getSelection()
+        if (sel) {
+          sel.removeAllRanges()
+          sel.addRange(restoreSelection)
+        }
+      } catch {
+        /* 选区范围可能因 DOM 变动失效，忽略 */
+      }
+    }
+    root.scrollTop = restoreScrollTop
+    root.scrollLeft = restoreScrollLeft
+    previewSelectionRef.current = restoreSelection
   }, [
     applyText,
     capturePreviewSelection,
@@ -2445,7 +2475,45 @@ export function TextEditor({
     syncPlainPreviewToSource,
   ])
 
+  /**
+   * Ctrl+左键点击链接：打开链接（参照 Windows 记事本行为）。
+   * 不支持的链接类型提示"无法打开链接，记事本不支持此链接功能"。
+   */
+  const handleLinkCtrlClick = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    if (!event.ctrlKey && !event.metaKey) return
+    if (event.button !== 0) return
+    const target = event.target as HTMLElement | null
+    const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null
+    if (!anchor) return
+    const href = anchor.getAttribute('href') ?? ''
+    if (!href) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    // 只支持 http/https/mailto 等常见外部链接；锚点/相对路径提示不支持
+    const isSupported = /^(https?:|mailto:|tel:)/i.test(href)
+    if (!isSupported) {
+      // 参照 Windows 记事本：不支持的链接给出明确提示
+      const message = documentType === 'plain'
+        ? '无法打开链接，记事本不支持此链接功能'
+        : '无法打开链接，记事本不支持此链接功能'
+      window.alert(message)
+      return
+    }
+
+    try {
+      window.open(href, '_blank', 'noopener,noreferrer')
+    } catch {
+      window.alert('无法打开链接，记事本不支持此链接功能')
+    }
+  }, [documentType])
+
   const handlePreviewMouseDown = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    // Ctrl+点击链接：优先处理链接跳转
+    handleLinkCtrlClick(event)
+    if (event.defaultPrevented) return
+
     if (event.button !== 0) return
     const root = previewRef.current
     const target = event.target as HTMLElement | null
@@ -2550,7 +2618,7 @@ export function TextEditor({
     rowInsertTargetRef.current = null
     event.preventDefault()
     event.stopPropagation()
-  }, [documentType])
+  }, [documentType, handleLinkCtrlClick])
 
   const handlePreviewMouseMove = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     const candidate = tableDragCandidateRef.current

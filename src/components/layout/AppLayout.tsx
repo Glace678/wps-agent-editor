@@ -1,5 +1,3 @@
-import { getDocKind } from '@/lightweight-office/utils/file-io'
-import { useEditorStore } from '@/stores/editor.store'
 import { TopBar } from './TopBar'
 import { ResizableThreeColumnLayout } from './resize/ResizableThreeColumnLayout'
 import { BottomPanel } from './BottomPanel'
@@ -8,20 +6,6 @@ import {
   DocumentEditorModule,
   FileManagerModule,
 } from './modules'
-
-function CodeBottomPanel() {
-  const currentFile = useEditorStore((state) => state.currentFile)
-  const codeFileActive = Boolean(currentFile && getDocKind(currentFile) === 'code')
-
-  return (
-    <div
-      className={codeFileActive ? 'flex shrink-0 flex-col' : 'hidden'}
-      aria-hidden={!codeFileActive}
-    >
-      <BottomPanel />
-    </div>
-  )
-}
 
 export function AppLayout() {
   return (
@@ -32,7 +16,7 @@ export function AppLayout() {
         center={(
           <>
             <DocumentEditorModule />
-            <CodeBottomPanel />
+            <BottomPanel />
           </>
         )}
         right={({ collapseRight }) => <AgentAssistantModule onCollapse={collapseRight} />}

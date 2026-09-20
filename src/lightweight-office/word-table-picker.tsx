@@ -126,10 +126,10 @@ export function WordTablePickerMenu({
               key={`${row}-${col}`}
               data-row={row}
               data-col={col}
-              className="h-[15px] w-[15px] rounded-[2px] transition-colors duration-75"
+              className="h-[15px] w-[15px] rounded-[2px] transition-colors duration-75 outline-none"
               style={{
-                backgroundColor: isSelected ? '#f8b284' : '#2d2d2d',
-                border: isSelected ? '1px solid #e09464' : '1px solid rgba(255, 255, 255, 0.22)',
+                backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.45)' : '#2d2d2d',
+                border: isSelected ? '1px solid #3b82f6' : '1px solid rgba(255, 255, 255, 0.18)',
               }}
               onPointerEnter={() => setHovered({ rows: row, cols: col })}
               onClick={() => handleSelect(row, col)}
@@ -142,10 +142,10 @@ export function WordTablePickerMenu({
       <div className="mt-2 border-t border-white/10 pt-2">
         <button
           type="button"
-          className="flex h-7 w-full items-center gap-2 rounded px-1.5 text-[12px] text-white/90 transition-colors hover:bg-white/10 active:bg-white/15"
+          className="flex h-7 w-full items-center gap-2 rounded px-1.5 text-[12px] text-white/90 outline-none transition-colors hover:bg-white/10 active:bg-blue-600/25 active:text-blue-300"
           onClick={handleOpenDialog}
         >
-          <div className="flex h-4 w-4 items-center justify-center text-emerald-400">
+          <div className="flex h-4 w-4 items-center justify-center text-blue-400">
             <Table2 className="h-3.5 w-3.5" />
           </div>
           <span>{texts.moreRowsCols}</span>

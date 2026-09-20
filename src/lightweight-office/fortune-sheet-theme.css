@@ -97,6 +97,40 @@
   overflow: hidden;
 }
 
+/*
+ * Excel 画布清晰度增强（针对 1K / 低分屏尤其重要）：
+ *
+ * 核心原理：
+ *   Fortune 原生把 canvas CSS 尺寸设为整数像素，但 backing store 是
+ *   ceil(cssSize × DPR)。当 DPR 是分数（125%/150% 等 Windows 常见缩放），
+ *   浏览器把略大的纹理压进略小的盒子，每个像素都被 bilinear 重采样，
+ *   于是整屏文字发虚。
+ *
+ *   fortune-rendering.ts 里的 snapCanvasCssSizeToBacking 把 CSS 尺寸
+ *   精确设为 backing / dpr（4 位小数精度），让 texel 与屏幕像素
+ *   一一对应。这里再从 CSS 侧补几条保险：
+ *
+ * 1. 稳态下禁止 GPU 合成层 — translateZ / will-change 会让 Chromium
+ *    跳过 device-pixel snapping，canvas 落到亚像素位置就整屏发虚。
+ * 2. 图像重采样用 auto（高质量 Lanczos），只在拖动/动画期间
+ *    临时切到 crisp-edges 以避免拖影。
+ * 3. 容器层用 pixelated 禁止自身对 canvas 做二次模糊。
+ */
+.excel-editor-shell canvas.fortune-sheet-canvas,
+.excel-editor-shell canvas.luckysheet-canvas {
+  /* 保持在普通渲染层，享受 Chromium 的整像素吸附 */
+  transform: none !important;
+  backface-visibility: visible !important;
+  will-change: auto !important;
+  image-rendering: auto;
+}
+
+/* 确保滚动区域容器也是像素对齐的，否则里面的 canvas 跟着偏半格 */
+.excel-editor-shell .fortune-sheet-container,
+.excel-editor-shell .luckysheet-scrollbar {
+  contain: layout size;
+}
+
 .dark .excel-editor-shell {
   --fortune-dark-bg: #000;
   --fortune-dark-hover: #171717;

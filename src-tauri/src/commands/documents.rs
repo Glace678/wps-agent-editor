@@ -224,6 +224,14 @@ pub async fn documents_list_fonts(language: Option<String>) -> AppResult<Vec<Sys
 }
 
 #[tauri::command]
+pub async fn documents_read_font(font_id: String) -> AppResult<Response> {
+    let data = tokio::task::spawn_blocking(move || crate::documents::fonts::read_font(&font_id))
+        .await
+        .map_err(|error| AppError::internal(error.to_string()))??;
+    Ok(Response::new(data))
+}
+
+#[tauri::command]
 pub async fn documents_save_binary(
     request: Request<'_>,
     window: WebviewWindow,

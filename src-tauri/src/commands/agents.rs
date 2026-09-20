@@ -90,7 +90,7 @@ pub async fn agents_chat(
     let (run_id, cancellation) =
         state
             .agent_runtime
-            .begin_run(request.run_id.as_deref(), window.label(), on_event)?;
+            .begin_run(&request.run_id, window.label(), on_event)?;
     let conversation_id = request
         .conversation_id
         .as_deref()
@@ -117,6 +117,7 @@ pub async fn agents_chat(
             messages: request.messages,
             conversation_id: conversation_id.to_owned(),
             allow_document_tools: true,
+            delegation: None,
         },
     )
     .await;
@@ -141,7 +142,7 @@ pub async fn agents_run_task(
     let (run_id, cancellation) =
         state
             .agent_runtime
-            .begin_run(request.run_id.as_deref(), window.label(), on_event)?;
+            .begin_run(&request.run_id, window.label(), on_event)?;
     let result = run_multi_agent_task(
         AgentExecutionContext {
             runtime: &state.agent_runtime,

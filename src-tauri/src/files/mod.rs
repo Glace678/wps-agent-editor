@@ -7,7 +7,10 @@ pub mod operations;
 pub mod recent;
 pub mod session;
 
-use crate::error::AppResult;
+use crate::{
+    error::AppResult,
+    state::{new_recovery_notices, RecoveryNotices},
+};
 use std::{ffi::OsStr, path::PathBuf};
 
 pub struct FileServices {
@@ -20,12 +23,29 @@ pub struct FileServices {
 
 impl FileServices {
     pub fn new(app_data_dir: PathBuf, home_dir: PathBuf) -> AppResult<Self> {
+        Self::new_with_recovery(app_data_dir, home_dir, new_recovery_notices())
+    }
+
+    pub fn new_with_recovery(
+        app_data_dir: PathBuf,
+        home_dir: PathBuf,
+        notices: RecoveryNotices,
+    ) -> AppResult<Self> {
         std::fs::create_dir_all(&app_data_dir)?;
         Ok(Self {
             access: access::AccessRegistry::default(),
-            history: history::HistoryStore::new(app_data_dir.join("file-history")),
-            recent: recent::RecentStore::new(app_data_dir.join("recent-files.json")),
-            session: session::FileSessionStore::new(app_data_dir.join("file-session.json")),
+            history: history::HistoryStore::new_with_recovery(
+                app_data_dir.join("file-history"),
+                notices.clone(),
+            ),
+            recent: recent::RecentStore::new_with_recovery(
+                app_data_dir.join("recent-files.json"),
+                notices.clone(),
+            ),
+            session: session::FileSessionStore::new_with_recovery(
+                app_data_dir.join("file-session.json"),
+                notices,
+            ),
             home_dir,
         })
     }

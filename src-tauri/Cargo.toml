@@ -39,13 +39,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.10"
 sha2 = "0.10"
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tempfile = "3"
 thiserror = "2"
+ttf-parser = "=0.25.1"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
 trash = "5"

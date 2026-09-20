@@ -8,6 +8,7 @@ import { usePanelStore } from '@/stores/panel.store'
 export function DebugConsoleView() {
   const { t } = useTranslation()
   const status = useDebugStore((s) => s.status)
+  const sessionId = useDebugStore((s) => s.sessionId)
   const sessionFile = useDebugStore((s) => s.sessionFile)
   const kind = useDebugStore((s) => s.kind)
   const frames = useDebugStore((s) => s.frames)
@@ -25,10 +26,10 @@ export function DebugConsoleView() {
 
   const evaluate = () => {
     const expression = input.trim()
-    if (!expression || status === 'idle') return
+    if (!expression || status === 'idle' || !sessionId) return
     setInput('')
     useDebugStore.getState().addConsoleLine({ kind: 'eval', text: `> ${expression}` })
-    void desktopApi.process.debugEvaluate(expression, crypto.randomUUID())
+    void desktopApi.process.debugEvaluate(sessionId, expression, crypto.randomUUID())
   }
 
   const breakpointEntries = Object.entries(breakpoints)

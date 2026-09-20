@@ -2379,6 +2379,66 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     onReadyRef.current()
   }, [filePath])
 
+  /**
+   * DPR 变化监听（窗口拖到不同缩放比的显示器）：
+   * Fortune 在初始化时读取一次 devicePixelRatio，之后不会自动更新。
+   * 拖到 2K→1K 或反之显示器后，canvas backing store 的尺寸仍然按旧
+   * DPR 计算，导致 CSS 尺寸 / 纹理尺寸不匹配 → 整屏发糊。
+   *
+   * 修复：用 matchMedia 监听 DPR 变化，变化后：
+   *   1. 把 Fortune sheetCtx.devicePixelRatio 同步为当前值
+   *   2. 触发 resize 让 Fortune 重建 canvas（按新 DPR 重设 width/height）
+   *   3. snapCanvasCssSizeToBacking 在 draw 时自动对齐 CSS 尺寸
+   *
+   * 此 effect 在 workbook 挂载后启动（通过 handleWorkbookRef 手动调度）。
+   */
+  const startDprWatcher = useCallback((): (() => void) | null => {
+    if (typeof window.matchMedia !== 'function') return null
+    let mql: MediaQueryList | null = null
+    let disposed = false
+
+    const updateDprAndRedraw = () => {
+      if (disposed) return
+      const api = workbookRef.current
+      if (!api) {
+        attach()
+        return
+      }
+      try {
+        const ctx = (api as { sheetCtx?: Record<string, unknown> }).sheetCtx
+        if (ctx && typeof ctx === 'object') {
+          const newDpr = window.devicePixelRatio || 1
+          ctx.devicePixelRatio = newDpr
+          // 触发 Fortune 重建 canvas context 与 backing store
+          const evt = new UIEvent('resize', { bubbles: false, cancelable: false })
+          window.dispatchEvent(evt)
+        }
+      } catch {
+        /* 内部结构变化时安全兜底 */
+      }
+      attach()
+    }
+
+    const attach = () => {
+      if (disposed) return
+      if (mql) mql.removeEventListener('change', updateDprAndRedraw)
+      mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      mql.addEventListener('change', updateDprAndRedraw)
+    }
+
+    attach()
+    return () => {
+      disposed = true
+      mql?.removeEventListener('change', updateDprAndRedraw)
+    }
+  }, [])
+
+  // 启动 DPR 监听（组件卸载时清理）；必须放在所有 early return 之前
+  useEffect(() => {
+    const stop = startDprWatcher()
+    return () => stop?.()
+  }, [startDprWatcher])
+
   if (error) {
     return (
       <div className="flex flex-1 items-center justify-center p-6 text-sm text-destructive">

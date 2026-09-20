@@ -2,7 +2,7 @@
    Word 顶部工具栏 —— 与 Excel（FortuneSheet）工具栏同风格。
    superdoc 1.44.0 结构约束：
    - .button-group 的 justify-content / min-width 是内联样式，覆盖需 !important
-   - 溢出策略会把 documentMode 校正到 center 组，保证 DOM 与菜单顺序一致
+   - 编辑/修订/查看模式入口由工具栏配置隐藏，内部始终保持编辑状态
    - 溢出 ⋯ 固定在 center 组并绝对定位到最右
    - 字体/字号等下拉被 Teleport 到 <body>，面板作用域样式够不到
      → 暗色 --sd-ui-dropdown-* 令牌挂在 .dark 根上（--sd-ui-* 仅 SuperDoc 消费）
@@ -19,9 +19,8 @@
   --sd-ui-font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
   --sd-ui-toolbar-bg: #fafafc;
   --sd-ui-toolbar-height: 28px;          /* 按钮 28×28，同 Excel */
-  /* 间距略小于 Excel 的 8px：SuperDoc 按每项 ~32px 估宽决定可见数，
-     间距过大会让实际宽度超出估算、挤出末尾按钮 */
-  --sd-ui-toolbar-item-gap: 4px;
+  /* 工具栏控件间距：取 6px，保证各控件及悬浮背景之间有清晰间隔，杜绝重叠 */
+  --sd-ui-toolbar-item-gap: 6px;
   --sd-ui-toolbar-item-padding: 2px;
   --sd-ui-toolbar-button-text: #535a68;  /* Excel 图标灰 */
   --sd-ui-toolbar-button-hover-bg: rgb(0 0 0 / 6%);
@@ -33,11 +32,11 @@
 }
 
 .dark .word-editor-panel {
-  --sd-ui-toolbar-bg: #000;
-  --sd-ui-toolbar-button-text: #e8e8e8;
-  --sd-ui-toolbar-button-hover-bg: #171717;
-  --sd-ui-toolbar-button-active-bg: #242424;
-  --sd-ui-border: #2a2a2a;
+  --sd-ui-toolbar-bg: #141414;
+  --sd-ui-toolbar-button-text: #e0e0e0;
+  --sd-ui-toolbar-button-hover-bg: rgba(255, 255, 255, 0.08);
+  --sd-ui-toolbar-button-active-bg: #173f6c;
+  --sd-ui-border: #2e2e2e;
 }
 
 /* 浅色/默认下拉与悬浮层令牌（挂根级以覆盖 body 传送门弹层） */
@@ -49,16 +48,32 @@
   --sd-ui-tooltip-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
-/* 暗色下拉/悬浮层令牌（对照 Excel 暗色弹层）。挂根级以覆盖 body 传送门菜单与悬浮提示。 */
+/* 暗色下拉/悬浮层令牌（高对比度设计系统）。挂根级以覆盖 body 传送门菜单与悬浮提示。 */
 .dark {
-  --sd-ui-dropdown-bg: #181818;
+  --sd-ui-dropdown-bg: #1e1e1e;
   --sd-ui-dropdown-border: #383838;
-  --sd-ui-dropdown-text: #f5f5f5;
-  --sd-ui-dropdown-hover-bg: #282828;
+  --sd-ui-dropdown-text: #f0f0f0;
+  --sd-ui-dropdown-hover-bg: rgba(255, 255, 255, 0.08);
   --sd-ui-dropdown-hover-text: #ffffff;
-  --sd-ui-dropdown-active-bg: #333333;
-  --sd-ui-dropdown-selected-text: #ffffff;
-  --sd-ui-dropdown-shadow: 0 10px 30px rgb(0 0 0 / 80%), 0 0 0 1px rgb(255 255 255 / 10%);
+  --sd-ui-dropdown-active-bg: #173f6c;
+  --sd-ui-dropdown-selected-text: #70b5ff;
+  --sd-ui-dropdown-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.4);
+
+  --sd-ui-menu-bg: #1e1e1e;
+  --sd-ui-menu-border: #383838;
+  --sd-ui-menu-text: #f0f0f0;
+  --sd-ui-menu-item-hover-bg: rgba(255, 255, 255, 0.08);
+  --sd-ui-menu-item-active-bg: #173f6c;
+  --sd-ui-menu-item-active-text: #70b5ff;
+  --sd-ui-menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+
+  --sd-ui-surface-bg: #1e1e1e;
+  --sd-ui-surface-border: #383838;
+  --sd-ui-surface-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  --sd-ui-find-replace-input-bg: #252525;
+  --sd-ui-find-replace-input-border: #3d3d3d;
+  --sd-ui-find-replace-toggle-active-bg: #173f6c;
+  --sd-ui-find-replace-toggle-active-color: #70b5ff;
 
   --sd-ui-tooltip-bg: #242427;
   --sd-ui-tooltip-text: #ffffff;
@@ -130,7 +145,7 @@ body .sd-tooltip-arrow {
   overflow: visible;
 }
 
-/* 工具栏本体：Excel = 28px 按钮 + 上5/下3内边距 + 1px 下边框 = 41px */
+/* 工具栏本体：Excel = 28px 按钮 + 上4/下2内边距 + 1px 下边框 = 35px */
 .word-editor-panel .superdoc-toolbar {
   position: relative; /* ⋯ 绝对定位的包含块 */
   display: flex;
@@ -139,8 +154,9 @@ body .sd-tooltip-arrow {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  height: 41px;
-  padding: 5px 8px 3px;
+  height: 35px;
+  padding: 4px 6px 2px;
+  gap: 2px;
   overflow: visible;
   border-bottom: 1px solid #d4d4d4;
   font-size: 12px;
@@ -181,6 +197,35 @@ body .sd-tooltip-arrow {
 }
 
 /*
+ * 工具栏控件外边距与项间距：紧凑布局，减少控件间空隙，提高空间利用率。
+ * 悬浮态取消多余投影，杜绝双层白色阴影效果。
+ */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn,
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item,
+.word-editor-panel .superdoc-toolbar .sd-font-combobox {
+  margin: 0 1px !important;
+}
+
+.word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn > * {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* 悬浮按钮移除多余阴影，消除"两层白色阴影"感：仅保留纯色背景高亮 */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-button:hover,
+.word-editor-panel .superdoc-toolbar .sd-toolbar-button:focus,
+.word-editor-panel .superdoc-toolbar .sd-toolbar-button:focus-visible {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  outline: none !important;
+}
+
+/* 按钮组分隔线间距收紧 */
+.word-editor-panel .superdoc-toolbar .sd-toolbar-divider {
+  margin: 0 4px !important;
+}
+
+/*
  * ⋯ 溢出按钮钉在最右：绝对定位脱离文档流，保证它不会被末尾项目挤出容器。
  * center 组按按钮实测宽度预留 ⋯ 的位置并裁掉意外溢出的项
  *（center 组 position 保持 static，不会裁到 ⋯ 及其下拉层）。
@@ -195,7 +240,7 @@ body .sd-tooltip-arrow {
   position: absolute;
   top: 50%;
   right: 8px;
-  margin: 0;
+  margin: 0 !important;
   transform: translateY(-50%);
 }
 
@@ -212,13 +257,14 @@ body .sd-tooltip-arrow {
   height: 16px;
 }
 
-/* 缩放下拉栏宽度缩小：SuperDoc 默认 71px，收窄为 54px 紧凑展示 */
+/* 缩放下拉栏宽度：收窄为 56px，节省工具栏空间，
+ * 100%/75%/125%/200% 等常见比例均能完整显示 */
 .word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has([data-item='btn-zoom']),
 .word-editor-panel .superdoc-toolbar .sd-toolbar-item:has(> [data-item='btn-zoom']),
 .word-editor-panel .superdoc-toolbar [data-item='btn-zoom'] {
-  width: 54px !important;
-  min-width: 54px !important;
-  max-width: 54px !important;
+  width: 56px !important;
+  min-width: 56px !important;
+  max-width: 56px !important;
 }
 
 .word-editor-panel .superdoc-toolbar [data-item='btn-zoom'] {
@@ -232,11 +278,11 @@ body .sd-tooltip-arrow {
   font-variant-numeric: tabular-nums;
 }
 
-/* 缩放下拉弹层收窄，并居中选项 */
+/* 缩放下拉弹层宽度与按钮对齐，并居中选项 */
 body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-zoom-option']),
 body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-zoom-option']) {
-  width: 62px !important;
-  min-width: 62px !important;
+  width: 70px !important;
+  min-width: 70px !important;
   padding: 4px 3px !important;
 }
 
@@ -384,15 +430,56 @@ body .toolbar-table-grid-wrapper {
 /* 字号下拉面板本体也按内容收窄：默认 min-width 80px + 左对齐会让两位数字
  * 显得空旷。面板被 Teleport 到 body，选择器保持全局；用选项上的
  * btn-fontSize-option 标记只命中字号菜单，不影响缩放/行距等其它下拉。 */
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize-option']),
 body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize-option']) {
-  width: 64px;
-  min-width: 64px;
+  width: 64px !important;
+  min-width: 64px !important;
 }
 
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize-option'])
+  .toolbar-dropdown-option,
 body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize-option'])
   .toolbar-dropdown-option {
   justify-content: center;
   padding: 0 6px;
+}
+
+/* 行距下拉面板按内容收窄并居中数字：
+ * 默认 min-width 80px 且自带左侧 20px 图标占位会导致 4 位数字偏右且显得空旷。
+ * 面板被 Teleport 到 body，选择器保持全局；隐藏图标占位、文本居中并收窄面板。 */
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option']),
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option']) {
+  width: 58px !important;
+  min-width: 58px !important;
+  padding: 4px 3px !important;
+}
+
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option'])
+  .toolbar-dropdown-option,
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option'])
+  .toolbar-dropdown-option {
+  justify-content: center !important;
+  text-align: center !important;
+  padding: 0 4px !important;
+  min-height: 28px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option'])
+  .toolbar-dropdown-option .toolbar-dropdown-option__icon,
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option'])
+  .toolbar-dropdown-option .toolbar-dropdown-option__icon {
+  display: none !important;
+}
+
+body .sd-toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option'])
+  .toolbar-dropdown-option .toolbar-dropdown-option__label,
+body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-lineHeight-option'])
+  .toolbar-dropdown-option .toolbar-dropdown-option__label {
+  text-align: center !important;
+  width: 100% !important;
+  display: block;
 }
 .word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size)
   .sd-toolbar-split-field {
@@ -439,6 +526,429 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   border: 1px solid #2a2a2a; /* 背景/阴影走 --sd-ui-dropdown-* 令牌 */
 }
 
+/* ==========================================================================
+   Word 超链接气泡弹层 (Link Popover) —— 现代 Fluent/Office 风格
+   全面适配浅色与暗色模式，重构容器圆角、阴影、层级、输入框质感、图标与按钮交互。
+   SuperDoc/Tippy 会将弹层 Teleport 到 <body>，故选择器使用全局 body 前缀。
+   ========================================================================== */
+
+/* 1. Tippy 气泡与弹层容器重置 */
+body .tippy-box[data-theme~='sd-editor-popover'],
+body .generic-popover:has(.link-input-ctn),
+body .sd-external-link-popover {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+body .tippy-box[data-theme~='sd-editor-popover'] .tippy-content {
+  padding: 0 !important;
+}
+
+/* 2. Popover 容器主体 */
+body .sd-editor-popover,
+body .link-input-ctn {
+  box-sizing: border-box !important;
+  width: 328px !important;
+  padding: 14px 16px !important;
+  border-radius: 12px !important;
+  font-family: var(--sd-ui-font-family, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif) !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  color: #18181b !important;
+  background-color: #ffffff !important;
+  border: 1px solid #e4e4e7 !important;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.12), 0 4px 12px -2px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+/* 暗色主题 Popover 外壳 */
+.dark body .sd-editor-popover,
+.dark body .link-input-ctn,
+.dark body .generic-popover:has(.link-input-ctn),
+.dark body .sd-external-link-popover {
+  color: #f4f4f5 !important;
+  background-color: #1e1e22 !important;
+  border: 1px solid #333338 !important;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.65), 0 6px 16px -2px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 3. 弹层标题 */
+body .link-input-ctn .link-title {
+  display: block !important;
+  margin: 0 0 12px 0 !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.3 !important;
+  letter-spacing: -0.01em !important;
+  color: #18181b !important;
+}
+
+.dark body .link-input-ctn .link-title {
+  color: #f4f4f5 !important;
+}
+
+/* 4. 输入框包裹与行布局 */
+body .link-input-ctn .link-input-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+body .link-input-ctn .input-row {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  margin: 0 !important;
+  font-size: 13px !important;
+}
+
+/* 5. 输入框（文本与 URL） */
+body .link-input-ctn .input-row input {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 0 12px 0 34px !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  line-height: 34px !important;
+  border-radius: 7px !important;
+  outline: none !important;
+  background-color: #f9fafb !important;
+  color: #18181b !important;
+  border: 1px solid #d4d4d8 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+body .link-input-ctn .input-row input::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+body .link-input-ctn .input-row input:hover:not(:focus):not([readonly]) {
+  background-color: #ffffff !important;
+  border-color: #a1a1aa !important;
+}
+
+body .link-input-ctn .input-row input:focus {
+  background-color: #ffffff !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16), 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+body .link-input-ctn .input-row input[readonly] {
+  background-color: #f3f4f6 !important;
+  color: #6b7280 !important;
+  border-color: #e5e7eb !important;
+  cursor: default !important;
+  box-shadow: none !important;
+}
+
+/* 暗色模式输入框 */
+.dark body .link-input-ctn .input-row input {
+  background-color: #27272a !important;
+  color: #f4f4f5 !important;
+  border: 1px solid #3f3f46 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark body .link-input-ctn .input-row input::placeholder {
+  color: #71717a !important;
+}
+
+.dark body .link-input-ctn .input-row input:hover:not(:focus):not([readonly]) {
+  background-color: #2e2e33 !important;
+  border-color: #52525b !important;
+}
+
+.dark body .link-input-ctn .input-row input:focus {
+  background-color: #2c2c31 !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25), 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark body .link-input-ctn .input-row input[readonly] {
+  background-color: #1f1f23 !important;
+  color: #a1a1aa !important;
+  border-color: #2e2e33 !important;
+}
+
+/* 6. 输入框内前置图标 (T 字与超链接链条) */
+body .link-input-ctn .input-icon {
+  position: absolute !important;
+  left: 11px !important;
+  top: 50% !important;
+  z-index: 2 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 15px !important;
+  height: 15px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  pointer-events: none !important;
+  color: #6b7280 !important;
+}
+
+body .link-input-ctn .input-icon.text-input-icon {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  font-family: inherit !important;
+  line-height: 1 !important;
+  transform: translateY(-50%) !important;
+}
+
+body .link-input-ctn .input-icon:not(.text-input-icon) {
+  transform: translateY(-50%) rotate(45deg) !important;
+}
+
+body .link-input-ctn .input-icon svg {
+  width: 13px !important;
+  height: 13px !important;
+  fill: currentColor !important;
+}
+
+.dark body .link-input-ctn .input-icon {
+  color: #9ca3af !important;
+}
+
+/* 7. 打开外部链接图标按钮 */
+body .link-input-ctn .open-link-icon {
+  position: relative !important;
+  flex-shrink: 0 !important;
+  width: 34px !important;
+  height: 34px !important;
+  margin-left: 6px !important;
+  border-radius: 7px !important;
+  border: 1px solid transparent !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  color: #6b7280 !important;
+  background-color: transparent !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+body .link-input-ctn .open-link-icon svg {
+  width: 15px !important;
+  height: 15px !important;
+  fill: currentColor !important;
+}
+
+body .link-input-ctn .open-link-icon:hover {
+  color: #18181b !important;
+  background-color: #f3f4f6 !important;
+  border-color: #e5e7eb !important;
+}
+
+body .link-input-ctn .open-link-icon:active {
+  background-color: #e5e7eb !important;
+}
+
+body .link-input-ctn .open-link-icon.sd-disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+
+.dark body .link-input-ctn .open-link-icon {
+  color: #9ca3af !important;
+}
+
+.dark body .link-input-ctn .open-link-icon:hover {
+  color: #ffffff !important;
+  background-color: #27272a !important;
+  border-color: #3f3f46 !important;
+}
+
+.dark body .link-input-ctn .open-link-icon:active {
+  background-color: #323238 !important;
+}
+
+/* 8. 按钮组与操作按钮 (Apply & Remove) */
+body .link-input-ctn .link-buttons {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin-top: 14px !important;
+  padding-top: 2px !important;
+}
+
+/* 应用按钮 (Primary) */
+body .link-input-ctn .sd-submit-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 32px !important;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  border: 1px solid transparent !important;
+  outline: none !important;
+  cursor: pointer !important;
+  letter-spacing: 0.01em !important;
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+body .link-input-ctn .sd-submit-btn:hover {
+  background-color: #1d4ed8 !important;
+  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.28) !important;
+}
+
+body .link-input-ctn .sd-submit-btn:active {
+  background-color: #1e40af !important;
+  transform: translateY(1px) !important;
+}
+
+.dark body .link-input-ctn .sd-submit-btn {
+  background-color: #2563eb !important;
+}
+
+.dark body .link-input-ctn .sd-submit-btn:hover {
+  background-color: #3b82f6 !important;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4) !important;
+}
+
+.dark body .link-input-ctn .sd-submit-btn:active {
+  background-color: #1d4ed8 !important;
+}
+
+body .link-input-ctn .sd-submit-btn.disable-btn {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  box-shadow: none !important;
+}
+
+/* 移除按钮 (Danger/Secondary) */
+body .link-input-ctn .remove-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  height: 32px !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  outline: none !important;
+  cursor: pointer !important;
+  background-color: #fef2f2 !important;
+  border: 1px solid #fecaca !important;
+  color: #dc2626 !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+body .link-input-ctn .remove-btn:hover {
+  background-color: #fee2e2 !important;
+  border-color: #f87171 !important;
+  color: #b91c1c !important;
+}
+
+body .link-input-ctn .remove-btn:active {
+  background-color: #fecaca !important;
+  transform: translateY(1px) !important;
+}
+
+body .link-input-ctn .remove-btn__icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 13px !important;
+  height: 13px !important;
+  margin-right: 2px !important;
+  flex-shrink: 0 !important;
+}
+
+body .link-input-ctn .remove-btn__icon svg {
+  width: 100% !important;
+  height: 100% !important;
+  fill: currentColor !important;
+}
+
+.dark body .link-input-ctn .remove-btn {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  border: 1px solid rgba(239, 68, 68, 0.28) !important;
+  color: #f87171 !important;
+}
+
+.dark body .link-input-ctn .remove-btn:hover {
+  background-color: rgba(239, 68, 68, 0.22) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #fca5a5 !important;
+}
+
+.dark body .link-input-ctn .remove-btn:active {
+  background-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+/* 9. 校验错误状态 */
+body .link-input-ctn .input-row input.sd-error {
+  border-color: #ef4444 !important;
+  background-color: #fff5f5 !important;
+}
+
+body .link-input-ctn .input-row input.sd-error:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
+}
+
+.dark body .link-input-ctn .input-row input.sd-error {
+  border-color: #ef4444 !important;
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+
+.dark body .link-input-ctn .input-row input.sd-error:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3) !important;
+}
+
+/* 10. 页内锚点跳转 */
+body .link-input-ctn .go-to-anchor {
+  margin-top: 4px !important;
+}
+
+body .link-input-ctn .go-to-anchor a {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  cursor: pointer !important;
+  color: #2563eb !important;
+  transition: color 0.15s ease !important;
+}
+
+body .link-input-ctn .go-to-anchor a:hover {
+  text-decoration: underline !important;
+  color: #1d4ed8 !important;
+}
+
+.dark body .link-input-ctn .go-to-anchor a {
+  color: #60a5fa !important;
+}
+
+.dark body .link-input-ctn .go-to-anchor a:hover {
+  color: #93c5fd !important;
+}
+
 /*
  * 缩放不在这里做：外部 CSS zoom/transform 会破坏 SuperDoc PresentationEditor
  * 的指针坐标换算（点击错位 → 无法编辑）。
@@ -459,38 +969,27 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
 }
 
 /*
- * SuperDoc writes the scaled document height to this viewport's min-height,
- * but leaves height as auto. Below 100% zoom, the unscaled pages child then
- * expands the viewport back to its original height and creates a black,
- * scrollable tail after the last page. Make the engine's scaled min-height
- * authoritative in vertical and book layouts alike.
+ * 视口尺寸由引擎在 #applyZoom 中同步设定（包含 vertical/book 模式的宽高与页间距），
+ * 不在此强制 height: 0，避免在布局测量间隙视口高度归零露出深色背景造成黑屏闪烁。
  */
-.word-editor-panel .presentation-editor__viewport {
-  height: 0 !important;
-}
-
-/* 缩放期间把页面宿主与选区层提升到合成层，减少末尾重绘闪烁 */
-.word-editor-panel[data-word-zooming='true'] .presentation-editor__pages,
-.word-editor-panel[data-word-zooming='true'] .presentation-editor__selection-overlay {
-  will-change: transform;
-}
-
-.word-editor-panel .presentation-editor__pages,
-.word-editor-panel .presentation-editor__selection-overlay {
-  /* 给引擎自身的 transform 加短暂过渡，使双页视图缩放更平滑；
-   * 该 transform 由 SuperDoc 在 #applyZoom 中设置，我们只动画它而不
-   * 额外添加 transform，因此指针坐标换算不受影响。 */
-  transition: transform 100ms ease-out;
-}
 
 /*
- * Word 表格默认边框：SuperDoc 在单元格没有显式 w:tcBorders 时不渲染任何
- * 边框，导致表格看起来是“透明”的。这里给编辑视图的单元格补一个默认网格
- * 线；有显式 inline border 的单元格会覆盖它（内联样式优先级更高）。
+ * 缩放完全由引擎在当前帧同步应用，不加 CSS transition 避免与视口外盒尺寸产生时间差导致抖动抽动。
  */
-.word-editor-panel .sd-editor-scoped .ProseMirror table td,
-.word-editor-panel .sd-editor-scoped .ProseMirror table th {
-  border: 1px solid #000;
+
+/* Black editing fallback for legacy tables that do not serialize cell borders. */
+@media screen {
+  .word-editor-panel[data-word-view-mode='page']
+    .superdoc-table-fragment
+    > div:not([style*='border-'])::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    box-sizing: border-box;
+    border: 1px solid #000;
+    pointer-events: none;
+  }
 }
 
 /*
@@ -518,19 +1017,16 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   box-shadow: none !important;
 }
 
-/* Word「多页」：从第 1 页开始两页一排，页间与行间都保留稳定留白。 */
-.word-editor-panel
-  .word-document-layout[data-word-layout-mode='book']
-  .presentation-editor__pages
-  > .superdoc-spread {
+/* Word「多页」：从第 1 页开始两页一排，页间与行间都保留稳定留白。
+ * .superdoc-spread 只在 book 排版中由引擎创建，因此无需用
+ * data-word-layout-mode 限定——属性切换与引擎异步重绘之间有时间差，
+ * 限定到属性会在模式切换的空档造成 spread 间距闪变。 */
+.word-editor-panel .word-document-layout .superdoc-spread {
   align-items: flex-start !important;
   gap: 24px !important;
 }
 
-.word-editor-panel
-  .word-document-layout[data-word-layout-mode='book']
-  .superdoc-spread
-  > .superdoc-page {
+.word-editor-panel .word-document-layout .superdoc-spread > .superdoc-page {
   margin: 0 !important;
 }
 
@@ -576,33 +1072,52 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  margin: 0;
+  height: 24px;
+  margin: 2px 1px;
   padding: 0;
   color: inherit;
   background: transparent;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
   outline: none;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
 }
 
 .word-status-icon-button {
-  width: 32px;
+  width: 28px;
 }
 
 .word-status-icon-button:hover,
-.word-zoom-trigger:hover,
-.word-status-icon-button[data-active='true'],
-.word-zoom-trigger[aria-expanded='true'] {
-  color: #fff;
-  background: #343434;
+.word-zoom-trigger:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: transparent;
+  outline: none;
 }
 
+.word-status-icon-button[data-active='true'],
+.word-status-icon-button[aria-pressed='true'],
+.word-zoom-trigger[aria-expanded='true'] {
+  color: #70b5ff !important;
+  background: #173f6c !important;
+  border: 1px solid rgba(59, 130, 246, 0.55) !important;
+  outline: none;
+}
+
+.word-status-icon-button[data-active='true']:hover,
+.word-zoom-trigger[aria-expanded='true']:hover {
+  color: #ffffff !important;
+  background: #1e5088 !important;
+  border-color: #60a5fa !important;
+}
+
+.word-status-icon-button:focus,
 .word-status-icon-button:focus-visible,
+.word-zoom-trigger:focus,
 .word-zoom-trigger:focus-visible,
 .word-zoom-slider:focus-visible {
-  outline: 1px solid #6aa7ff;
-  outline-offset: -2px;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .word-status-icon-button:disabled {
@@ -948,5 +1463,498 @@ body .toolbar-dropdown-menu:has(.toolbar-dropdown-option[data-item='btn-fontSize
 
   .word-zoom-slider {
     margin-inline: 1px;
+  }
+}
+
+/* ==========================================================================
+   Word 暗黑模式与可选择 UI 高对比度深度适配
+   - 彻底消除白色边框 (No white boxes / outlines)
+   - 选中状态与鼠标悬浮在其他项上的效果形成强烈鲜明的对比
+   - 覆盖 Word 内所有可选择 UI 组件
+   ========================================================================== */
+
+/* 1. 全局清除 Word 弹层与工具栏内的生硬白色焦点框与描边 */
+.dark body .sd-button-icon,
+.dark body .sd-toolbar-button,
+.dark body .toolbar-dropdown-option,
+.dark body .sd-font-combobox__option,
+.dark body .sd-option-item,
+.dark body .sd-option,
+.dark body .context-menu-item,
+.dark body .toolbar-table-actions__item,
+.dark body .toolbar-table-grid__item,
+.dark body .sd-find-replace__btn {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.dark body .sd-button-icon:focus,
+.dark body .sd-button-icon:focus-visible,
+.dark body .sd-toolbar-button:focus,
+.dark body .sd-toolbar-button:focus-visible,
+.dark body .toolbar-dropdown-option:focus,
+.dark body .toolbar-dropdown-option:focus-visible,
+.dark body .sd-font-combobox__option:focus,
+.dark body .sd-font-combobox__option:focus-visible,
+.dark body .sd-option-item:focus,
+.dark body .sd-option-item:focus-visible,
+.dark body .context-menu-item:focus,
+.dark body .context-menu-item:focus-visible,
+.dark body .toolbar-table-actions__item:focus,
+.dark body .toolbar-table-actions__item:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* 2. 文本对齐方式弹层 (.alignment-buttons) 高对比度样式 */
+.dark body .alignment-buttons {
+  box-sizing: border-box;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: #1e1e1e !important;
+  border-radius: 6px;
+}
+
+.dark body .alignment-buttons .sd-button-icon {
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 4px !important;
+  border: 1px solid transparent !important;
+  background-color: transparent !important;
+  color: #d4d4d4 !important;
+  cursor: pointer;
+  outline: none !important;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+/* 悬浮态（鼠标滑过未选中项）：中性柔和半透明浅灰，无彩色边框 */
+.dark body .alignment-buttons .sd-button-icon:hover {
+  background-color: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  outline: none !important;
+}
+
+/* 选中态（当前激活项）：深蓝强调底块 + 鲜明蓝框 + 亮蓝图标，对比度极其明显 */
+.dark body .alignment-buttons .sd-button-icon.sd-selected,
+.dark body .alignment-buttons .sd-button-icon[data-active='true'],
+.dark body .alignment-buttons .sd-button-icon[aria-selected='true'] {
+  background-color: #173f6c !important;
+  border: 1px solid #3b82f6 !important;
+  color: #70b5ff !important;
+  outline: none !important;
+}
+
+/* 选中态悬浮（鼠标滑过已选中项）：亮蓝强调 */
+.dark body .alignment-buttons .sd-button-icon.sd-selected:hover,
+.dark body .alignment-buttons .sd-button-icon[data-active='true']:hover {
+  background-color: #1e5088 !important;
+  border-color: #60a5fa !important;
+  color: #ffffff !important;
+}
+
+.dark body .alignment-buttons .sd-button-icon svg {
+  fill: currentColor !important;
+  width: 15px !important;
+  height: 15px !important;
+}
+
+/* 3. 列表样式选择弹层 (.style-buttons-list) 高对比度样式 */
+.dark body .style-buttons-list {
+  box-sizing: border-box;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: #1e1e1e !important;
+  border-radius: 6px;
+}
+
+.dark body .style-buttons-list .sd-button-icon {
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 4px !important;
+  border: 1px solid transparent !important;
+  background-color: transparent !important;
+  color: #d4d4d4 !important;
+  cursor: pointer;
+  outline: none !important;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.dark body .style-buttons-list .sd-button-icon:hover {
+  background-color: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  outline: none !important;
+}
+
+.dark body .style-buttons-list .sd-button-icon.sd-selected,
+.dark body .style-buttons-list .sd-button-icon[data-active='true'],
+.dark body .style-buttons-list .sd-button-icon[aria-selected='true'] {
+  background-color: #173f6c !important;
+  border: 1px solid #3b82f6 !important;
+  color: #70b5ff !important;
+  outline: none !important;
+}
+
+.dark body .style-buttons-list .sd-button-icon.sd-selected:hover,
+.dark body .style-buttons-list .sd-button-icon[data-active='true']:hover {
+  background-color: #1e5088 !important;
+  border-color: #60a5fa !important;
+  color: #ffffff !important;
+}
+
+.dark body .style-buttons-list .sd-button-icon svg {
+  fill: currentColor !important;
+}
+
+/* 4. 通用下拉菜单与弹层选项 (.toolbar-dropdown-option, .sd-popover, etc.) */
+.dark body .toolbar-dropdown-menu,
+.dark body .sd-toolbar-dropdown-menu,
+.dark body .sd-popover,
+.dark body .sd-editor-popover {
+  background-color: #1e1e1e !important;
+  border: 1px solid #383838 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark body .toolbar-dropdown-option {
+  box-sizing: border-box !important;
+  color: #e0e0e0 !important;
+  background-color: transparent !important;
+  border-radius: 4px !important;
+  border: 1px solid transparent !important;
+  outline: none !important;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.dark body .toolbar-dropdown-option:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: transparent !important;
+  outline: none !important;
+}
+
+.dark body .toolbar-dropdown-option.sd-selected,
+.dark body .toolbar-dropdown-option.sd-is-selected,
+.dark body .toolbar-dropdown-option[data-active='true'],
+.dark body .toolbar-dropdown-option[aria-selected='true'] {
+  color: #70b5ff !important;
+  background-color: #173f6c !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  font-weight: 500 !important;
+  outline: none !important;
+}
+
+.dark body .toolbar-dropdown-option.sd-selected:hover,
+.dark body .toolbar-dropdown-option.sd-is-selected:hover {
+  color: #ffffff !important;
+  background-color: #1e5088 !important;
+  border-color: #60a5fa !important;
+}
+
+/* 5. 字体选择列表 (.sd-font-combobox__listbox & .sd-font-combobox__option) */
+.dark body .sd-font-combobox__listbox {
+  background-color: #1e1e1e !important;
+  border: 1px solid #383838 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7) !important;
+}
+
+.dark body .sd-font-combobox__option {
+  color: #e0e0e0 !important;
+  background-color: transparent !important;
+  border-radius: 4px !important;
+  border: 1px solid transparent !important;
+  outline: none !important;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.dark body .sd-font-combobox__option:hover,
+.dark body .sd-font-combobox__option.sd-active,
+.dark body .word-font-picker-option-active {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: transparent !important;
+  outline: none !important;
+}
+
+.dark body .sd-font-combobox__option.sd-selected,
+.dark body .sd-font-combobox__option[aria-selected='true'] {
+  color: #70b5ff !important;
+  background-color: #173f6c !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  font-weight: 500 !important;
+  outline: none !important;
+}
+
+.dark body .sd-font-combobox__option.sd-selected:hover {
+  color: #ffffff !important;
+  background-color: #1e5088 !important;
+  border-color: #60a5fa !important;
+}
+
+/* 6. Word 顶部工具栏按钮 (.sd-toolbar-button) 状态与对比度 */
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button {
+  color: #d4d4d4 !important;
+  background-color: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  outline: none !important;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: transparent !important;
+  outline: none !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button:active,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.sd-active,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.sd-selected,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button[data-active='true'],
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button[aria-expanded='true'] {
+  color: #70b5ff !important;
+  background-color: #173f6c !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  outline: none !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.sd-active:hover,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.sd-selected:hover,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button[data-active='true']:hover,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button[aria-expanded='true']:hover {
+  color: #ffffff !important;
+  background-color: #1e5088 !important;
+  border-color: #60a5fa !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button:focus,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button:focus-visible {
+  outline: none !important;
+}
+
+/* 分割按钮样式 */
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.split .sd-toolbar-button__main:hover,
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.split .sd-toolbar-button__caret:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.split .sd-toolbar-button__caret:before {
+  background-color: #333333 !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-button.split:hover .sd-toolbar-button__caret:before {
+  background-color: #444444 !important;
+}
+
+/* 工具栏字体与字号输入区 */
+.dark .word-editor-panel .superdoc-toolbar .sd-font-combobox {
+  background-color: #181818 !important;
+  border: 1px solid #333333 !important;
+  border-radius: 4px !important;
+  color: #e5e5e5 !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-font-combobox:hover {
+  border-color: #4a4a4a !important;
+  background-color: #202020 !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-font-combobox:focus-within {
+  border-color: #3b82f6 !important;
+  outline: none !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size) .sd-toolbar-split-field {
+  background-color: #181818 !important;
+  border: 1px solid #333333 !important;
+  border-radius: 4px !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size) .sd-toolbar-split-field:hover {
+  border-color: #4a4a4a !important;
+  background-color: #202020 !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .sd-toolbar-item-ctn:has(.button-text-input--font-size) .sd-toolbar-split-field:focus-within {
+  border-color: #3b82f6 !important;
+}
+
+.dark .word-editor-panel .superdoc-toolbar .button-text-input--font-size {
+  color: #ffffff !important;
+  background-color: transparent !important;
+  outline: none !important;
+}
+
+/* 7. 表格操作菜单 (.toolbar-table-actions) */
+.dark body .toolbar-table-actions {
+  background-color: #1e1e1e !important;
+  border: 1px solid #383838 !important;
+  border-radius: 6px !important;
+}
+
+.dark body .toolbar-table-actions__item {
+  color: #e0e0e0 !important;
+  background-color: transparent !important;
+  border-radius: 4px !important;
+  outline: none !important;
+}
+
+.dark body .toolbar-table-actions__item:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  outline: none !important;
+}
+
+.dark body .toolbar-table-actions__item.sd-selected,
+.dark body .toolbar-table-actions__item[data-active='true'] {
+  color: #70b5ff !important;
+  background-color: #173f6c !important;
+  outline: none !important;
+}
+
+/* 8. 右键菜单与文档模式菜单 */
+.dark body .context-menu-item,
+.dark body .document-mode .sd-option-item,
+.dark body .sd-option {
+  color: #e0e0e0 !important;
+  background-color: transparent !important;
+  outline: none !important;
+}
+
+.dark body .context-menu-item:hover,
+.dark body .document-mode .sd-option-item:hover,
+.dark body .sd-option:hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  outline: none !important;
+}
+
+.dark body .context-menu-item.sd-is-selected,
+.dark body .document-mode .sd-option-item.sd-selected,
+.dark body .sd-option.sd-selected {
+  color: #70b5ff !important;
+  background-color: #173f6c !important;
+  fill: #70b5ff !important;
+  outline: none !important;
+}
+
+/* 9. 查找/替换浮层 (.sd-find-replace) */
+.dark body .sd-find-replace__input {
+  color: #ffffff !important;
+  background-color: #252525 !important;
+  border-color: #3e3e3e !important;
+  outline: none !important;
+}
+
+.dark body .sd-find-replace__input:focus {
+  border-color: #3b82f6 !important;
+}
+
+.dark body .sd-find-replace__btn--icon:hover:not(:disabled),
+.dark body .sd-find-replace__btn--toggle:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark body .sd-find-replace__btn--active {
+  background-color: #173f6c !important;
+  color: #70b5ff !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+}
+
+/* 10. 缩放弹出菜单 (.word-zoom-popup) */
+.dark .word-zoom-popup {
+  background-color: #1e1e1e !important;
+  border-color: #383838 !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65) !important;
+}
+
+.dark .word-zoom-option:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .word-zoom-option input:checked + span {
+  color: #ffffff !important;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   WPS / Microsoft Word 风格文档光标（纯黑色、慢速持续呼吸闪烁、打字即时实心响应）
+   ========================================================================== */
+
+.word-editor-panel .ProseMirror {
+  caret-color: #000000 !important;
+  cursor: text !important;
+}
+
+.dark .word-editor-panel .ProseMirror {
+  caret-color: #ffffff !important;
+}
+
+/* 当自定义 WPS Caret 层激活时，隐藏原生浏览器 caret 避免双重光标重影 */
+.word-editor-panel[data-wps-caret-active='true'] .ProseMirror {
+  caret-color: transparent !important;
+}
+
+/* 自定义 WPS / Office 纯黑光标条 */
+.wps-word-caret {
+  position: absolute;
+  width: 1.5px;
+  background-color: #000000;
+  pointer-events: none;
+  z-index: 25;
+  border-radius: 0.5px;
+  animation: wps-word-caret-blink 1.05s ease-in-out infinite;
+  will-change: opacity, top, left, height;
+}
+
+/* 打字/交互时保持实心可见，暂停后恢复慢速闪烁 */
+.wps-word-caret.wps-word-caret--typing {
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+/* 暗色模式下光标对比度适配 */
+.dark .wps-word-caret {
+  background-color: #ffffff;
+}
+
+/* 如果暗色模式下页面背景仍为浅色纸张或护眼绿，光标保持纯黑 */
+.dark [data-word-eye-care='true'] .wps-word-caret {
+  background-color: #000000;
+}
+
+/* WPS / Office 标准 1.05s 平缓慢速呼吸闪烁周期，永不停顿 */
+@keyframes wps-word-caret-blink {
+  0%, 45% {
+    opacity: 1;
+  }
+  52%, 92% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
   }
 }

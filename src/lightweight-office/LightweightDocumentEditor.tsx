@@ -164,7 +164,12 @@ function useBinaryDocShortcuts(
     if (!kind) return {}
     return {
       save: () => {
-        void saveRef.current?.()
+        const pending = saveRef.current?.()
+        if (pending) {
+          void pending.catch((error) => {
+            console.error('Document save failed', error)
+          })
+        }
       },
       nextTab: () => tabNav?.nextTab(),
       previousTab: () => tabNav?.previousTab(),
@@ -222,19 +227,25 @@ export function LightweightDocumentEditor() {
 
   const [tabs, setTabs] = useState<TabItem[]>([])
   const [activeTabId, setActiveTabId] = useState<string>('')
+  const activeTabIdRef = useRef('')
   const tabsRef = useRef<TabItem[]>([])
   const sessionRestoreAppliedRef = useRef(false)
   const [sessionReadyToPersist, setSessionReadyToPersist] = useState(false)
+
+  const activateTab = useCallback((tabId: string) => {
+    activeTabIdRef.current = tabId
+    setActiveTabId(tabId)
+  }, [])
 
   const switchTab = useCallback(
     (tabId: string) => {
       const tab = tabsRef.current.find((t) => t.id === tabId)
       if (tab) {
-        setActiveTabId(tabId)
+        activateTab(tabId)
         setCurrentFile(tab.path, tab.name)
       }
     },
-    [setCurrentFile],
+    [activateTab, setCurrentFile],
   )
 
   const switchTabByOffset = useCallback(
@@ -245,11 +256,11 @@ export function LightweightDocumentEditor() {
       const nextIndex = tabIndexByOffset(list.length, currentIndex, offset)
       const next = list[nextIndex]
       if (next) {
-        setActiveTabId(next.id)
+        activateTab(next.id)
         setCurrentFile(next.path, next.name)
       }
     },
-    [activeTabId, setCurrentFile],
+    [activateTab, activeTabId, setCurrentFile],
   )
 
   const reorderTabs = useCallback((orderedIds: string[]) => {
@@ -277,19 +288,19 @@ export function LightweightDocumentEditor() {
       tabsRef.current = remaining
       setTabs(remaining)
 
-      if (activeTabId !== tabId) return
+      if (activeTabIdRef.current !== tabId) return
 
       if (remaining.length > 0) {
         // Prefer neighbor (like browser tabs), not always the first tab.
         const nextTab = remaining[Math.min(index, remaining.length - 1)]
-        setActiveTabId(nextTab.id)
+        activateTab(nextTab.id)
         setCurrentFile(nextTab.path, nextTab.name)
       } else {
-        setActiveTabId('')
+        activateTab('')
         setCurrentFile(null)
       }
     },
-    [activeTabId, setCurrentFile],
+    [activateTab, setCurrentFile],
   )
 
   const closeTab = useCallback(
@@ -308,23 +319,30 @@ export function LightweightDocumentEditor() {
   const handleDialogSave = useCallback(async () => {
     if (!savePromptTab) return
     const tabToClose = savePromptTab
-    if (tabToClose.id === activeTabId) {
-      if (saveRef.current) {
-        await saveRef.current()
-      }
-      performCloseTab(tabToClose.id)
-      setSavePromptTab(null)
-    } else {
+    if (tabToClose.id !== activeTabIdRef.current) {
+      saveRef.current = null
       switchTab(tabToClose.id)
-      setTimeout(async () => {
-        if (saveRef.current) {
-          await saveRef.current()
-        }
-        performCloseTab(tabToClose.id)
-        setSavePromptTab(null)
-      }, 100)
     }
-  }, [activeTabId, performCloseTab, savePromptTab, switchTab])
+
+    const deadline = Date.now() + 5_000
+    while (!saveRef.current && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 25))
+    }
+    const save = saveRef.current
+    if (!save) {
+      console.error('Document save handler was not registered before the close timeout')
+      return
+    }
+
+    try {
+      await save()
+    } catch (error) {
+      console.error('Document save failed while closing a tab', error)
+      return
+    }
+    performCloseTab(tabToClose.id)
+    setSavePromptTab(null)
+  }, [performCloseTab, savePromptTab, switchTab])
 
   const handleDialogDontSave = useCallback(() => {
     if (savePromptTab) {
@@ -400,12 +418,13 @@ export function LightweightDocumentEditor() {
     const targetTab = targetPath
       ? restoredTabs.find((tab) => sameDocumentPath(tab.path, targetPath))
       : undefined
-    setActiveTabId(targetTab?.id ?? '')
+    activateTab(targetTab?.id ?? '')
     if (targetTab && (!currentPath || !sameDocumentPath(currentPath, targetTab.path))) {
       setCurrentFile(targetTab.path, targetTab.name)
     }
     setSessionReadyToPersist(true)
   }, [
+    activateTab,
     restoredActiveFile,
     restoredOpenFiles,
     sessionHydrated,
@@ -420,12 +439,12 @@ export function LightweightDocumentEditor() {
         const nextTabs = [...tabsRef.current, newTab]
         tabsRef.current = nextTabs
         setTabs(nextTabs)
-        setActiveTabId(newTab.id)
+        activateTab(newTab.id)
       } else if (activeTabId !== existing.id) {
-        setActiveTabId(existing.id)
+        activateTab(existing.id)
       }
     }
-  }, [currentFile, activeTabId, setCurrentFile])
+  }, [activateTab, currentFile, activeTabId])
 
   useEffect(() => {
     if (!sessionReadyToPersist) return
@@ -616,7 +635,13 @@ export function LightweightDocumentEditor() {
               </div>
             )}
           >
-            <PdfViewer filePath={currentFile} onReady={handleReady} />
+            <PdfViewer
+              filePath={currentFile}
+              onReady={handleReady}
+              onDirty={handleDirty}
+              onSaveSuccess={handleSaveSuccess}
+              onRegisterSave={handleRegisterSave}
+            />
           </Suspense>
         </div>
       )

@@ -1,9 +1,11 @@
 import { desktopApi } from '@/platform'
 import { subscribeDesktopEvent } from '@/lib/desktop-events'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { TriangleAlert, X } from 'lucide-react'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { useFileStore } from '@/stores/file.store'
 import { useEditorStore } from '@/stores/editor.store'
+import { usePanelStore } from '@/stores/panel.store'
 import { selectFileSession, useFileSessionStore } from '@/stores/file-session.store'
 import type { FileSessionState } from '@/types/desktop-api'
 import { useAgentBridge } from '@/lightweight-office'
@@ -16,6 +18,7 @@ import {
   APP_MENU_NEW_AGENT_EVENT,
   APP_MENU_RUN_MULTI_AGENT_EVENT,
 } from '@/lib/app-menu-events'
+import type { RecoveryNotice } from '@/types/desktop-api'
 
 type EditMenuAction = Extract<
   OfficeActionId,
@@ -49,9 +52,25 @@ function runZoomMenuAction(action: ZoomMenuAction): void {
   }))
 }
 
+function recoverySummary(language: string, count: number): string {
+  const messages: Record<string, string> = {
+    'zh-CN': `已恢复或隔离 ${count} 项本地数据。原始损坏文件已保留。`,
+    en: `Recovered or isolated ${count} local data item(s). Damaged originals were preserved.`,
+    de: `${count} lokale Datenelemente wurden wiederhergestellt oder isoliert. Beschadigte Originale wurden beibehalten.`,
+    es: `Se recuperaron o aislaron ${count} elementos de datos locales. Se conservaron los originales danados.`,
+    fr: `${count} element(s) de donnees locales ont ete recuperes ou isoles. Les originaux endommages ont ete conserves.`,
+    ja: `ローカルデータ ${count} 件を復元または隔離しました。破損した元ファイルは保持されています。`,
+    pt: `${count} item(ns) de dados locais foram recuperados ou isolados. Os originais danificados foram preservados.`,
+    ru: `Восстановлено или изолировано локальных элементов данных: ${count}. Поврежденные оригиналы сохранены.`,
+    ar: `تمت استعادة أو عزل ${count} من عناصر البيانات المحلية مع الاحتفاظ بالملفات الاصلية التالفة.`,
+  }
+  return messages[language] ?? messages.en
+}
+
 export default function App() {
   const { setRecentFiles } = useFileStore()
   const { language } = useTranslation()
+  const [recoveryNotices, setRecoveryNotices] = useState<RecoveryNotice[]>([])
   useAgentBridge()
 
   useEffect(() => {
@@ -60,6 +79,12 @@ export default function App() {
     void desktopApi.app.markStartupHealthy().catch((error: unknown) => {
       console.error('[startup-health] Failed to confirm the updated application', error)
     })
+  }, [])
+
+  useEffect(() => {
+    void desktopApi.app.takeRecoveryNotices()
+      .then(setRecoveryNotices)
+      .catch((error) => console.error('[state-recovery] Failed to read recovery notices', error))
   }, [])
 
   // 应用启动时即预热系统字体，避免第一次打开 Word/Excel 时等待 PowerShell 枚举
@@ -271,6 +296,10 @@ export default function App() {
       runZoomMenuAction('zoomOut')
     })
 
+    const disposeOpenTerminal = subscribeDesktopEvent('menu:open-terminal', () => {
+      usePanelStore.getState().openTab('terminal')
+    })
+
     const disposeNewAgent = subscribeDesktopEvent('menu:new-agent', () => {
       window.dispatchEvent(new Event(APP_MENU_NEW_AGENT_EVENT))
     })
@@ -295,10 +324,33 @@ export default function App() {
       disposeZoomReset()
       disposeZoomIn()
       disposeZoomOut()
+      disposeOpenTerminal()
       disposeNewAgent()
       disposeRunMultiAgent()
     }
   }, [setRecentFiles])
 
-  return <AppLayout />
+  return (
+    <>
+      <AppLayout />
+      {recoveryNotices.length > 0 && (
+        <div
+          className="fixed right-4 top-12 z-[12000] flex max-w-md items-start gap-3 border border-amber-500/40 bg-popover px-3 py-2.5 text-sm text-popover-foreground shadow-lg"
+          role="status"
+          data-testid="recovery-notice"
+        >
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <span className="min-w-0 flex-1">{recoverySummary(language, recoveryNotices.length)}</span>
+          <button
+            type="button"
+            className="grid h-6 w-6 shrink-0 place-items-center hover:bg-accent"
+            onClick={() => setRecoveryNotices([])}
+            aria-label="Close"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </>
+  )
 }

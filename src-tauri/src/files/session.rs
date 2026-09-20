@@ -5,10 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     error::AppResult,
-    state::{ensure_data_version, DATA_SCHEMA_VERSION},
+    state::{
+        atomic_write_json, new_recovery_notices, read_versioned_json, RecoveryNotices,
+        DATA_SCHEMA_VERSION,
+    },
 };
-
-use super::atomic::write_atomic;
 
 pub const MAX_SESSION_DIRECTORIES: usize = 20;
 pub const MAX_SESSION_FILES: usize = 100;
@@ -39,42 +40,50 @@ struct FileSessionStoreFile {
     session: StoredFileSession,
 }
 
+impl Default for FileSessionStoreFile {
+    fn default() -> Self {
+        Self {
+            version: DATA_SCHEMA_VERSION,
+            session: StoredFileSession::default(),
+        }
+    }
+}
+
 pub struct FileSessionStore {
     store_path: PathBuf,
     lock: Mutex<()>,
+    notices: RecoveryNotices,
 }
 
 impl FileSessionStore {
     pub fn new(store_path: PathBuf) -> Self {
+        Self::new_with_recovery(store_path, new_recovery_notices())
+    }
+
+    pub fn new_with_recovery(store_path: PathBuf, notices: RecoveryNotices) -> Self {
         Self {
             store_path,
             lock: Mutex::new(()),
+            notices,
         }
     }
 
     pub fn load(&self) -> AppResult<StoredFileSession> {
         let _guard = self.lock.lock();
-        match std::fs::read(&self.store_path) {
-            Ok(data) => {
-                let file: FileSessionStoreFile = serde_json::from_slice(&data)?;
-                ensure_data_version("file session", file.version)?;
-                Ok(sanitize_counts(file.session))
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(StoredFileSession::default())
-            }
-            Err(error) => Err(error.into()),
-        }
+        let file: FileSessionStoreFile =
+            read_versioned_json(&self.store_path, "file session", &self.notices)?;
+        Ok(sanitize_counts(file.session))
     }
 
     pub fn save(&self, session: &StoredFileSession) -> AppResult<()> {
         let _guard = self.lock.lock();
-        let mut data = serde_json::to_vec_pretty(&FileSessionStoreFile {
-            version: DATA_SCHEMA_VERSION,
-            session: sanitize_counts(session.clone()),
-        })?;
-        data.push(b'\n');
-        write_atomic(&self.store_path, &data)
+        atomic_write_json(
+            &self.store_path,
+            &FileSessionStoreFile {
+                version: DATA_SCHEMA_VERSION,
+                session: sanitize_counts(session.clone()),
+            },
+        )
     }
 }
 
@@ -133,7 +142,7 @@ mod tests {
         let store = FileSessionStore::new(path.clone());
 
         std::fs::write(&path, b"{}").unwrap();
-        assert_eq!(store.load().unwrap_err().code, "invalid-data");
+        assert_eq!(store.load().unwrap(), StoredFileSession::default());
         std::fs::write(&path, br#"{"version":2,"session":{}}"#).unwrap();
         assert_eq!(store.load().unwrap_err().code, "unsupported-data-version");
     }

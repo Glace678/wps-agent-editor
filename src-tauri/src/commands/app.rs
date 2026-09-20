@@ -1,7 +1,7 @@
 use crate::{
     error::{AppError, AppResult},
     files::{access::GrantSource, ensure_file_can_be_opened, models::GrantedPath},
-    state::AppState,
+    state::{AppState, RecoveryNotice},
     update_health::UpdateHealthTransaction,
 };
 use serde::Serialize;
@@ -192,16 +192,25 @@ pub fn app_menu_perform(
                 .map_err(|error| AppError::internal(error.to_string()))?;
         }
         "toggle-dev-tools" => {
-            if window.is_devtools_open() {
-                window.close_devtools();
-            } else {
-                window.open_devtools();
+            #[cfg(debug_assertions)]
+            {
+                if window.is_devtools_open() {
+                    window.close_devtools();
+                } else {
+                    window.open_devtools();
+                }
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                return Err(AppError::unsupported(
+                    "Developer tools are unavailable in release builds",
+                ));
             }
         }
         "show-about" => show_about_dialog(&window, &state.language.read()),
         "open-file" | "open-folder" | "save" | "print" | "undo" | "redo" | "cut" | "copy"
         | "paste" | "select-all" | "reset-zoom" | "zoom-in" | "zoom-out" | "new-agent"
-        | "run-multi-agent" => {
+        | "open-terminal" | "run-multi-agent" => {
             window
                 .emit(&format!("menu:{action}"), ())
                 .map_err(|error| AppError::internal(error.to_string()))?;
@@ -240,6 +249,11 @@ pub fn app_take_startup_files(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<GrantedPath>> {
     Ok(state.take_startup_files(window.label()))
+}
+
+#[tauri::command]
+pub fn app_take_recovery_notices(state: State<'_, AppState>) -> AppResult<Vec<RecoveryNotice>> {
+    Ok(state.take_recovery_notices())
 }
 
 #[tauri::command]
@@ -378,8 +392,10 @@ pub(crate) fn build_application_menu(app: &tauri::AppHandle) -> tauri::Result<Me
     let fullscreen = MenuItemBuilder::with_id("toggle-fullscreen", "Toggle Full Screen")
         .accelerator("F11")
         .build(app)?;
+    let terminal = MenuItemBuilder::with_id("open-terminal", "Terminal").build(app)?;
     let view = SubmenuBuilder::new(app, "View")
         .item(&reload)
+        .item(&terminal)
         .item(&fullscreen)
         .build()?;
     let new_agent = MenuItemBuilder::with_id("new-agent", "New Agent").build(app)?;

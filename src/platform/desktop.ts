@@ -1,9 +1,8 @@
-import type { AgentCollaborationEvent } from '@/types/agent'
+import type { AgentCollaborationEvent, AgentTaskResult } from '@/types/agent'
 import type {
   AgentsApi,
   AppApi,
   DesktopApi,
-  DesktopChannel,
   DesktopPlatform,
   DocumentsApi,
   FileMutationResult,
@@ -36,7 +35,6 @@ import {
   type ProviderDefinitionWire,
 } from './provider-contract'
 import {
-  captureFileGrants,
   forgetFileGrant,
   getFileGrantId,
   registerFileGrant,
@@ -53,9 +51,7 @@ async function invokeDesktop<T>(
   command: string,
   args: InvokeBody | undefined,
 ): Promise<T> {
-  const result = await desktopTransport.invoke<T>(command, args)
-  captureFileGrants(result)
-  return result
+  return desktopTransport.invoke<T>(command, args)
 }
 
 function accessArgs(path: string): { path: string; grantId: string } {
@@ -95,11 +91,30 @@ function optionalGrantedPath(value: unknown, capability: string): GrantedPath | 
   return value === null || value === undefined ? null : grantedPath(value, capability)
 }
 
+function grantedItems<T extends GrantedPath>(value: unknown, capability: string): T[] {
+  if (!Array.isArray(value)) {
+    throw new AppError({ code: 'invalid-response', message: `${capability} returned invalid data` })
+  }
+  return value.map((entry) => ({ ...entry as T, ...grantedPath(entry, capability) }))
+}
+
 function openedFile(value: unknown, capability: string): OpenedFile {
   const grant = grantedPath(value, capability)
   const recent = isRecord(value) && Array.isArray(value.recent) ? value.recent : []
-  captureFileGrants(recent)
-  return { ...grant, recent: recent as OpenedFile['recent'] }
+  return {
+    ...grant,
+    recent: grantedItems<OpenedFile['recent'][number]>(recent, `${capability}.recent`),
+  }
+}
+
+function fileMutationResult(value: FileMutationResult, capability: string): FileMutationResult {
+  if (value.path !== undefined || value.grantId !== undefined) {
+    grantedPath(value, capability)
+  }
+  if (value.recent !== undefined) {
+    value.recent = grantedItems(value.recent, `${capability}.recent`)
+  }
+  return value
 }
 
 function sessionState(value: unknown): FileSessionState {
@@ -142,10 +157,6 @@ function eventSubscription(
   channel: string,
   callback: (...args: unknown[]) => void,
 ): () => void {
-  if (HIGH_FREQUENCY_CHANNELS.has(channel)) {
-    return subscribeHighFrequency(channel, callback)
-  }
-
   let disposed = false
   let unlisten: (() => void) | undefined
   void desktopTransport.listen<unknown>(channel, (payload) => callback(payload)).then((dispose) => {
@@ -158,38 +169,6 @@ function eventSubscription(
     disposed = true
     unlisten?.()
   }
-}
-
-const HIGH_FREQUENCY_CHANNELS = new Set([
-  'agent:event',
-  'lw:terminal-event',
-  'lw:debug-event',
-])
-const highFrequencySubscribers = new Map<string, Set<(...args: unknown[]) => void>>()
-
-function subscribeHighFrequency(
-  name: string,
-  callback: (...args: unknown[]) => void,
-): () => void {
-  let subscribers = highFrequencySubscribers.get(name)
-  if (!subscribers) {
-    subscribers = new Set()
-    highFrequencySubscribers.set(name, subscribers)
-  }
-  subscribers.add(callback)
-  return () => {
-    subscribers?.delete(callback)
-    if (subscribers?.size === 0) highFrequencySubscribers.delete(name)
-  }
-}
-
-function highFrequencyChannel<T>(name: string): DesktopChannel<T> {
-  const channel = desktopTransport.channel<unknown>((payload) => {
-    for (const subscriber of highFrequencySubscribers.get(name) ?? []) {
-      subscriber(payload)
-    }
-  })
-  return channel as DesktopChannel<T>
 }
 
 function detectPlatform(): DesktopPlatform {
@@ -206,7 +185,8 @@ const platform = detectPlatform()
 
 const files: FilesApi = {
   async list(dirPath) {
-    return invokeDesktop(DESKTOP_COMMANDS.files.list, accessArgs(dirPath))
+    const value = await invokeDesktop<unknown>(DESKTOP_COMMANDS.files.list, accessArgs(dirPath))
+    return grantedItems(value, 'files.list')
   },
   async open(filePath) {
     const value = await invokeDesktop<unknown>(
@@ -223,13 +203,15 @@ const files: FilesApi = {
     return openedFile(value, 'files.openExternal')
   },
   async search(rootPath, query) {
-    return invokeDesktop(
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.files.search,
       { ...accessArgs(rootPath), query },
     )
+    return grantedItems(value, 'files.search')
   },
   async getRecent() {
-    return invokeDesktop(DESKTOP_COMMANDS.files.getRecent, undefined)
+    const value = await invokeDesktop<unknown>(DESKTOP_COMMANDS.files.getRecent, undefined)
+    return grantedItems(value, 'files.getRecent')
   },
   async getHome() {
     const value = await invokeDesktop<unknown>(
@@ -294,8 +276,7 @@ const files: FilesApi = {
       { ...accessArgs(filePath), newName },
     )
     if (result.success) forgetFileGrant(filePath)
-    captureFileGrants(result)
-    return result
+    return fileMutationResult(result, 'files.rename')
   },
   async delete(filePath) {
     const result = await invokeDesktop<FileMutationResult>(
@@ -303,7 +284,7 @@ const files: FilesApi = {
       accessArgs(filePath),
     )
     if (result.success) forgetFileGrant(filePath)
-    return result
+    return fileMutationResult(result, 'files.delete')
   },
   showInFolder(filePath) {
     return invokeDesktop(
@@ -311,11 +292,12 @@ const files: FilesApi = {
       accessArgs(filePath),
     )
   },
-  removeRecent(filePath) {
-    return invokeDesktop(
+  async removeRecent(filePath) {
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.files.removeRecent,
       accessArgs(filePath),
     )
+    return grantedItems(value, 'files.removeRecent')
   },
   copyToClipboard(filePaths) {
     const paths = Array.isArray(filePaths) ? filePaths : [filePaths]
@@ -490,6 +472,13 @@ const documents: DocumentsApi = {
       language ? { language } : undefined,
     )
   },
+  async readFont(fontId) {
+    const value = await desktopTransport.invoke<unknown>(
+      DESKTOP_COMMANDS.documents.readFont,
+      { fontId },
+    )
+    return toUint8Array(value)
+  },
   async copyImageToClipboard(dataUrl) {
     return desktopTransport.invoke(
       DESKTOP_COMMANDS.documents.copyImageToClipboard,
@@ -533,17 +522,23 @@ const agents: AgentsApi = {
       undefined,
     ),
   },
-  chat(agentId, messages, conversationId, runId) {
-    return desktopTransport.invoke(DESKTOP_COMMANDS.agents.chat, {
+  async chat({ agentId, messages, conversationId, runId, onEvent }) {
+    const result = await desktopTransport.invoke<AgentTaskResult | { error: string }>(DESKTOP_COMMANDS.agents.chat, {
       request: { agentId, messages, conversationId, runId },
-      onEvent: highFrequencyChannel<AgentCollaborationEvent>('agent:event') as unknown,
+      onEvent: desktopTransport.channel<AgentCollaborationEvent>((event) => {
+        if (event.runId === runId) onEvent(event)
+      }) as unknown,
     })
+    return { runId, result }
   },
-  runTask(agentIds, task, runId, rootAgentId) {
-    return desktopTransport.invoke(DESKTOP_COMMANDS.agents.runTask, {
-      request: { agentIds, task, runId, rootAgentId },
-      onEvent: highFrequencyChannel<AgentCollaborationEvent>('agent:event') as unknown,
+  async runTask({ agentIds, task, runId, rootAgentId, mode, onEvent }) {
+    const result = await desktopTransport.invoke<AgentTaskResult[] | { error: string }>(DESKTOP_COMMANDS.agents.runTask, {
+      request: { agentIds, task, runId, rootAgentId, mode },
+      onEvent: desktopTransport.channel<AgentCollaborationEvent>((event) => {
+        if (event.runId === runId) onEvent(event)
+      }) as unknown,
     })
+    return { runId, result }
   },
   async cancel(runId) {
     const result = await invokeDesktop<unknown>(
@@ -551,9 +546,6 @@ const agents: AgentsApi = {
       { runId },
     )
     return isRecord(result) ? result as Awaited<ReturnType<AgentsApi['cancel']>> : { success: result === true }
-  },
-  onEvent(callback) {
-    return subscribeHighFrequency('agent:event', callback as (event: unknown) => void)
   },
   sendDocumentResult(requestId, result) {
     return invokeDesktop(
@@ -664,38 +656,56 @@ const processApi: ProcessApi = {
     DESKTOP_COMMANDS.process.runCode,
     accessArgs(filePath),
   ),
-  debugStart(filePath, breakpoints) {
+  debugStart(sessionId, filePath, breakpoints, onEvent) {
     return desktopTransport.invoke(DESKTOP_COMMANDS.process.debugStart, {
-      request: { ...accessArgs(filePath), breakpoints },
-      onEvent: highFrequencyChannel('lw:debug-event') as unknown,
+      request: { sessionId, ...accessArgs(filePath), breakpoints },
+      onEvent: desktopTransport.channel((event) => {
+        if (isRecord(event) && event.sessionId === sessionId) {
+          onEvent(event as unknown as Parameters<typeof onEvent>[0])
+        }
+      }) as unknown,
     })
   },
-  debugStop: () => invokeDesktop(
+  debugStop: (sessionId) => invokeDesktop(
     DESKTOP_COMMANDS.process.debugStop,
-    undefined,
+    { sessionId },
   ),
-  debugCommand: (command) => invokeDesktop(
+  debugCommand: (sessionId, command) => invokeDesktop(
     DESKTOP_COMMANDS.process.debugCommand,
-    { request: { command } },
+    { request: { sessionId, command } },
   ),
-  debugEvaluate: (expression, id) => invokeDesktop(
+  debugEvaluate: (sessionId, expression, id) => invokeDesktop(
     DESKTOP_COMMANDS.process.debugEvaluate,
-    { request: { expression, id } },
+    { request: { sessionId, expression, id } },
   ),
-  onDebugEvent: (callback) =>
-    subscribeHighFrequency('lw:debug-event', callback as (event: unknown) => void),
-  terminalExec(input) {
-    return desktopTransport.invoke(DESKTOP_COMMANDS.process.terminalExec, {
-      input,
-      onEvent: highFrequencyChannel('lw:terminal-event') as unknown,
+  terminalStart(sessionId, options, onEvent) {
+    const cwd = options?.cwd ? accessArgs(options.cwd) : undefined
+    return desktopTransport.invoke(DESKTOP_COMMANDS.process.terminalStart, {
+      request: {
+        sessionId,
+        cols: options?.cols,
+        rows: options?.rows,
+        ...(cwd ? { cwd: cwd.path, grantId: cwd.grantId } : {}),
+      },
+      onEvent: desktopTransport.channel((event) => {
+        if (isRecord(event) && event.sessionId === sessionId) {
+          onEvent(event as unknown as Parameters<typeof onEvent>[0])
+        }
+      }) as unknown,
     })
   },
-  terminalKill: () => invokeDesktop(
-    DESKTOP_COMMANDS.process.terminalKill,
-    undefined,
+  terminalWrite: (sessionId, data) => invokeDesktop(
+    DESKTOP_COMMANDS.process.terminalWrite,
+    { request: { sessionId, data } },
   ),
-  onTerminalEvent: (callback) =>
-    subscribeHighFrequency('lw:terminal-event', callback as (event: unknown) => void),
+  terminalResize: (sessionId, cols, rows) => invokeDesktop(
+    DESKTOP_COMMANDS.process.terminalResize,
+    { request: { sessionId, cols, rows } },
+  ),
+  terminalKill: (sessionId) => invokeDesktop(
+    DESKTOP_COMMANDS.process.terminalKill,
+    { sessionId },
+  ),
 }
 
 async function appVoid(
@@ -744,12 +754,8 @@ const app: AppApi = {
     const values = await desktopTransport.invoke<unknown[]>(DESKTOP_COMMANDS.app.takeStartupFiles)
     return values.map((value) => grantedPath(value, 'app.takeStartupFiles'))
   },
-  listen(channel, callback) {
-    if (HIGH_FREQUENCY_CHANNELS.has(channel)) {
-      return Promise.resolve(subscribeHighFrequency(channel, callback as (...args: unknown[]) => void))
-    }
-    return desktopTransport.listen(channel, callback)
-  },
+  takeRecoveryNotices: () => desktopTransport.invoke(DESKTOP_COMMANDS.app.takeRecoveryNotices),
+  listen: (channel, callback) => desktopTransport.listen(channel, callback),
 }
 
 export const desktopApi: DesktopApi = {

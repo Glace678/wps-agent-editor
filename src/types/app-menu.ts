@@ -16,6 +16,7 @@ export const APP_MENU_ACTIONS = [
   'reset-zoom',
   'zoom-in',
   'zoom-out',
+  'open-terminal',
   'toggle-fullscreen',
   'new-agent',
   'run-multi-agent',

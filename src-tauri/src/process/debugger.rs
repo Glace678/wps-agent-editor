@@ -21,7 +21,6 @@ use std::{
 use tauri::{ipc::Channel, WebviewWindow};
 use tempfile::TempDir;
 use tungstenite::{client, error::Error as WebSocketError, Message, WebSocket};
-use uuid::Uuid;
 
 const MAX_DEBUG_OUTPUT: usize = 4 * 1024 * 1024;
 const MAX_DEBUG_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
@@ -160,10 +159,12 @@ fn session_key(window_label: &str, session_id: &str) -> String {
 pub fn start(
     window: WebviewWindow,
     events: Channel<Value>,
+    session_id: String,
     file_path: PathBuf,
     breakpoints: Vec<DebugBreakpoint>,
 ) -> AppResult<DebugStartResult> {
-    stop(&window, None)?;
+    let session_id = normalize_session_id(&session_id)?;
+    stop_window(window.label());
     let metadata = std::fs::metadata(&file_path)?;
     if !metadata.is_file() {
         return Err(AppError::invalid("Debugger accepts files only"));
@@ -182,14 +183,14 @@ pub fn start(
     let allowed_breakpoints = validate_breakpoints(&file_path, breakpoints)?;
     match extension.as_str() {
         "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" => {
-            start_node(window, events, file_path, allowed_breakpoints)
+            start_node(window, events, session_id, file_path, allowed_breakpoints)
         }
-        "py" | "pyw" => start_python(window, events, file_path, allowed_breakpoints),
+        "py" | "pyw" => start_python(window, events, session_id, file_path, allowed_breakpoints),
         _ => Ok(start_failure("unsupported")),
     }
 }
 
-pub fn stop(window: &WebviewWindow, session_id: Option<&str>) -> AppResult<bool> {
+pub fn stop(window: &WebviewWindow, session_id: &str) -> AppResult<bool> {
     let session = find_session(window.label(), session_id);
     let Some(session) = session else {
         return Ok(false);
@@ -240,7 +241,7 @@ fn stop_session(session: &DebugSession) {
 
 pub fn send_command(
     window: &WebviewWindow,
-    session_id: Option<&str>,
+    session_id: &str,
     command: DebugCommand,
 ) -> AppResult<()> {
     let session = find_session(window.label(), session_id)
@@ -272,7 +273,7 @@ pub fn send_command(
 
 pub fn evaluate(
     window: &WebviewWindow,
-    session_id: Option<&str>,
+    session_id: &str,
     expression: String,
     id: String,
 ) -> AppResult<()> {
@@ -313,6 +314,7 @@ pub fn evaluate(
 fn start_node(
     window: WebviewWindow,
     events: Channel<Value>,
+    id: String,
     file_path: PathBuf,
     breakpoints: Vec<DebugBreakpoint>,
 ) -> AppResult<DebugStartResult> {
@@ -385,7 +387,6 @@ fn start_node(
         .stderr
         .take()
         .ok_or_else(|| AppError::internal("Node debugger stderr was not captured"))?;
-    let id = Uuid::new_v4().to_string();
     let label = window.label().to_owned();
     let (url_sender, url_receiver) = mpsc::sync_channel(1);
     let url_events = events.clone();
@@ -469,6 +470,7 @@ fn start_node(
 fn start_python(
     window: WebviewWindow,
     events: Channel<Value>,
+    id: String,
     file_path: PathBuf,
     breakpoints: Vec<DebugBreakpoint>,
 ) -> AppResult<DebugStartResult> {
@@ -514,7 +516,6 @@ fn start_python(
         .stderr
         .take()
         .ok_or_else(|| AppError::internal("Python debugger stderr was not captured"))?;
-    let id = Uuid::new_v4().to_string();
     let label = window.label().to_owned();
     let session = Arc::new(DebugSession {
         id: id.clone(),
@@ -1130,15 +1131,24 @@ fn is_node_transpile_extension(extension: &str) -> bool {
     matches!(extension, "ts" | "tsx" | "jsx")
 }
 
-fn find_session(window_label: &str, session_id: Option<&str>) -> Option<Arc<DebugSession>> {
-    let active = sessions().lock();
-    if let Some(id) = session_id {
-        return active.get(&session_key(window_label, id)).cloned();
-    }
-    active
-        .values()
-        .find(|session| session.window_label == window_label)
+fn find_session(window_label: &str, session_id: &str) -> Option<Arc<DebugSession>> {
+    sessions()
+        .lock()
+        .get(&session_key(window_label, session_id))
         .cloned()
+}
+
+fn normalize_session_id(value: &str) -> AppResult<String> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(AppError::invalid("Invalid debug session id"));
+    }
+    Ok(value.to_owned())
 }
 
 fn validate_breakpoints(

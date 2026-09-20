@@ -11,6 +11,7 @@ import { useTranslation } from '@/lib/i18n/runtime'
 import type { TranslationKey } from '@/lib/i18n/types'
 import { cn } from '@/lib/utils'
 import { AGENT_COLLABORATION_ENABLED } from '@/lib/agent-collaboration'
+import { usePanelStore } from '@/stores/panel.store'
 import type { AppMenuAction } from '@/types/app-menu'
 
 type AppMenuTop = 'file' | 'edit' | 'view' | 'agent' | 'help'
@@ -28,8 +29,11 @@ const menus: ReadonlyArray<{ top: AppMenuTop; label: TranslationKey; items: read
   ] },
   { top: 'view', label: 'menu.view', items: [
     ['reload', 'menu.reload', 'Ctrl+R'], ['force-reload', 'menu.forceReload', 'Ctrl+Alt+Shift+R'],
-    ['toggle-dev-tools', 'menu.toggleDevTools', 'Ctrl+Shift+I'], 'separator',
+    ...(import.meta.env.DEV
+      ? [['toggle-dev-tools', 'menu.toggleDevTools', 'Ctrl+Shift+I'] as const, 'separator' as const]
+      : []),
     ['reset-zoom', 'menu.resetZoom', 'Ctrl+0'], ['zoom-in', 'menu.zoomIn', 'Ctrl++'], ['zoom-out', 'menu.zoomOut', 'Ctrl+-'],
+    'separator', ['open-terminal', 'bottomPanel.terminal'],
     'separator', ['toggle-fullscreen', 'menu.toggleFullscreen', 'F11'],
   ] },
   { top: 'agent', label: 'menu.agent', items: [
@@ -116,6 +120,10 @@ export function AppMenuBar({ className }: { className?: string }) {
   }
   const handleAction = (action: AppMenuAction) => {
     setMenu(null)
+    if (action === 'open-terminal') {
+      usePanelStore.getState().openTab('terminal')
+      return
+    }
     void desktopApi.app.performMenuAction(action)
   }
 

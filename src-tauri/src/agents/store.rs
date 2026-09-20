@@ -1,6 +1,9 @@
 use crate::{
     error::{AppError, AppResult},
-    state::{atomic_write_json, ensure_data_version, DATA_SCHEMA_VERSION},
+    state::{
+        atomic_write_json, new_recovery_notices, read_versioned_json, RecoveryNotices,
+        DATA_SCHEMA_VERSION,
+    },
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -63,12 +66,11 @@ pub struct AgentStore {
 
 impl AgentStore {
     pub fn new(path: PathBuf) -> AppResult<Self> {
-        let file = match std::fs::read(&path) {
-            Ok(data) => serde_json::from_slice::<AgentFile>(&data)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => AgentFile::default(),
-            Err(error) => return Err(error.into()),
-        };
-        ensure_data_version("agent configuration", file.version)?;
+        Self::new_with_recovery(path, new_recovery_notices())
+    }
+
+    pub fn new_with_recovery(path: PathBuf, notices: RecoveryNotices) -> AppResult<Self> {
+        let file: AgentFile = read_versioned_json(&path, "agent configuration", &notices)?;
         Ok(Self {
             path,
             agents: RwLock::new(file.agents),
@@ -150,14 +152,15 @@ mod tests {
     }
 
     #[test]
-    fn agent_store_rejects_unversioned_and_unknown_data() {
+    fn agent_store_recovers_unversioned_and_rejects_future_data() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("agents.json");
         std::fs::write(&path, b"[]").unwrap();
-        assert_eq!(
-            AgentStore::new(path.clone()).err().unwrap().code,
-            "invalid-data"
-        );
+        let notices = new_recovery_notices();
+        let recovered = AgentStore::new_with_recovery(path.clone(), notices.clone()).unwrap();
+        assert!(recovered.list().is_empty());
+        assert_eq!(notices.lock()[0].action, "quarantined");
+        assert!(!path.exists());
 
         std::fs::write(&path, br#"{"version":2,"agents":[]}"#).unwrap();
         assert_eq!(

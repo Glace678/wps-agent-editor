@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import '../../../node_modules/superdoc/dist/style.css'
 import '../word-editor.css'
+import '../word-color-picker.css'
 import { SuperDocEditor } from '@superdoc-dev/react'
 import { MousePointer2 } from 'lucide-react'
 import DOMPurify from 'dompurify'
 import type { Editor, SuperDocInstance } from '@superdoc-dev/react'
 import { useEditorStore } from '@/stores/editor.store'
 import { useDocumentZoom } from '@/components/layout/modules/DocumentZoom'
+import {
+  consumeWheelZoomSteps,
+  normalizeWheelZoomDelta,
+} from '@/components/layout/modules/document-zoom-wheel'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { LanguageCode } from '@/lib/i18n'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
@@ -21,8 +26,11 @@ import { installWordToolbarOverflowPolicy, type SuperToolbarLike } from '../word
 import { installWordFontPickerSearch } from '../word-font-search'
 import { installWordFontSizeApplyOnBlur } from '../word-font-size-input'
 import { installWordTablePicker } from '../word-table-picker'
+import { installWordFontColorPicker } from '../word-color-picker'
+import { installWordAlignmentPolicy } from '../word-alignment-policy'
 import { WordInsertTableDialog } from '../components/WordInsertTableDialog'
 import { WordDocumentLayout } from '../components/WordDocumentLayout'
+import { WordCaret } from '../components/WordCaret'
 import {
   WordAlternateView,
   WordViewStatusBar,
@@ -91,6 +99,31 @@ const WORD_FONT_EMPTY_TEXTS: Record<LanguageCode, string> = {
   ar: 'لا توجد خطوط مطابقة',
 }
 
+function clampWordPercent(value: number): number {
+  return Math.min(500, Math.max(10, Math.round(value)))
+}
+
+function findWordScrollContainer(root: HTMLElement | null): HTMLElement | null {
+  if (!root) return null
+  const subDoc = root.querySelector<HTMLElement>('.superdoc__sub-document')
+  if (subDoc) return subDoc
+  const pagesHost = root.querySelector<HTMLElement>('.presentation-editor__pages')
+  if (pagesHost) {
+    let el: HTMLElement | null = pagesHost.parentElement
+    while (el && el !== root) {
+      const style = window.getComputedStyle(el)
+      if (
+        (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+        el.scrollHeight > el.clientHeight
+      ) {
+        return el
+      }
+      el = el.parentElement
+    }
+  }
+  return null
+}
+
 export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegisterSave }: WordEditorProps) {
   const { language, t } = useTranslation()
   const setCurrentFile = useEditorStore((s) => s.setCurrentFile)
@@ -111,8 +144,6 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null)
   const [viewMode, setViewMode] = useState<WordViewMode>('page')
   const [eyeCare, setEyeCare] = useState(false)
-  const [isZooming, setIsZooming] = useState(false)
-  const zoomingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [viewSnapshot, setViewSnapshot] = useState<WordViewSnapshot>({ html: '', outline: [] })
   const [insertTableDialogOpen, setInsertTableDialogOpen] = useState(false)
 
@@ -220,6 +251,14 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     })
   }, [editorInstance, language, superdocInstance])
 
+  // Word 对齐方式下拉高对比度状态同步与消除白框
+  useEffect(() => {
+    if (!superdocInstance) return
+    return installWordAlignmentPolicy({
+      getEditor: () => editorInstance || (superdocInstance as { editor?: Editor })?.editor || null,
+    })
+  }, [editorInstance, superdocInstance])
+
   useEffect(() => {
     let cancelled = false
     setDocument(null)
@@ -281,12 +320,15 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       const inst = instanceRef.current as {
         __wordToolbarResizeCleanup?: () => void
         __wordToolbarOverflowCleanup?: () => void
+        __wordFontColorPickerCleanup?: () => void
       } | null
       inst?.__wordToolbarResizeCleanup?.()
       inst?.__wordToolbarOverflowCleanup?.()
+      inst?.__wordFontColorPickerCleanup?.()
       if (inst) {
         delete inst.__wordToolbarResizeCleanup
         delete inst.__wordToolbarOverflowCleanup
+        delete inst.__wordFontColorPickerCleanup
       }
       documentBridge.clear()
       onRegisterSave(null)
@@ -302,27 +344,225 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     [filePath],
   )
 
+  const applyZoomWithAnchor = useCallback(
+    (targetPercent: number, anchorCoords?: { x: number; y: number }) => {
+      const nextPercent = clampWordPercent(targetPercent)
+      const currentPercent = Math.round(zoomRef.current * 100)
+      const inst = instanceRef.current ?? superdocInstance
+
+      const root = editorRootRef.current
+      const scrollEl = findWordScrollContainer(root)
+      const oldZoom = currentPercent / 100
+      const nextZoom = nextPercent / 100
+
+      let targetScrollLeft = 0
+      let targetScrollTop = 0
+      let hasAnchor = false
+
+      if (scrollEl && oldZoom > 0 && nextZoom > 0) {
+        const rect = scrollEl.getBoundingClientRect()
+        const anchorX = anchorCoords
+          ? Math.max(0, Math.min(scrollEl.clientWidth, anchorCoords.x - rect.left))
+          : scrollEl.clientWidth / 2
+        const anchorY = anchorCoords
+          ? Math.max(0, Math.min(scrollEl.clientHeight, anchorCoords.y - rect.top))
+          : scrollEl.clientHeight / 2
+
+        const logicalX = (scrollEl.scrollLeft + anchorX) / oldZoom
+        const logicalY = (scrollEl.scrollTop + anchorY) / oldZoom
+
+        targetScrollLeft = Math.max(0, Math.round(logicalX * nextZoom - anchorX))
+        targetScrollTop = Math.max(0, Math.round(logicalY * nextZoom - anchorY))
+        hasAnchor = true
+      }
+
+      if (inst) {
+        try {
+          if (Math.round(inst.getZoom()) !== nextPercent) {
+            inst.setZoom(nextPercent)
+          }
+        } catch (err) {
+          console.warn('[WordEditor] setZoom 失败:', err)
+        }
+      }
+
+      if (hasAnchor && scrollEl) {
+        scrollEl.scrollLeft = targetScrollLeft
+        scrollEl.scrollTop = targetScrollTop
+
+        // 保持滚动锚定，防止 SuperDoc 异步 selectionSync 将视口拉偏
+        requestAnimationFrame(() => {
+          if (scrollEl.isConnected) {
+            scrollEl.scrollLeft = targetScrollLeft
+            scrollEl.scrollTop = targetScrollTop
+          }
+        })
+      }
+
+      setZoomPercent(nextPercent)
+    },
+    [setZoomPercent, superdocInstance],
+  )
+
   useEffect(() => {
     if (!superdocInstance) return
     const percent = Math.round(zoom * 100)
-    try {
-      if (Math.round(superdocInstance.getZoom()) !== percent) {
-        superdocInstance.setZoom(percent)
-      }
-    } catch (err) {
-      console.warn('[WordEditor] setZoom 失败:', err)
+    if (Math.round(superdocInstance.getZoom()) !== percent) {
+      applyZoomWithAnchor(percent)
     }
-  }, [superdocInstance, zoom])
+  }, [superdocInstance, zoom, applyZoomWithAnchor])
 
-  // 缩放期间给页面宿主加上 will-change，缓解末尾闪烁；延迟 280ms 移除。
+  // Word 自管 Ctrl+滚轮以鼠标所指位置为焦点无感缩放
   useEffect(() => {
-    setIsZooming(true)
-    if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current)
-    zoomingTimerRef.current = setTimeout(() => setIsZooming(false), 280)
-    return () => {
-      if (zoomingTimerRef.current) clearTimeout(zoomingTimerRef.current)
+    const root = editorRootRef.current
+    if (!root) return
+
+    let wheelRaf: number | null = null
+    let accumulatedDelta = 0
+    let lastFlushAt = Number.NEGATIVE_INFINITY
+    let lastClientX = 0
+    let lastClientY = 0
+
+    const flushWheel = () => {
+      wheelRaf = null
+      lastFlushAt = performance.now()
+      const { steps, remainder } = consumeWheelZoomSteps(accumulatedDelta)
+      accumulatedDelta = remainder
+      if (steps === 0) return
+
+      const currentPercent = Math.round(zoomRef.current * 100)
+      const nextPercent = clampWordPercent(currentPercent - steps * 10)
+      if (nextPercent !== currentPercent) {
+        applyZoomWithAnchor(nextPercent, { x: lastClientX, y: lastClientY })
+      }
     }
-  }, [zoom])
+
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      e.stopPropagation()
+
+      const delta = normalizeWheelZoomDelta(e.deltaY, e.deltaMode)
+      if (delta === 0) return
+
+      lastClientX = e.clientX
+      lastClientY = e.clientY
+      accumulatedDelta += delta
+
+      if (wheelRaf === null) {
+        const wait = 16 - (performance.now() - lastFlushAt)
+        if (wait <= 0) {
+          wheelRaf = requestAnimationFrame(flushWheel)
+        } else {
+          wheelRaf = window.setTimeout(() => {
+            wheelRaf = requestAnimationFrame(flushWheel)
+          }, wait) as unknown as number
+        }
+      }
+    }
+
+    root.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      root.removeEventListener('wheel', onWheel)
+      if (wheelRaf !== null) cancelAnimationFrame(wheelRaf)
+    }
+  }, [applyZoomWithAnchor])
+
+  // Word 自管快捷键（Ctrl+=, Ctrl+-, Ctrl+0）以视口中心为焦点平稳缩放
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const isZoomIn = e.key === '+' || e.key === '=' || e.code === 'Equal' || e.code === 'NumpadAdd'
+      const isZoomOut = e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract'
+      const isZoomReset = e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0'
+
+      if (isZoomIn) {
+        e.preventDefault()
+        e.stopPropagation()
+        const currentPercent = Math.round(zoomRef.current * 100)
+        applyZoomWithAnchor(clampWordPercent(currentPercent + 10))
+        return
+      }
+      if (isZoomOut) {
+        e.preventDefault()
+        e.stopPropagation()
+        const currentPercent = Math.round(zoomRef.current * 100)
+        applyZoomWithAnchor(clampWordPercent(currentPercent - 10))
+        return
+      }
+      if (isZoomReset) {
+        e.preventDefault()
+        e.stopPropagation()
+        applyZoomWithAnchor(100)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [applyZoomWithAnchor])
+
+  /**
+   * Word 表格拖动调整大小后的撤销/重做修复。
+   *
+   * SuperDoc 的 TableResizeOverlay 通过 ProseMirror transaction 提交列宽变化，
+   * 理论上应自动进入历史栈。但在某些场景（表格首次调整、跨插件 transaction
+   * 合并、addToHistory 元信息丢失）下 Ctrl+Z 可能无法回退列宽变化。
+   *
+   * 修复策略：
+   *  1. 在 Word 编辑区域捕获 Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z，显式调用
+   *     editor.commands.undo / redo，确保快捷键能驱动真正的 PM 历史。
+   *  2. 兜底：如果 editor.commands 上没有 undo（SuperDoc 版本差异），
+   *     则用 document.execCommand('undo') 走 contentEditable 原生历史，
+   *     保证至少粗粒度的撤销仍然可用。
+   */
+  useEffect(() => {
+    if (!editorInstance || !superdocInstance) return
+
+    const root = editorRootRef.current
+    if (!root) return
+
+    const isInsideEditor = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Node)) return false
+      return root.contains(target)
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      if (!isInsideEditor(e.target)) return
+
+      const isUndo = e.key === 'z' || e.key === 'Z'
+      const isRedo = (e.key === 'y' || e.key === 'Y')
+        || ((e.key === 'z' || e.key === 'Z') && e.shiftKey)
+
+      if (!isUndo && !isRedo) return
+
+      const cmds = (editorInstance as { commands?: Record<string, unknown> }).commands
+        ?? (superdocInstance as { editor?: { commands?: Record<string, unknown> } }).editor?.commands
+
+      if (cmds && typeof cmds === 'object') {
+        const cmdName = isUndo ? 'undo' : 'redo'
+        const fn = (cmds as Record<string, unknown>)[cmdName]
+        if (typeof fn === 'function') {
+          e.preventDefault()
+          e.stopPropagation()
+          try {
+            fn.call(cmds)
+          } catch {
+            globalThis.document.execCommand(isUndo ? 'undo' : 'redo')
+          }
+          return
+        }
+      }
+
+      // 兜底：走原生 contentEditable undo
+      e.preventDefault()
+      e.stopPropagation()
+      globalThis.document.execCommand(isUndo ? 'undo' : 'redo')
+    }
+
+    root.addEventListener('keydown', onKeyDown, true)
+    return () => root.removeEventListener('keydown', onKeyDown, true)
+  }, [editorInstance, superdocInstance])
 
   useEffect(() => {
     onRegisterSave(async () => {
@@ -386,7 +626,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       className="word-editor-panel relative h-full min-h-0 w-full flex-1"
       data-word-view-mode={viewMode}
       data-word-eye-care={eyeCare ? 'true' : 'false'}
-      data-word-zooming={isZooming ? 'true' : 'false'}
+      data-manages-document-zoom
     >
       <WordDocumentLayout superdoc={superdocInstance} totalPages={totalPages}>
         <SuperDocEditor
@@ -430,6 +670,17 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
             const toolbar = (event.superdoc as { toolbar?: SuperToolbarLike } | null)?.toolbar
             ;(event.superdoc as { __wordToolbarOverflowCleanup?: () => void }).__wordToolbarOverflowCleanup =
               installWordToolbarOverflowPolicy(toolbar)
+
+            // SuperDoc 默认颜色网格只有 7 列，且色值与 Excel 不一致。
+            // 将渲染选项替换为 Excel 8×8 调色盘，并沿用 SuperToolbar 的
+            // emitCommand 路径，确保选区、撤销栈和修订模式保持一致。
+            ;(event.superdoc as { __wordFontColorPickerCleanup?: () => void }).__wordFontColorPickerCleanup =
+              installWordFontColorPicker({
+                toolbar,
+                root: editorRootRef.current,
+                language,
+                getEditor: () => editorInstance || (event.superdoc as { editor?: Editor })?.editor || null,
+              })
 
             // SuperDoc overflow 依赖容器宽度；侧栏收起/拖动改变中栏宽度时
             // 强制重算可见按钮与「⋯」菜单（与 Excel 三点溢出一致）。
@@ -493,6 +744,13 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
         onEyeCareChange={setEyeCare}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+      />
+      <WordCaret
+        editorRootRef={editorRootRef}
+        editor={editorInstance}
+        superdoc={superdocInstance}
+        viewMode={viewMode}
+        zoom={zoom}
       />
       {viewMode === 'page' && agentPointer && (
         <div

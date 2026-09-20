@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
+import tauriConfig from './src-tauri/tauri.conf.json'
 
-const port = Number(process.env.WAE_E2E_PORT ?? '1420')
+const port = Number(process.env.WAE_E2E_PORT ?? new URL(tauriConfig.build.devUrl).port)
 if (!Number.isInteger(port) || port < 1 || port > 65_535) {
   throw new Error('WAE_E2E_PORT must be a valid TCP port')
 }

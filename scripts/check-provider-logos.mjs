@@ -19,8 +19,18 @@ for (const file of assetFiles) {
   assetsById.set(id, files)
 }
 
-const missing = [...expectedIds].filter((id) => !assetsById.has(id)).sort()
-const extra = [...assetsById.keys()].filter((id) => !expectedIds.has(id)).sort()
+// Logo assets registered for name-alias resolution only (see PROVIDER_NAME_ALIASES in
+// src/lib/provider-logos.ts): they have no provider id in the catalog, so the manifest
+// is the source of truth for which extra asset files are allowed.
+const manifestExists = fs.existsSync(sourceManifestPath)
+const manifest = manifestExists ? JSON.parse(fs.readFileSync(sourceManifestPath, 'utf8')) : {}
+const aliasAssets = manifest?.aliasAssets ?? {}
+const aliasIds = new Set(Object.keys(aliasAssets))
+// Everything the checker considers a legitimately registered logo id.
+const knownIds = new Set([...expectedIds, ...aliasIds])
+
+const missing = [...knownIds].filter((id) => !assetsById.has(id)).sort()
+const extra = [...assetsById.keys()].filter((id) => !knownIds.has(id)).sort()
 const duplicates = [...assetsById.entries()].filter(([, files]) => files.length > 1)
 const unsafe = []
 const sourceIssues = []
@@ -30,14 +40,16 @@ if (/dangerouslySetInnerHTML/.test(providerLogoComponent)) {
   unsafe.push('ProviderLogo.tsx: SVG markup must render as an isolated image')
 }
 
-if (!fs.existsSync(sourceManifestPath)) {
+if (!manifestExists) {
   sourceIssues.push('sources.json is missing')
 } else {
-  const manifest = JSON.parse(fs.readFileSync(sourceManifestPath, 'utf8'))
   const providers = manifest?.providers ?? {}
   const sourceIds = new Set(Object.keys(providers))
-  for (const id of expectedIds) {
-    const source = providers[id]
+  for (const id of aliasIds) {
+    if (providers[id]) sourceIssues.push(`${id}: alias asset id must not also be a provider id`)
+  }
+  for (const id of knownIds) {
+    const source = providers[id] ?? aliasAssets[id]
     if (!source) {
       sourceIssues.push(`${id}: missing source metadata`)
       continue
@@ -60,7 +72,7 @@ if (!fs.existsSync(sourceManifestPath)) {
     }
   }
   for (const id of sourceIds) {
-    if (!expectedIds.has(id)) sourceIssues.push(`${id}: unexpected source metadata`)
+    if (!knownIds.has(id)) sourceIssues.push(`${id}: unexpected source metadata`)
   }
 }
 
@@ -91,4 +103,6 @@ if (missing.length || extra.length || duplicates.length || unsafe.length || sour
   process.exit(1)
 }
 
-console.log(`Provider logo check passed: ${expectedIds.size} providers, ${assetFiles.length} assets`)
+console.log(
+  `Provider logo check passed: ${expectedIds.size} providers, ${aliasIds.size} alias assets, ${assetFiles.length} asset files`,
+)

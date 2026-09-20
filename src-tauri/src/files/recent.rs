@@ -4,10 +4,13 @@ use tokio::sync::Mutex;
 
 use crate::{
     error::AppResult,
-    state::{ensure_data_version, DATA_SCHEMA_VERSION},
+    state::{
+        atomic_write_json, new_recovery_notices, read_versioned_json, RecoveryNotices,
+        DATA_SCHEMA_VERSION,
+    },
 };
 
-use super::{atomic::write_atomic, models::StoredRecentFile, path_key};
+use super::{models::StoredRecentFile, path_key};
 
 const MAX_RECENT: usize = 20;
 
@@ -19,16 +22,31 @@ struct RecentFileStore {
     entries: Vec<StoredRecentFile>,
 }
 
+impl Default for RecentFileStore {
+    fn default() -> Self {
+        Self {
+            version: DATA_SCHEMA_VERSION,
+            entries: Vec::new(),
+        }
+    }
+}
+
 pub struct RecentStore {
     store_path: PathBuf,
     lock: Mutex<()>,
+    notices: RecoveryNotices,
 }
 
 impl RecentStore {
     pub fn new(store_path: PathBuf) -> Self {
+        Self::new_with_recovery(store_path, new_recovery_notices())
+    }
+
+    pub fn new_with_recovery(store_path: PathBuf, notices: RecoveryNotices) -> Self {
         Self {
             store_path,
             lock: Mutex::new(()),
+            notices,
         }
     }
 
@@ -90,24 +108,19 @@ impl RecentStore {
     }
 
     fn read_unlocked(&self) -> AppResult<Vec<StoredRecentFile>> {
-        match std::fs::read(&self.store_path) {
-            Ok(data) => {
-                let file: RecentFileStore = serde_json::from_slice(&data)?;
-                ensure_data_version("recent files", file.version)?;
-                Ok(file.entries.into_iter().take(MAX_RECENT).collect())
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(error) => Err(error.into()),
-        }
+        let file: RecentFileStore =
+            read_versioned_json(&self.store_path, "recent files", &self.notices)?;
+        Ok(file.entries.into_iter().take(MAX_RECENT).collect())
     }
 
     fn write_unlocked(&self, entries: &[StoredRecentFile]) -> AppResult<()> {
-        let mut data = serde_json::to_vec_pretty(&RecentFileStore {
-            version: DATA_SCHEMA_VERSION,
-            entries: entries.to_vec(),
-        })?;
-        data.push(b'\n');
-        write_atomic(&self.store_path, &data)
+        atomic_write_json(
+            &self.store_path,
+            &RecentFileStore {
+                version: DATA_SCHEMA_VERSION,
+                entries: entries.to_vec(),
+            },
+        )
     }
 }
 
@@ -141,7 +154,7 @@ mod tests {
         assert_eq!(value["entries"][0]["writable"], true);
 
         std::fs::write(&path, b"[]").unwrap();
-        assert_eq!(store.list().await.unwrap_err().code, "invalid-data");
+        assert!(store.list().await.unwrap().is_empty());
         std::fs::write(&path, br#"{"version":2,"entries":[]}"#).unwrap();
         assert_eq!(
             store.list().await.unwrap_err().code,

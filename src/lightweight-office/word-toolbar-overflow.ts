@@ -31,8 +31,7 @@ export interface SuperToolbarLike {
 
 /**
  * 视觉顺序（= SuperDoc 1.44 makeDefaultItems 的固定顺序，经运行时实测确认）。
- * 后缀裁剪以此为准：越靠后越先进「⋯」。documentMode（右端的编辑/查看模式）
- * 也参与收纳——用户语义里它属于「右边的 UI」。
+ * 后缀裁剪以此为准：越靠后越先进「⋯」。
  */
 const VISUAL_ORDER = [
   'undo',
@@ -62,12 +61,11 @@ const VISUAL_ORDER = [
   'formattingMarks',
   'copyFormat',
   'clearFormatting',
-  'documentMode',
 ] as const
 
 /** 首次出现前的兜底值；出现后会被当前主题下的 DOM 实测宽度替代。 */
 const FALLBACK_ITEM_WIDTHS: Record<string, number> = {
-  zoom: 54,
+  zoom: 70,
   fontFamily: 160,
   // Keep the first pass aligned with the compact Word CSS before the browser
   // can measure the rendered item.
@@ -76,7 +74,6 @@ const FALLBACK_ITEM_WIDTHS: Record<string, number> = {
   list: 41,
   numberedlist: 41,
   linkedStyles: 144,
-  documentMode: 81,
 }
 const DEFAULT_ITEM_WIDTH = 34
 const DEFAULT_ROW_HORIZONTAL_PADDING = 16
@@ -172,10 +169,6 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
       return item ? [item] : []
     }).concat(extras)
 
-    // groups 只过滤名称，不重设 SuperDoc 的内置 group。documentMode 默认在
-    // right 组，会被 CSS 插到 zoom 前；归入 center 后 DOM 才与菜单顺序一致。
-    const documentMode = byName.get('documentMode')
-    if (documentMode?.group) documentMode.group.value = 'center'
   }
 
   const repartition = (force = false): boolean => {

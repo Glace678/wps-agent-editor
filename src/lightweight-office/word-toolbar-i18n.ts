@@ -932,6 +932,109 @@ const SUPERDOC_CONTEXT_MENU_MAP: Record<string, Record<LanguageCode, string>> = 
     ru: 'Исправить таблицы',
     ar: 'إصلاح الجداول',
   },
+  'Add link': {
+    'zh-CN': '添加链接',
+    en: 'Add link',
+    ja: 'リンクを追加',
+    es: 'Añadir enlace',
+    pt: 'Adicionar link',
+    de: 'Link hinzufügen',
+    fr: 'Ajouter un lien',
+    ru: 'Добавить ссылку',
+    ar: 'إضافة ارتباط',
+  },
+  'Edit link': {
+    'zh-CN': '编辑链接',
+    en: 'Edit link',
+    ja: 'リンクを編集',
+    es: 'Editar enlace',
+    pt: 'Editar link',
+    de: 'Link bearbeiten',
+    fr: 'Modifier le lien',
+    ru: 'Изменить ссылку',
+    ar: 'تحرير الارتباط',
+  },
+  'Link details': {
+    'zh-CN': '链接详情',
+    en: 'Link details',
+    ja: 'リンクの詳細',
+    es: 'Detalles del enlace',
+    pt: 'Detalhes do link',
+    de: 'Link-Details',
+    fr: 'Détails du lien',
+    ru: 'Сведения о ссылке',
+    ar: 'تفاصيل الارتباط',
+  },
+  'Page anchor': {
+    'zh-CN': '页面锚点',
+    en: 'Page anchor',
+    ja: 'ページアンカー',
+    es: 'Anclaje de página',
+    pt: 'Âncora da página',
+    de: 'Seitenanker',
+    fr: 'Ancre de page',
+    ru: 'Якорь страницы',
+    ar: 'إشارة مرجعية في الصفحة',
+  },
+  'Apply': {
+    'zh-CN': '应用',
+    en: 'Apply',
+    ja: '適用',
+    es: 'Aplicar',
+    pt: 'Aplicar',
+    de: 'Übernehmen',
+    fr: 'Appliquer',
+    ru: 'Применить',
+    ar: 'تطبيق',
+  },
+  'Remove': {
+    'zh-CN': '移除',
+    en: 'Remove',
+    ja: '削除',
+    es: 'Eliminar',
+    pt: 'Remover',
+    de: 'Entfernen',
+    fr: 'Supprimer',
+    ru: 'Удалить',
+    ar: 'إزالة',
+  },
+}
+
+const SUPERDOC_LINK_PLACEHOLDER_MAP: Record<string, Record<LanguageCode, string>> = {
+  Text: {
+    'zh-CN': '显示文本',
+    en: 'Text',
+    ja: '表示テキスト',
+    es: 'Texto para mostrar',
+    pt: 'Texto de exibição',
+    de: 'Anzeigetext',
+    fr: 'Texte à afficher',
+    ru: 'Текст для отображения',
+    ar: 'النص المعروض',
+  },
+  'Type or paste a link': {
+    'zh-CN': '键入或粘贴链接',
+    en: 'Type or paste a link',
+    ja: 'リンクを入力または貼り付け',
+    es: 'Escribe o pega un enlace',
+    pt: 'Digite ou cole um link',
+    de: 'Link eingeben oder einfügen',
+    fr: 'Saisir ou coller un lien',
+    ru: 'Введите или вставьте ссылку',
+    ar: 'اكتب الرابط أو الصقه',
+  },
+}
+
+const GO_TO_PREFIX_MAP: Record<LanguageCode, string> = {
+  'zh-CN': '跳转至 ',
+  en: 'Go to ',
+  ja: '移動: ',
+  es: 'Ir a ',
+  pt: 'Ir para ',
+  de: 'Gehe zu ',
+  fr: 'Aller à ',
+  ru: 'Перейти к ',
+  ar: 'الانتقال إلى ',
 }
 
 function localizeSuperdocElements(root: ParentNode, language: LanguageCode): void {
@@ -977,6 +1080,58 @@ function localizeSuperdocElements(root: ParentNode, language: LanguageCode): voi
         node.textContent = node.textContent?.replace(text, match) ?? match
       }
       node = walker.nextNode()
+    }
+  }
+
+  // 3. Link popover
+  const linkPopovers = root instanceof Element && root.matches('.link-input-ctn')
+    ? [root]
+    : [...root.querySelectorAll('.link-input-ctn')]
+  for (const popover of linkPopovers) {
+    const title = popover.querySelector('.link-title')
+    if (title) {
+      const text = title.textContent?.trim() ?? ''
+      const match = SUPERDOC_CONTEXT_MENU_MAP[text]?.[language]
+      if (match) title.textContent = match
+    }
+
+    const textInput = popover.querySelector<HTMLInputElement>('input[name="text"]')
+    if (textInput) {
+      const ph = textInput.getAttribute('placeholder') ?? ''
+      const match = SUPERDOC_LINK_PLACEHOLDER_MAP[ph]?.[language]
+      if (match) textInput.placeholder = match
+    }
+
+    const urlInput = popover.querySelector<HTMLInputElement>('input[name="link"]')
+    if (urlInput) {
+      const ph = urlInput.getAttribute('placeholder') ?? ''
+      const match = SUPERDOC_LINK_PLACEHOLDER_MAP[ph]?.[language]
+      if (match) urlInput.placeholder = match
+    }
+
+    const submitBtn = popover.querySelector<HTMLButtonElement>('.sd-submit-btn')
+    if (submitBtn) {
+      const text = submitBtn.textContent?.trim() ?? ''
+      const match = SUPERDOC_CONTEXT_MENU_MAP[text]?.[language]
+      if (match) submitBtn.textContent = match
+    }
+
+    const removeBtn = popover.querySelector<HTMLButtonElement>('.remove-btn')
+    if (removeBtn) {
+      for (const child of Array.from(removeBtn.childNodes)) {
+        if (child.nodeType === 3 /* Node.TEXT_NODE */) {
+          const text = child.textContent?.trim() ?? ''
+          const match = SUPERDOC_CONTEXT_MENU_MAP[text]?.[language]
+          if (match) child.textContent = ` ${match} `
+        }
+      }
+    }
+
+    const anchorLink = popover.querySelector<HTMLAnchorElement>('.go-to-anchor a')
+    if (anchorLink && anchorLink.textContent?.startsWith('Go to ')) {
+      const target = anchorLink.textContent.substring(6)
+      const prefix = GO_TO_PREFIX_MAP[language] ?? 'Go to '
+      anchorLink.textContent = `${prefix}${target}`
     }
   }
 }

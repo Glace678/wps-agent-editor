@@ -1,18 +1,52 @@
-use fontdb::Language;
+use crate::error::{AppError, AppResult};
+use fontdb::{Language, Source};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use sha2::{Digest, Sha256};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+    sync::OnceLock,
+};
+
+const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct SystemFont {
+    pub font_id: String,
     pub family_name: String,
     pub display_name: String,
     pub face_name: String,
+    pub face_index: u32,
     pub weight: u16,
     pub style: &'static str,
     pub stretch: u16,
+    pub embedding: &'static str,
+    pub subset_allowed: bool,
+    pub outline_embedding_allowed: bool,
+}
+
+#[derive(Clone)]
+struct CachedFontFace {
+    font_id: String,
+    source: Source,
+    families: Vec<(String, Language)>,
+    family_name: String,
+    face_name: String,
+    face_index: u32,
+    weight: u16,
+    style: &'static str,
+    stretch: u16,
+    embedding: &'static str,
+    subset_allowed: bool,
+    outline_embedding_allowed: bool,
+}
+
+struct FontCatalog {
+    faces: Vec<CachedFontFace>,
+    by_id: HashMap<String, CachedFontFace>,
 }
 
 const ENGLISH_FONT_LANGUAGES: &[Language] = &[Language::English_UnitedStates];
@@ -65,7 +99,12 @@ fn localized_family_name<'a>(
         .map(|(name, _)| name.as_str())
 }
 
-pub fn list_system_fonts(language: Option<String>) -> Vec<SystemFont> {
+fn catalog() -> &'static FontCatalog {
+    static CATALOG: OnceLock<FontCatalog> = OnceLock::new();
+    CATALOG.get_or_init(build_catalog)
+}
+
+fn build_catalog() -> FontCatalog {
     let mut database = fontdb::Database::new();
     database.load_system_fonts();
     let mut faces = BTreeMap::new();
@@ -87,15 +126,23 @@ pub fn list_system_fonts(language: Option<String>) -> Vec<SystemFont> {
             (false, fontdb::Style::Italic | fontdb::Style::Oblique) => "Italic",
             _ => "Regular",
         };
-        let item = SystemFont {
+        let (embedding, subset_allowed, outline_embedding_allowed) = database
+            .with_face_data(face.id, font_permissions)
+            .unwrap_or(("unknown", false, false));
+        let font_id = opaque_font_id(&face.source, face.index, &face.post_script_name);
+        let item = CachedFontFace {
+            font_id,
+            source: face.source.clone(),
+            families: face.families.clone(),
             family_name: family_name.clone(),
-            display_name: localized_family_name(&face.families, language.as_deref())
-                .unwrap_or(family_name)
-                .to_owned(),
             face_name: face_name.to_owned(),
+            face_index: face.index,
             weight: face.weight.0,
             style,
             stretch: face.stretch.to_number(),
+            embedding,
+            subset_allowed,
+            outline_embedding_allowed,
         };
         faces.insert(
             format!(
@@ -108,7 +155,114 @@ pub fn list_system_fonts(language: Option<String>) -> Vec<SystemFont> {
             item,
         );
     }
-    faces.into_values().collect()
+    let faces = faces.into_values().collect::<Vec<_>>();
+    let by_id = faces
+        .iter()
+        .cloned()
+        .map(|face| (face.font_id.clone(), face))
+        .collect();
+    FontCatalog { faces, by_id }
+}
+
+fn font_permissions(data: &[u8], face_index: u32) -> (&'static str, bool, bool) {
+    let Ok(face) = ttf_parser::Face::parse(data, face_index) else {
+        return ("unknown", false, false);
+    };
+    let embedding = match face.permissions() {
+        Some(ttf_parser::Permissions::Installable) => "installable",
+        Some(ttf_parser::Permissions::Editable) => "editable",
+        Some(ttf_parser::Permissions::PreviewAndPrint) => "preview-print",
+        Some(ttf_parser::Permissions::Restricted) => "restricted",
+        None => "unknown",
+    };
+    let editable = matches!(embedding, "installable" | "editable");
+    (
+        embedding,
+        editable && face.is_subsetting_allowed(),
+        editable && face.is_outline_embedding_allowed(),
+    )
+}
+
+fn opaque_font_id(source: &Source, face_index: u32, post_script_name: &str) -> String {
+    let mut hash = Sha256::new();
+    match source {
+        Source::Binary(_) => hash.update(b"binary"),
+        Source::File(path) => hash.update(path_key(path).as_bytes()),
+        Source::SharedFile(path, _) => hash.update(path_key(path).as_bytes()),
+    }
+    hash.update(face_index.to_le_bytes());
+    hash.update(post_script_name.as_bytes());
+    hex::encode(hash.finalize())
+}
+
+fn path_key(path: &Path) -> String {
+    let value = path.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        value.to_ascii_lowercase()
+    } else {
+        value
+    }
+}
+
+pub fn list_system_fonts(language: Option<String>) -> Vec<SystemFont> {
+    catalog()
+        .faces
+        .iter()
+        .map(|face| SystemFont {
+            font_id: face.font_id.clone(),
+            family_name: face.family_name.clone(),
+            display_name: localized_family_name(&face.families, language.as_deref())
+                .unwrap_or(&face.family_name)
+                .to_owned(),
+            face_name: face.face_name.clone(),
+            face_index: face.face_index,
+            weight: face.weight,
+            style: face.style,
+            stretch: face.stretch,
+            embedding: face.embedding,
+            subset_allowed: face.subset_allowed,
+            outline_embedding_allowed: face.outline_embedding_allowed,
+        })
+        .collect()
+}
+
+pub fn read_font(font_id: &str) -> AppResult<Vec<u8>> {
+    let font_id = font_id.trim();
+    if font_id.len() != 64 || !font_id.bytes().all(|value| value.is_ascii_hexdigit()) {
+        return Err(AppError::invalid("Invalid font id"));
+    }
+    let face = catalog()
+        .by_id
+        .get(font_id)
+        .ok_or_else(|| AppError::not_found("Font was not found"))?;
+    if !matches!(face.embedding, "installable" | "editable")
+        || !face.subset_allowed
+        || !face.outline_embedding_allowed
+    {
+        return Err(AppError::denied(
+            "This font does not permit editable outline subset embedding",
+        ));
+    }
+    let data = match &face.source {
+        Source::Binary(data) => data.as_ref().as_ref().to_vec(),
+        Source::File(path) | Source::SharedFile(path, _) => {
+            let metadata = std::fs::metadata(path)?;
+            if metadata.len() > MAX_FONT_BYTES {
+                return Err(AppError::new(
+                    "font-too-large",
+                    "Font exceeds the 32 MiB read limit",
+                ));
+            }
+            std::fs::read(path)?
+        }
+    };
+    if data.len() as u64 > MAX_FONT_BYTES {
+        return Err(AppError::new(
+            "font-too-large",
+            "Font exceeds the 32 MiB read limit",
+        ));
+    }
+    Ok(data)
 }
 
 #[cfg(test)]
@@ -154,6 +308,17 @@ mod tests {
             localized_family_name(&families, Some("zh-CN")),
             Some("宋体")
         );
+    }
+
+    #[test]
+    fn opaque_ids_do_not_expose_font_paths() {
+        let id = opaque_font_id(
+            &Source::File(std::path::PathBuf::from("/private/fonts/example.ttf")),
+            0,
+            "Example-Regular",
+        );
+        assert_eq!(id.len(), 64);
+        assert!(!id.contains("private"));
     }
 
     #[cfg(target_os = "windows")]

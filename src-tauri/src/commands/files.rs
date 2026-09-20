@@ -1,7 +1,9 @@
-use std::{collections::HashSet, fs::File, io::Read, path::Path, process::Stdio};
+use std::{collections::HashSet, path::Path, process::Stdio};
+#[cfg(test)]
+use std::{fs::File, io::Read};
 
 use serde::Serialize;
-use tauri::{ipc::Response, Manager, State, WebviewWindow};
+use tauri::{Manager, State, WebviewWindow};
 use tokio::process::Command;
 
 use crate::{
@@ -31,6 +33,19 @@ pub struct ClipboardResult {
 }
 
 pub(super) const MAX_BINARY_IPC_BYTES: u64 = 100 * 1024 * 1024;
+
+#[cfg(test)]
+fn read_binary_limited(path: &Path) -> AppResult<Vec<u8>> {
+    ensure_file_can_be_opened(path)?;
+    let file = File::open(path)?;
+    let metadata = file.metadata()?;
+    validate_binary_ipc_size(metadata.len())?;
+
+    let mut data = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_BINARY_IPC_BYTES + 1).read_to_end(&mut data)?;
+    validate_binary_ipc_size(data.len() as u64)?;
+    Ok(data)
+}
 
 #[tauri::command]
 pub fn files_list(
@@ -127,32 +142,6 @@ pub async fn files_open_external(
     })
 }
 
-#[tauri::command]
-pub fn files_read_binary(
-    path: String,
-    grant_id: String,
-    window: WebviewWindow,
-    state: State<'_, AppState>,
-) -> AppResult<Response> {
-    let file = state
-        .files
-        .access
-        .resolve(window.label(), &path, &grant_id, false, Some(false))?;
-    Ok(Response::new(read_binary_limited(&file)?))
-}
-
-fn read_binary_limited(path: &Path) -> AppResult<Vec<u8>> {
-    ensure_file_can_be_opened(path)?;
-    let file = File::open(path)?;
-    let metadata = file.metadata()?;
-    validate_binary_ipc_size(metadata.len())?;
-
-    let mut data = Vec::with_capacity(metadata.len() as usize);
-    file.take(MAX_BINARY_IPC_BYTES + 1).read_to_end(&mut data)?;
-    validate_binary_ipc_size(data.len() as u64)?;
-    Ok(data)
-}
-
 pub(super) fn validate_binary_ipc_size(size: u64) -> AppResult<()> {
     if size > MAX_BINARY_IPC_BYTES {
         return Err(AppError::new(
@@ -165,25 +154,6 @@ pub(super) fn validate_binary_ipc_size(size: u64) -> AppResult<()> {
         })));
     }
     Ok(())
-}
-
-#[tauri::command]
-pub async fn files_save_text(
-    path: String,
-    grant_id: String,
-    text: String,
-    window: WebviewWindow,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    let file = state
-        .files
-        .access
-        .resolve(window.label(), &path, &grant_id, true, Some(false))?;
-    state
-        .files
-        .history
-        .write_with_snapshot(&file, text.as_bytes())
-        .await
 }
 
 #[tauri::command]

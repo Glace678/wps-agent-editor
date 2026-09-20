@@ -1,7 +1,10 @@
 use crate::{
     agents::models::ChatRole,
     error::{AppError, AppResult},
-    state::{atomic_write_json, ensure_data_version, DATA_SCHEMA_VERSION},
+    state::{
+        atomic_write_json, decode_versioned_json, new_recovery_notices, push_recovery_notice,
+        read_versioned_json, RecoveryNotices, DATA_SCHEMA_VERSION,
+    },
 };
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -160,20 +163,52 @@ pub struct ConversationStore {
     codex_home: Arc<PathBuf>,
     summaries: Arc<RwLock<Vec<ConversationSummary>>>,
     import_gate: Arc<Mutex<()>>,
+    notices: RecoveryNotices,
 }
 
 impl ConversationStore {
     pub fn new(root: PathBuf, home_dir: &Path) -> AppResult<Self> {
+        Self::new_with_recovery(root, home_dir, new_recovery_notices())
+    }
+
+    pub fn new_with_recovery(
+        root: PathBuf,
+        home_dir: &Path,
+        notices: RecoveryNotices,
+    ) -> AppResult<Self> {
         fs::create_dir_all(&root)?;
         let index_path = root.join("index.json");
-        let index = match fs::read(&index_path) {
-            Ok(data) => serde_json::from_slice::<ConversationIndex>(&data)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                ConversationIndex::default()
-            }
-            Err(error) => return Err(error.into()),
+        let index: ConversationIndex =
+            read_versioned_json(&index_path, "conversation index", &notices)?;
+        let scanned = scan_conversation_records(&root, &notices)?;
+        let index_was_quarantined = notices.lock().iter().any(|notice| {
+            notice.resource == "conversation index" && notice.action == "quarantined"
+        });
+        let index_matches_records = summaries_match(&index.conversations, &scanned);
+        let summaries = if index_matches_records {
+            index.conversations.clone()
+        } else {
+            scanned
         };
-        ensure_data_version("conversation index", index.version)?;
+        if index_was_quarantined || !index_matches_records {
+            atomic_write_json(
+                &index_path,
+                &ConversationIndex {
+                    version: DATA_SCHEMA_VERSION,
+                    conversations: summaries.clone(),
+                },
+            )?;
+            push_recovery_notice(
+                &notices,
+                "conversation index",
+                "rebuilt-index",
+                &index_path,
+                format!(
+                    "Rebuilt the conversation index from {} valid record(s)",
+                    summaries.len()
+                ),
+            );
+        }
         let codex_home = std::env::var_os("CODEX_HOME")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
@@ -182,8 +217,9 @@ impl ConversationStore {
             root: Arc::new(root),
             index_path: Arc::new(index_path),
             codex_home: Arc::new(codex_home),
-            summaries: Arc::new(RwLock::new(index.conversations)),
+            summaries: Arc::new(RwLock::new(summaries)),
             import_gate: Arc::new(Mutex::new(())),
+            notices,
         })
     }
 
@@ -195,10 +231,30 @@ impl ConversationStore {
 
     pub fn get(&self, id: &str) -> AppResult<ConversationRecord> {
         validate_conversation_id(id)?;
-        let data = fs::read(self.record_path(id))?;
-        let file = serde_json::from_slice::<ConversationFile>(&data)?;
-        ensure_data_version("conversation", file.version)?;
-        Ok(file.conversation)
+        let path = self.record_path(id);
+        let data = fs::read(&path)?;
+        match decode_versioned_json::<ConversationFile>(&data, "conversation") {
+            Ok(file) => Ok(file.conversation),
+            Err(error) if error.code == "unsupported-data-version" => Err(error),
+            Err(error) => {
+                push_recovery_notice(
+                    &self.notices,
+                    "conversation record",
+                    "record-corrupt",
+                    &path,
+                    format!("Could not read conversation {id}: {error}"),
+                );
+                Err(AppError::new(
+                    "conversation-corrupt",
+                    "The conversation record is damaged and was left unchanged",
+                )
+                .with_details(serde_json::json!({
+                    "id": id,
+                    "path": path.to_string_lossy(),
+                    "cause": error.code,
+                })))
+            }
+        }
     }
 
     pub fn save(&self, mut request: ConversationSaveRequest) -> AppResult<ConversationRecord> {
@@ -415,6 +471,72 @@ impl ConversationStore {
             },
         )
     }
+}
+
+fn scan_conversation_records(
+    root: &Path,
+    notices: &RecoveryNotices,
+) -> AppResult<Vec<ConversationSummary>> {
+    let mut summaries = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json")
+            || path.file_name().and_then(|value| value.to_str()) == Some("index.json")
+        {
+            continue;
+        }
+        let Some(id) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if validate_conversation_id(id).is_err() {
+            continue;
+        }
+        let data = fs::read(&path)?;
+        match decode_versioned_json::<ConversationFile>(&data, "conversation") {
+            Ok(file) if file.conversation.summary.id == id => {
+                summaries.push(file.conversation.summary)
+            }
+            Ok(_) => push_recovery_notice(
+                notices,
+                "conversation record",
+                "record-corrupt",
+                &path,
+                "Conversation id does not match its file name",
+            ),
+            Err(error) if error.code == "unsupported-data-version" => return Err(error),
+            Err(error) => push_recovery_notice(
+                notices,
+                "conversation record",
+                "record-corrupt",
+                &path,
+                format!("Skipped a damaged conversation record: {error}"),
+            ),
+        }
+    }
+    sort_summaries(&mut summaries);
+    Ok(summaries)
+}
+
+fn summaries_match(left: &[ConversationSummary], right: &[ConversationSummary]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let left = left
+        .iter()
+        .map(|summary| {
+            (
+                summary.id.as_str(),
+                (summary.updated_at, summary.message_count),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    right.iter().all(|summary| {
+        left.get(summary.id.as_str()) == Some(&(summary.updated_at, summary.message_count))
+    })
 }
 
 #[derive(Debug)]
@@ -874,5 +996,68 @@ mod tests {
         let second = store.import_codex().unwrap();
         assert_eq!(second.skipped, 1);
         assert_eq!(second.imported, 0);
+    }
+
+    #[test]
+    fn damaged_index_is_rebuilt_from_valid_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("conversations");
+        fs::create_dir_all(&root).unwrap();
+        let id = "01a0508c-c581-73f1-80e2-158bf3a087f4";
+        let summary = ConversationSummary {
+            id: id.into(),
+            title: "Recovered".into(),
+            source: ConversationSource::Native,
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            imported_message_count: 0,
+            source_thread_id: None,
+            project_path: None,
+            original_provider: None,
+            original_model: None,
+            archived: false,
+            source_size: 0,
+            source_modified_at: 0,
+        };
+        atomic_write_json(
+            &root.join(format!("{id}.json")),
+            &ConversationFile {
+                version: DATA_SCHEMA_VERSION,
+                conversation: ConversationRecord {
+                    summary,
+                    messages: vec![ConversationMessage {
+                        role: ChatRole::User,
+                        content: "hello".into(),
+                        timestamp: None,
+                    }],
+                },
+            },
+        )
+        .unwrap();
+        fs::write(root.join("index.json"), b"broken").unwrap();
+        let notices = new_recovery_notices();
+        let store =
+            ConversationStore::new_with_recovery(root, temp.path(), notices.clone()).unwrap();
+        assert_eq!(store.list().len(), 1);
+        assert!(notices
+            .lock()
+            .iter()
+            .any(|notice| notice.action == "rebuilt-index"));
+    }
+
+    #[test]
+    fn damaged_record_is_preserved_and_reported() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("conversations");
+        fs::create_dir_all(&root).unwrap();
+        let id = "01a0508c-c581-73f1-80e2-158bf3a087f4";
+        let path = root.join(format!("{id}.json"));
+        fs::write(&path, b"broken").unwrap();
+        let notices = new_recovery_notices();
+        let store = ConversationStore::new_with_recovery(root, temp.path(), notices).unwrap();
+        let error = store.get(id).unwrap_err();
+        assert_eq!(error.code, "conversation-corrupt");
+        assert_eq!(fs::read(path).unwrap(), b"broken");
     }
 }
