@@ -29,6 +29,17 @@ Thumbs.db
 **/provider-base-urls.json
 **/renderer-incidents.log
 **/file-history/
+**/file-session.json*
+**/credential-index.json*
+**/auth.json.*
+**/recent-files.json.*
+**/agents.json.*
+**/custom-providers.json.*
+**/provider-base-urls.json.*
+**/conversations/*.json*
+.opencode/
+opencode-*.txt
+*-sanitized-*.zip
 *.pem
 *.p12
 *.pfx
