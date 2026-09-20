@@ -15,6 +15,7 @@ import type {
   PdfWorkerRequest,
   PdfWorkerResponse,
 } from './mupdf-protocol'
+import { PDF_TEXT_WRAP_TOLERANCE, textParagraphs } from './pdf-text-paragraphs'
 
 type MuPdfApi = typeof import('mupdf').default
 
@@ -226,6 +227,11 @@ function readWaeRecord(
           fontSize,
           baseline: typeof payload.baseline === 'number' && Number.isFinite(payload.baseline)
             && payload.baseline >= 0 ? payload.baseline : undefined,
+          lineHeight: typeof payload.lineHeight === 'number' && Number.isFinite(payload.lineHeight)
+            && payload.lineHeight > 0 ? payload.lineHeight : undefined,
+          firstLineIndent: typeof payload.firstLineIndent === 'number' && Number.isFinite(payload.firstLineIndent)
+            && payload.firstLineIndent >= 0 ? payload.firstLineIndent : undefined,
+          paragraph: payload.paragraph === true,
           underline: payload.underline === true,
           color,
         }
@@ -453,6 +459,8 @@ function wrapText(
   text: string,
   fontSize: number,
   maxWidth: number,
+  firstLineIndent = 0,
+  wrapWords = false,
 ): string[] {
   const lines: string[] = []
   for (const paragraph of text.replaceAll('\r\n', '\n').split('\n')) {
@@ -463,9 +471,16 @@ function wrapText(
     let line = ''
     for (const character of paragraph) {
       const candidate = line + character
-      if (line && glyphAdvance(font, candidate, fontSize) > maxWidth) {
-        lines.push(line)
-        line = character
+      const availableWidth = Math.max(1, maxWidth - (lines.length === 0 ? firstLineIndent : 0))
+      if (line && glyphAdvance(font, candidate, fontSize) > availableWidth + PDF_TEXT_WRAP_TOLERANCE) {
+        const breakAt = wrapWords ? candidate.lastIndexOf(' ') : -1
+        if (breakAt > 0) {
+          lines.push(candidate.slice(0, breakAt))
+          line = candidate.slice(breakAt + 1)
+        } else {
+          lines.push(line)
+          line = character
+        }
       } else {
         line = candidate
       }
@@ -521,25 +536,27 @@ function applyTextAppearance(
     clip.rect(0, 0, width, height)
     device.clipPath(clip, false, mupdf.Matrix.identity)
     const padding = record.baseline === undefined ? Math.min(4, width / 8, height / 8) : 0
-    const lineHeight = fontSize * 1.2
-    const lines = record.baseline === undefined
-      ? wrapText(font, record.text, fontSize, Math.max(1, width - padding * 2))
+    const lineHeight = record.lineHeight ?? fontSize * 1.2
+    const firstLineIndent = record.firstLineIndent ?? 0
+    const lines = record.baseline === undefined || record.paragraph
+      ? wrapText(font, record.text, fontSize, Math.max(1, width - padding * 2), firstLineIndent, record.paragraph)
       : record.text.replaceAll('\r\n', '\n').split('\n')
     let baseline = record.baseline ?? padding + fontSize
-    for (const line of lines) {
+    for (const [lineIndex, line] of lines.entries()) {
       if (baseline > height - padding + fontSize * 0.25) break
+      const left = padding + (lineIndex === 0 ? firstLineIndent : 0)
       const text = new mupdf.Text()
       try {
-        text.showString(font, [fontSize, 0, 0, -fontSize, padding, baseline], line)
+        text.showString(font, [fontSize, 0, 0, -fontSize, left, baseline], line)
         device.fillText(text, mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, color, 1)
       } finally {
         destroyObject(text)
       }
       if (record.underline && line) {
         const path = new mupdf.Path()
-        const lineWidth = Math.min(glyphAdvance(font, line, fontSize), width - padding * 2)
-        path.moveTo(padding, baseline + Math.max(1, fontSize * 0.08))
-        path.lineTo(padding + lineWidth, baseline + Math.max(1, fontSize * 0.08))
+        const lineWidth = Math.min(glyphAdvance(font, line, fontSize), width - padding - left)
+        path.moveTo(left, baseline + Math.max(1, fontSize * 0.08))
+        path.lineTo(left + lineWidth, baseline + Math.max(1, fontSize * 0.08))
         const stroke = new mupdf.StrokeState({
           lineCap: 'Butt',
           lineJoin: 'Miter',
@@ -708,8 +725,8 @@ function upsertTextAnnotation(
 }
 
 /**
- * 直接修改 PDF 正文行（WPS 式点原文改字）：在同一个 journal 操作内
- * 1) 用 Redaction 注释抹除该行原有字形（不涂黑块、不动图片与矢量内容）；
+ * 直接修改 PDF 正文段落：在同一个 journal 操作内
+ * 1) 按各源行的范围抹除原有字形（不涂黑块、不动图片与矢量内容）；
  * 2) 在同位置创建 WAE FreeText 注释写入新文字。空文本表示仅抹除。
  */
 function replaceBodyText(
@@ -718,23 +735,25 @@ function replaceBodyText(
   redactionRect: PdfNormalizedRect,
   record: PdfTextAnnotationRecord,
   fontData?: ArrayBuffer,
+  redactionRects: PdfNormalizedRect[] = [redactionRect],
 ): void {
   const page = state.document.loadPage(pageIndex)
   try {
-    const sourceRect = denormalizeRect(page, redactionRect)
-    // 略微扩大涂除范围以盖住伸出部分；行高很小时按比例收窄，避免误伤相邻行。
-    const lineHeight = sourceRect[3] - sourceRect[1]
-    const padding = Math.min(1, Math.max(0.2, lineHeight * 0.12))
-    const eraseRect: [number, number, number, number] = [
-      sourceRect[0] - padding,
-      sourceRect[1] - padding,
-      sourceRect[2] + padding,
-      sourceRect[3] + padding,
-    ]
-    const redaction = page.createAnnotation('Redact')
+    const redactions: InstanceType<typeof mupdf.PDFAnnotation>[] = []
     try {
-      redaction.setRect(eraseRect)
-      redaction.update()
+      // Redact each source line, so gaps/indents in a paragraph cannot erase nearby text.
+      for (const rect of redactionRects) {
+        const sourceRect = denormalizeRect(page, rect)
+        const lineHeight = sourceRect[3] - sourceRect[1]
+        const padding = Math.min(1, Math.max(0.2, lineHeight * 0.12))
+        const redaction = page.createAnnotation('Redact')
+        redactions.push(redaction)
+        redaction.setRect([
+          sourceRect[0] - padding, sourceRect[1] - padding,
+          sourceRect[2] + padding, sourceRect[3] + padding,
+        ])
+        redaction.update()
+      }
       // black_boxes=false：不绘制填充块；图片/矢量保持原样（NONE）；只移除文字。
       page.applyRedactions(
         false,
@@ -744,12 +763,14 @@ function replaceBodyText(
       )
     } finally {
       // applyRedactions 会一并删除 Redact 注释本身；这里兜底释放引用。
-      try {
-        page.deleteAnnotation(redaction)
-      } catch {
-        // 注释已被 applyRedactions 移除。
+      for (const redaction of redactions) {
+        try {
+          page.deleteAnnotation(redaction)
+        } catch {
+          // 注释已被 applyRedactions 移除。
+        }
+        destroyObject(redaction)
       }
-      destroyObject(redaction)
     }
 
     if (record.text) {
@@ -863,7 +884,7 @@ interface ActiveTextLine {
 }
 
 /**
- * 把 MuPDF 结构化文本转成归一化坐标的行数据，供前端渲染透明可选文字层，
+ * 把 MuPDF 结构化文本转成行与段落数据，分别供浏览选择与整段编辑使用，
  * 同时携带每行首个字符的字体/字号/颜色，供「点原文直接改」就地编辑时匹配样式。
  * 坐标与注释共用同一套 CropBox 归一化空间（未旋转系，旋转由 CSS 层处理）。
  */
@@ -875,6 +896,9 @@ function textLayerForPage(
   try {
     const structuredText = page.toStructuredText({})
     const lines: PdfTextLine[] = []
+    const paragraphs: PdfTextLayer['paragraphs'] = []
+    const bounds = pageBounds(page)
+    let blockStart = 0
     let active: ActiveTextLine | null = null
     // walk 在整个 span 期间复用同一个 Font 对象，不能在 onChar 里提前销毁，
     // 否则后续字符/行的取字会失效；统一在遍历结束后释放。
@@ -907,6 +931,9 @@ function textLayerForPage(
     }
     try {
       structuredText.walk({
+        beginTextBlock() {
+          blockStart = lines.length
+        },
         beginLine(bbox, wmode, direction) {
           finalizeLine()
           active = {
@@ -932,13 +959,19 @@ function textLayerForPage(
         endLine() {
           finalizeLine()
         },
+        endTextBlock() {
+          finalizeLine()
+          paragraphs.push(...textParagraphs(
+            lines.slice(blockStart), bounds[2] - bounds[0], bounds[3] - bounds[1],
+          ))
+        },
       })
       finalizeLine()
     } finally {
       for (const font of seenFonts) destroyObject(font)
       destroyObject(structuredText)
     }
-    return { pageIndex, lines }
+    return { pageIndex, lines, paragraphs }
   } finally {
     destroyObject(page)
   }
@@ -1090,6 +1123,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
         request.redactionRect,
         request.annotation,
         request.fontData,
+        request.redactionRects,
       )
     })
     const result = mutationResult(state)

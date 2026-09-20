@@ -31,6 +31,10 @@ export interface PdfTextAnnotationRecord {
   fontSize: number
   /** Original body-text baseline, in PDF points below the top of rect. */
   baseline?: number
+  /** Body paragraphs retain their original leading and first-line indent (PDF points). */
+  lineHeight?: number
+  firstLineIndent?: number
+  paragraph?: boolean
   underline: boolean
   color: string
 }
@@ -105,13 +109,14 @@ export type PdfWorkerRequest =
       fontData?: ArrayBuffer
     }
   | {
-      // 直接修改 PDF 正文行：先用 Redaction 抹除原字，再在同位置写入 WAE FreeText。
-      // text 为空表示仅抹除该行原文。
+      // 修改正文段落：按源行范围抹除原字，再在段落位置写入 WAE FreeText。
+      // text 为空表示仅抹除原文。
       type: 'replaceBodyText'
       requestId: string
       documentId: string
       pageIndex: number
       redactionRect: PdfNormalizedRect
+      redactionRects?: PdfNormalizedRect[]
       annotation: PdfTextAnnotationRecord
       fontData?: ArrayBuffer
     }
@@ -177,6 +182,14 @@ export interface PdfTextLine {
 export interface PdfTextLayer {
   pageIndex: number
   lines: PdfTextLine[]
+  paragraphs: PdfTextParagraph[]
+}
+
+/** A contiguous body paragraph, with source lines retained for precise redaction. */
+export interface PdfTextParagraph extends PdfTextLine {
+  lines: PdfTextLine[]
+  lineHeight?: number
+  firstLineIndent?: number
 }
 
 export type PdfWorkerSuccess = {

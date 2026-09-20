@@ -133,9 +133,10 @@ export class MuPdfWorkerClient {
     redactionRect: PdfTextAnnotationRecord['rect'],
     annotation: PdfTextAnnotationRecord,
     fontData?: ArrayBuffer,
+    redactionRects?: PdfTextAnnotationRecord['rect'][],
   ): Promise<PdfMutationResult> {
     return this.request(
-      { type: 'replaceBodyText', pageIndex, redactionRect, annotation, fontData },
+      { type: 'replaceBodyText', pageIndex, redactionRect, redactionRects, annotation, fontData },
       fontData ? [fontData] : [],
     )
   }

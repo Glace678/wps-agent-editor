@@ -25,6 +25,7 @@ import {
 } from '../utils/system-fonts'
 import { MuPdfClientError, MuPdfWorkerClient } from '../pdf/mupdf-client'
 import { pdfTextBaselineShift, pdfTextFontFamily } from '../pdf/pdf-text-layout'
+import { PDF_TEXT_WRAP_TOLERANCE } from '../pdf/pdf-text-paragraphs'
 import {
   normalizePdfRect,
   pdfCanonicalToViewRect,
@@ -42,7 +43,7 @@ import type {
   PdfRotation,
   PdfTextAnnotationRecord,
   PdfTextLayer,
-  PdfTextLine,
+  PdfTextParagraph,
 } from '../pdf/mupdf-protocol'
 
 const MAX_PAGE_CSS_WIDTH = 896
@@ -373,6 +374,7 @@ export function PdfViewer({
   const bodyDraftsRef = useRef(new Map<string, {
     annotation: PdfTextAnnotationRecord
     redactionRect: PdfNormalizedRect
+    redactionRects: PdfNormalizedRect[]
     originalText: string
   }>())
   // 正文被涂改的页：撤销/重做后这些页的位图与文字层都要重新拉取
@@ -989,7 +991,7 @@ export function PdfViewer({
       async () => {
         try {
           const data = await fontTransfer(record.font)
-          const result = await client.replaceBodyText(pageIndex, draft.redactionRect, record, data)
+          const result = await client.replaceBodyText(pageIndex, draft.redactionRect, record, data, draft.redactionRects)
           if (!record.font.fontId.startsWith('builtin:')) {
             loadedWorkerFontsRef.current.add(record.font.fontId)
           }
@@ -1120,43 +1122,49 @@ export function PdfViewer({
     }
   }, [])
 
-  /** 点击 PDF 正文行：建本地草稿并立即进入就地编辑（类似 WPS 点字即改）。 */
-  const startBodyLineEdit = useCallback((
+  /** 点击正文段落：多行共用一个草稿，保留原字号、行距和首行缩进。 */
+  const startBodyParagraphEdit = useCallback((
     pageIndex: number,
-    line: PdfTextLine,
+    paragraph: PdfTextParagraph,
   ) => {
     const existingId = annotationsRef.current
       .find((annotation) => annotation.type === 'text'
         && annotation.pageIndex === pageIndex
-        && Math.abs(annotation.rect.x - line.x) < 0.002
-        && Math.abs(annotation.rect.y - line.y) < 0.002)?.id
+        && Math.abs(annotation.rect.x - paragraph.x) < 0.002
+        && Math.abs(annotation.rect.y - paragraph.y) < 0.002)?.id
     if (existingId) {
       setSelectedAnnotationId(existingId)
-      enterTextAnnotationEdit(existingId, false)
+      enterTextAnnotationEdit(existingId, true)
       return
     }
     // 进入前先提交正在编辑的其他框
     blurActiveTextEditor()
     discardFreshAnnotations()
-    const fontSize = line.fontSize && Number.isFinite(line.fontSize) ? line.fontSize : 12
-    const face = matchBodyFontFace(line.fontFamily, line.text, Boolean(line.fontBold), Boolean(line.fontItalic))
-    const canonicalRect: PdfNormalizedRect = { x: line.x, y: line.y, width: line.width, height: line.height }
+    const fontSize = paragraph.fontSize && Number.isFinite(paragraph.fontSize) ? paragraph.fontSize : 12
+    const face = matchBodyFontFace(paragraph.fontFamily, paragraph.text, Boolean(paragraph.fontBold), Boolean(paragraph.fontItalic))
+    const canonicalRect: PdfNormalizedRect = {
+      x: paragraph.x, y: paragraph.y, width: paragraph.width, height: paragraph.height,
+    }
     const annotation: PdfTextAnnotationRecord = {
       id: crypto.randomUUID(),
       type: 'text',
       pageIndex,
       rect: canonicalRect,
-      text: line.text,
+      text: paragraph.text,
       font: fontDescriptor(face),
       fontSize,
-      baseline: line.baseline,
+      baseline: paragraph.baseline,
+      lineHeight: paragraph.lineHeight,
+      firstLineIndent: paragraph.firstLineIndent,
+      paragraph: paragraph.lines.length > 1,
       underline: false,
-      color: line.color ?? '#000000',
+      color: paragraph.color ?? '#000000',
     }
     bodyDraftsRef.current.set(annotation.id, {
       annotation,
       redactionRect: canonicalRect,
-      originalText: line.text,
+      redactionRects: paragraph.lines.map(({ x, y, width, height }) => ({ x, y, width, height })),
+      originalText: paragraph.text,
     })
     const next = [...annotationsRef.current, annotation]
     annotationsRef.current = next
@@ -1407,15 +1415,19 @@ export function PdfViewer({
     annotation: PdfUiAnnotation,
   ) => {
     if (!editMode || event.button !== 0) return
+    // 首次进入编辑时全选；后续点击/拖选交给浏览器定位光标，不能阻止默认行为。
+    if ((event.target as HTMLElement).isContentEditable) {
+      event.stopPropagation()
+      return
+    }
     // 正文就地编辑的草稿尚未写入 worker，不允许拖拽/缩放；单击直接回到编辑态
     if (bodyDraftsRef.current.has(annotation.id)) {
       event.preventDefault()
       event.stopPropagation()
       selectAnnotation(annotation)
-      enterTextAnnotationEdit(annotation.id, false)
+      enterTextAnnotationEdit(annotation.id, true)
       return
     }
-    if ((event.target as HTMLElement).isContentEditable) return
     // preventDefault 会阻止原生失焦：切到别的注释前先让当前编辑框提交内容
     const activeElement = document.activeElement
     if (
@@ -1489,13 +1501,13 @@ export function PdfViewer({
       const state = dragStateRef.current
       dragStateRef.current = null
       if (!state?.moved) {
-        // 文本工具下单击已有文本框 = 直接编辑（拖动手柄/选择工具下保持仅选中）
+        // 已保存的正文行也保持「首次点击全选，再次点击定位光标」的交互。
         if (
           state && !state.resizeCorner
           && annotation.type === 'text'
-          && currentToolRef.current === 'text'
+          && (annotation.baseline !== undefined || currentToolRef.current === 'text')
         ) {
-          enterTextAnnotationEdit(annotation.id, false)
+          enterTextAnnotationEdit(annotation.id, true)
         }
         return
       }
@@ -1635,7 +1647,7 @@ export function PdfViewer({
 
   const saveDocument = useCallback(async () => {
     const client = clientRef.current
-    if (!client || !dirtyRef.current || saving) return
+    if (!client || saving) return
     setSaving(true)
     try {
       // 保存前丢弃所有未输入内容的新文本框，并收尾正在编辑的框
@@ -1645,6 +1657,7 @@ export function PdfViewer({
       if (clientRef.current !== client) {
         throw new MuPdfClientError('stale-document', 'The PDF changed before it could be saved')
       }
+      if (!dirtyRef.current) return
       let targetPath = filePath
       let saveAs = hasSignatures
       if (hasSignatures) window.alert(pdfMessage(language, 'signed'))
@@ -1928,25 +1941,25 @@ export function PdfViewer({
                           ))}
                         </div>
                       )}
-                      {/* 编辑模式：正文原文行的点击热区（点原文直接改字，类似 WPS） */}
+                      {/* 编辑模式：每个正文段落只有一个编辑入口，可跨行修改。 */}
                       {editMode && textLayer && (
                         <div
                           className="absolute inset-0"
                           data-testid={`pdf-body-edit-layer-${pageIndex}`}
                           style={{ pointerEvents: 'none' }}
                         >
-                          {textLayer.lines.map((line, lineIndex) => (
+                          {textLayer.paragraphs.map((paragraph, paragraphIndex) => (
                             <button
                               type="button"
-                              key={`body-${lineIndex}`}
-                              data-pdf-body-line
+                              key={`body-${paragraphIndex}`}
+                              data-pdf-body-paragraph
                               title={t('pdfViewer.bodyEditHint')}
                               className="absolute whitespace-nowrap rounded-[2px] border border-transparent text-transparent outline-none transition-colors hover:border-[#0f6cbd]/60 hover:bg-[#0f6cbd]/10 focus:border-[#0f6cbd]/60 focus:bg-[#0f6cbd]/10 dark:hover:border-[#60a5fa]/70"
                               style={{
-                                left: `${line.x * 100}%`,
-                                top: `${line.y * 100}%`,
-                                width: `${line.width * 100}%`,
-                                height: `${line.height * 100}%`,
+                                left: `${paragraph.x * 100}%`,
+                                top: `${paragraph.y * 100}%`,
+                                width: `${paragraph.width * 100}%`,
+                                height: `${paragraph.height * 100}%`,
                                 pointerEvents: 'auto',
                                 cursor: 'text',
                                 padding: 0,
@@ -1958,7 +1971,7 @@ export function PdfViewer({
                               onClick={(event) => {
                                 event.preventDefault()
                                 event.stopPropagation()
-                                startBodyLineEdit(pageIndex, line)
+                                startBodyParagraphEdit(pageIndex, paragraph)
                               }}
                             />
                           ))}
@@ -2003,17 +2016,21 @@ export function PdfViewer({
                                 <div
                                   className={cn(
                                     'pdf-annot-text h-full w-full outline-none',
-                                    annotation.baseline === undefined ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
+                                    '[&_div]:indent-0 [&_p]:indent-0',
+                                    annotation.baseline === undefined || annotation.paragraph
+                                      ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
                                   )}
                                   dir="auto"
                                   suppressContentEditableWarning
                                   style={{
+                                    width: annotation.paragraph ? `calc(100% + ${PDF_TEXT_WRAP_TOLERANCE * fontScale}px)` : undefined,
                                     color: annotation.color,
                                     fontFamily: pdfTextFontFamily(annotation),
                                     fontSize: `${annotation.fontSize * fontScale}px`,
                                     fontStyle: annotation.font.style === 'normal' ? 'normal' : 'italic',
                                     fontWeight: annotation.font.weight,
-                                    lineHeight: 1.2,
+                                    lineHeight: annotation.lineHeight ? `${annotation.lineHeight * fontScale}px` : 1.2,
+                                    textIndent: `${(annotation.firstLineIndent ?? 0) * fontScale}px`,
                                     transform: `translateY(${pdfTextBaselineShift(annotation, fontScale)}px)`,
                                     textDecoration: annotation.underline ? 'underline' : 'none',
                                     userSelect: editMode ? 'text' : 'none',
@@ -2025,6 +2042,14 @@ export function PdfViewer({
                                     }
                                   }}
                                   onKeyDown={(event) => {
+                                    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
+                                      && event.key.toLowerCase() === 's') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      // 全局快捷键会忽略可编辑元素；在这里提交正在编辑的整段并保存。
+                                      void saveDocument().catch(() => {})
+                                      return
+                                    }
                                     if (event.key === 'Escape') {
                                       event.preventDefault()
                                       // Esc = 明确取消：草稿丢弃，空框立即删除，不等失焦目标判断

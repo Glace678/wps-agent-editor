@@ -197,7 +197,7 @@ export const zhCN = {
     toolbarFontColor: '字体颜色',
     toolbarFontColorDesc: '设置文本颜色。',
     editTextPlaceholder: '双击编辑文字',
-    bodyEditHint: '点击编辑原文',
+    bodyEditHint: '点击选中整段，再次点击编辑文字',
   },
   wordEditor: {
     loading: '正在加载 Word 文档...',

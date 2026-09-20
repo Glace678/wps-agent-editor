@@ -195,7 +195,7 @@ export const en = {
     toolbarFontColor: 'Font Color',
     toolbarFontColorDesc: 'Set the text color.',
     editTextPlaceholder: 'Double-click to edit text',
-    bodyEditHint: 'Click to edit text',
+    bodyEditHint: 'Click to select the paragraph, then click again to edit text',
   },
   wordEditor: {
     loading: 'Loading the Word document...',

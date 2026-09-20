@@ -20,6 +20,7 @@ export function pdfTextBaselineShift(record: PdfTextAnnotationRecord, scale: num
   const metrics = measurementContext.measureText('Mg')
   const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent
   const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent
-  const browserBaseline = (fontSize * 1.2 - ascent - descent) / 2 + ascent
+  const lineHeight = (record.lineHeight ?? record.fontSize * 1.2) * scale
+  const browserBaseline = (lineHeight - ascent - descent) / 2 + ascent
   return record.baseline * scale - browserBaseline
 }

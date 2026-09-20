@@ -9,6 +9,10 @@ function sourceUrl(relativePath: string): string {
 function buildTextPdfBase64(body: string, fontSize = 18, ruled = false): string {
   const rule = ruled ? `q 1 0 0 RG 0.5 w 35 ${340 - fontSize * 0.35} m 265 ${340 - fontSize * 0.35} l S Q\n` : ''
   const content = `BT /F1 ${fontSize} Tf 40 340 Td (${body.replace(/[()\\]/g, '\\$&')}) Tj ET\n${rule}`
+  return buildContentPdfBase64(content)
+}
+
+function buildContentPdfBase64(content: string): string {
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -643,7 +647,7 @@ test('PDF editor edits original body text in place and saves it', async ({ page 
   await page.goto('/?session=pdf')
 
   await expect(page.locator('[data-page-num="1"] img')).toBeVisible({ timeout: 30_000 })
-  const bodyLine = page.locator('[data-pdf-body-line]').first()
+  const bodyLine = page.locator('[data-pdf-body-paragraph]').first()
   // 浏览模式下没有原文热区
   await expect(bodyLine).toHaveCount(0)
 
@@ -660,14 +664,14 @@ test('PDF editor edits original body text in place and saves it', async ({ page 
   await editor.press('Tab')
 
   // 提交后：正文热区消失（该行被涂除），新文字以注释形式存在
-  await expect.poll(async () => page.locator('[data-pdf-body-line]').count()).toBe(0)
+  await expect.poll(async () => page.locator('[data-pdf-body-paragraph]').count()).toBe(0)
   await expect(editor).toHaveText('Hello Edited')
 
   // 撤销恢复原文
   await page.keyboard.press('Control+z')
-  await expect.poll(async () => page.locator('[data-pdf-body-line]').count()).toBeGreaterThan(0)
+  await expect.poll(async () => page.locator('[data-pdf-body-paragraph]').count()).toBeGreaterThan(0)
   await page.keyboard.press('Control+y')
-  await expect.poll(async () => page.locator('[data-pdf-body-line]').count()).toBe(0)
+  await expect.poll(async () => page.locator('[data-pdf-body-paragraph]').count()).toBe(0)
 
   await page.keyboard.press('Control+s')
   await expect.poll(() => page.evaluate(() => (
@@ -680,6 +684,238 @@ test('PDF editor edits original body text in place and saves it', async ({ page 
   expect(pageErrors).toEqual([])
 })
 
+test('PDF body text selects the line once then allows character editing with the mouse', async ({ page }) => {
+  await installPdfDesktopMock(page, buildTextPdfBase64('Hello Body Text'))
+  await page.setViewportSize({ width: 1_000, height: 800 })
+  await page.goto('/?session=pdf')
+  await expect(page.locator('[data-page-num="1"] img')).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('pdf-edit-mode').click()
+  await page.locator('[data-pdf-body-paragraph]').first().click()
+
+  const editor = page.locator('.pdf-annot-text').first()
+  const selectedText = () => page.evaluate(() => window.getSelection()?.toString())
+  const characterPoint = (offset: number) => editor.evaluate((element, offset) => {
+    const range = document.createRange()
+    range.setStart(element.firstChild!, offset)
+    range.setEnd(element.firstChild!, offset + 1)
+    const rect = range.getBoundingClientRect()
+    return { x: rect.left + rect.width * 0.15, y: rect.top + rect.height / 2 }
+  }, offset)
+  const clickCharacter = async (offset: number) => {
+    const point = await characterPoint(offset)
+    await page.mouse.click(point.x, point.y)
+    await expect.poll(() => editor.evaluate((element) => {
+      const selection = window.getSelection()
+      if (!selection?.isCollapsed || !element.contains(selection.anchorNode)) return null
+      const prefix = document.createRange()
+      prefix.selectNodeContents(element)
+      prefix.setEnd(selection.anchorNode!, selection.anchorOffset)
+      return prefix.toString().length
+    })).toBe(offset)
+  }
+
+  await expect(editor).toHaveAttribute('contenteditable', 'true')
+  await expect.poll(selectedText).toBe('Hello Body Text')
+  const originalFontSize = await editor.evaluate((element) => getComputedStyle(element).fontSize)
+  const originalBox = await editor.locator('xpath=ancestor::*[@data-annot-id]').boundingBox()
+
+  // Use real pointer/keyboard actions: fill() would hide blocked caret placement.
+  await clickCharacter(4)
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect.poll(selectedText).toBe('o')
+  await page.keyboard.insertText('a')
+  await expect(editor).toHaveText('Hella Body Text')
+
+  const start = await characterPoint(6)
+  const end = await characterPoint(10)
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(end.x, end.y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(selectedText).toBe('Body')
+  await page.keyboard.insertText('Word')
+  await expect(editor).toHaveText('Hella Word Text')
+  expect(await editor.locator('xpath=ancestor::*[@data-annot-id]').boundingBox()).toEqual(originalBox)
+  await expect(editor).toHaveCSS('font-size', originalFontSize)
+
+  // Saving while the caret is still in the editor must commit the pending text.
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __WAE_PDF_SAVE_COUNT__: number }
+  ).__WAE_PDF_SAVE_COUNT__)).toBe(1)
+  await expect(page.getByTestId('pdf-edit-mode')).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __WAE_PDF_READ_COUNT__: number }
+  ).__WAE_PDF_READ_COUNT__)).toBeGreaterThanOrEqual(2)
+  await expect(editor).toHaveText('Hella Word Text')
+  await page.getByTestId('pdf-edit-mode').click()
+  await editor.click()
+  await expect(editor).toHaveAttribute('contenteditable', 'true')
+  await expect.poll(selectedText).toBe('Hella Word Text')
+  await clickCharacter(4)
+  await page.keyboard.press('Delete')
+  await page.keyboard.insertText('o')
+  await expect(editor).toHaveText('Hello Word Text')
+  await expect(editor).toHaveCSS('font-size', originalFontSize)
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __WAE_PDF_SAVE_COUNT__: number }
+  ).__WAE_PDF_SAVE_COUNT__)).toBe(2)
+  await expect(page.getByTestId('pdf-edit-mode')).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __WAE_PDF_READ_COUNT__: number }
+  ).__WAE_PDF_READ_COUNT__)).toBeGreaterThanOrEqual(3)
+  await expect(editor).toHaveText('Hello Word Text')
+})
+
+test('PDF editor edits a whole multiline paragraph without changing neighboring text', async ({ page }, testInfo) => {
+  const originalText = 'First paragraph line.\nSecond line to edit.\nThird line ends here.'
+  const fixture = buildContentPdfBase64([
+    'BT /F1 12 Tf 52 340 Td (First paragraph line.) Tj -12 -18 Td (Second line to edit.) Tj 0 -18 Td (Third line ends here.) Tj ET',
+    'BT /F1 12 Tf 40 260 Td (Next paragraph.) Tj 0 -18 Td (Keep this text.) Tj ET',
+    'BT /F1 12 Tf 200 340 Td (Side note.) Tj 0 -18 Td (Keep note.) Tj ET',
+    'q 1 0 0 RG 0.5 w 35 298 m 170 298 l S Q',
+  ].join('\n'))
+  await installPdfDesktopMock(page, fixture)
+  await page.setViewportSize({ width: 1_200, height: 900 })
+  await page.goto('/?session=pdf')
+  const pdfPage = page.locator('[data-page-num="1"]')
+  await expect(pdfPage.locator('img').first()).toBeVisible({ timeout: 30_000 })
+  await page.getByTestId('pdf-edit-mode').click()
+  const paragraphs = page.locator('[data-pdf-body-paragraph]')
+  await expect(paragraphs).toHaveCount(3)
+  const paragraphBox = (await paragraphs.first().boundingBox())!
+  // Click the middle line; the editor must contain all three lines.
+  await paragraphs.first().click({ position: { x: 20, y: paragraphBox.height / 2 } })
+  const editor = page.locator('.pdf-annot-text')
+  const renderedLineCount = () => editor.evaluate((element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    const range = document.createRange()
+    const tops = new Set<string>()
+    while (walker.nextNode()) {
+      range.selectNodeContents(walker.currentNode)
+      for (const rect of range.getClientRects()) {
+        if (rect.width > 0) tops.add(rect.top.toFixed(1))
+      }
+    }
+    return tops.size
+  })
+  await expect(editor).toHaveCount(1)
+  await expect(editor).toHaveAttribute('contenteditable', 'true')
+  expect(await editor.innerText()).toBe(originalText)
+  await expect.poll(renderedLineCount).toBe(3)
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(originalText)
+  await expect(page.getByTestId('pdf-font-size')).toHaveText('12')
+  const scale = (await pdfPage.boundingBox())!.width / 300
+  await expect(editor).toHaveCSS('white-space', 'pre-wrap')
+  expect(await editor.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight))).toBeCloseTo(18 * scale, 2)
+  expect(await editor.evaluate((element) => Number.parseFloat(getComputedStyle(element).textIndent))).toBeCloseTo(12 * scale, 2)
+
+  // A second click on the middle line places the caret there, without reselecting the paragraph.
+  const middlePoint = await editor.evaluate((element, offset) => {
+    const range = document.createRange()
+    range.setStart(element.firstChild!, offset)
+    range.setEnd(element.firstChild!, offset + 1)
+    const rect = range.getBoundingClientRect()
+    return { x: rect.left + rect.width * 0.15, y: rect.top + rect.height / 2 }
+  }, originalText.indexOf('Second'))
+  await page.mouse.click(middlePoint.x, middlePoint.y)
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('S')
+  await page.keyboard.insertText('s')
+  expect(await editor.innerText()).toBe(originalText.replace('Second', 'second'))
+  await expect.poll(renderedLineCount).toBe(3)
+  await pdfPage.screenshot({ path: testInfo.outputPath('paragraph-editing.png') })
+
+  // Select across the original line break, then replace that partial selection.
+  const points = await editor.evaluate((element, offsets) => offsets.map((offset) => {
+    const range = document.createRange()
+    range.setStart(element.firstChild!, offset)
+    range.setEnd(element.firstChild!, offset + 1)
+    const rect = range.getBoundingClientRect()
+    return { x: rect.left + rect.width * 0.15, y: rect.top + rect.height / 2 }
+  }), [originalText.indexOf('line.'), originalText.indexOf('Second') + 'Second'.length])
+  await page.mouse.move(points[0].x, points[0].y)
+  await page.mouse.down()
+  await page.mouse.move(points[1].x, points[1].y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('line.\nsecond')
+  await page.keyboard.insertText('joined')
+  expect(await editor.innerText()).toBe('First paragraph joined line to edit.\nThird line ends here.')
+
+  // Replace the paragraph in one operation, with both automatic and explicit wrapping.
+  const replacement = 'Edited first line. Changed middle line.\nFinal line is here.'
+  await editor.fill(replacement)
+  await expect.poll(renderedLineCount).toBe(3)
+  await editor.press('Tab')
+  await expect(paragraphs).toHaveCount(2)
+  await page.getByTestId('pdf-edit-undo').click()
+  await expect(paragraphs).toHaveCount(3)
+  await expect(editor).toHaveCount(0)
+  await page.getByTestId('pdf-edit-redo').click()
+  await expect(paragraphs).toHaveCount(2)
+  await expect(editor).toHaveCount(1)
+  expect(await editor.innerText()).toBe(replacement)
+  await expect.poll(renderedLineCount).toBe(3)
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __WAE_PDF_SAVE_COUNT__: number }
+  ).__WAE_PDF_SAVE_COUNT__)).toBe(1)
+  await expect(page.getByTestId('pdf-edit-mode')).toHaveAttribute('aria-pressed', 'false')
+  await expect(editor).toBeVisible()
+  expect(await editor.innerText()).toBe(replacement)
+  await pdfPage.screenshot({ path: testInfo.outputPath('paragraph-saved.png') })
+
+  const saved = await page.evaluate(async ({ clientUrl, mupdfUrl }) => {
+    const { MuPdfWorkerClient } = await import(clientUrl) as typeof import('../../src/lightweight-office/pdf/mupdf-client')
+    const { default: mupdf } = await import(mupdfUrl) as typeof import('mupdf')
+    const bytes = Uint8Array.from((window as unknown as { __WAE_SAVED_PDF__: number[] }).__WAE_SAVED_PDF__)
+    const client = new MuPdfWorkerClient(crypto.randomUUID())
+    const document = new mupdf.PDFDocument(bytes)
+    const page = document.loadPage(0)
+    const annotations = page.getAnnotations()
+    const appearance = annotations[0].toDisplayList()
+    const text = appearance.toStructuredText({})
+    const fonts = new Set<InstanceType<typeof mupdf.Font>>()
+    const positions: number[][] = []
+    let atLineStart = false
+    try {
+      const opened = await client.open(bytes.slice().buffer)
+      const remaining = await client.loadTextLayer(0)
+      text.walk({
+        beginLine() { atLineStart = true },
+        onChar(_c, origin, font, size) {
+          fonts.add(font)
+          if (atLineStart) positions.push([origin[0], origin[1], size])
+          atLineStart = false
+        },
+      })
+      return { record: opened.annotations[0], remaining: remaining.lines.map((line) => line.text), positions }
+    } finally {
+      client.dispose()
+      for (const font of fonts) font.destroy()
+      text.destroy()
+      appearance.destroy()
+      for (const annotation of annotations) annotation.destroy()
+      page.destroy()
+      document.destroy()
+    }
+  }, { clientUrl: sourceUrl('src/lightweight-office/pdf/mupdf-client.ts'), mupdfUrl: sourceUrl('node_modules/mupdf/dist/mupdf.js') })
+  expect(saved.record).toMatchObject({ text: replacement, fontSize: 12, paragraph: true })
+  expect(saved.remaining).toEqual(['Next paragraph.', 'Keep this text.', 'Side note.', 'Keep note.'])
+  expect(saved.positions).toHaveLength(3)
+  for (let index = 0; index < 3; index++) {
+    expect(saved.positions[index][0]).toBeCloseTo(index === 0 ? 52 : 40, 2)
+    expect(saved.positions[index][1]).toBeCloseTo(60 + index * 18, 2)
+    expect(saved.positions[index][2]).toBeCloseTo(12, 3)
+  }
+
+  await page.getByTestId('pdf-edit-mode').click()
+  await editor.click()
+  await expect(editor).toHaveAttribute('contenteditable', 'true')
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(replacement)
+})
+
 for (const fontSize of [9, 2.5]) {
   test(`body text keeps its ${fontSize}pt size and baseline inside a ruled editing box`, async ({ page }, testInfo) => {
     const fixture = buildTextPdfBase64('Hello Body Text', fontSize, true)
@@ -689,7 +925,7 @@ for (const fontSize of [9, 2.5]) {
     const pdfPage = page.locator('[data-page-num="1"]')
     await expect(pdfPage.locator('img').first()).toBeVisible({ timeout: 30_000 })
     await page.getByTestId('pdf-edit-mode').click()
-    const bodyLine = page.locator('[data-pdf-body-line]').first()
+    const bodyLine = page.locator('[data-pdf-body-paragraph]').first()
     await expect(bodyLine).toBeAttached()
     await bodyLine.click()
     const editor = page.locator('.pdf-annot-text').first()
@@ -738,7 +974,7 @@ for (const fontSize of [9, 2.5]) {
     await editor.fill(replacementText)
     await assertLayout()
     await editor.press('Tab')
-    await expect.poll(() => page.locator('[data-pdf-body-line]').count()).toBe(0)
+    await expect.poll(() => page.locator('[data-pdf-body-paragraph]').count()).toBe(0)
     await assertLayout()
     for (let step = 0; step < 6; step++) await page.getByTestId('pdf-zoom-out').click()
     await assertLayout()
