@@ -4,8 +4,11 @@ import { resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import type { OutputChunk } from 'rollup'
 import react from '@vitejs/plugin-react'
+import tauriConfig from './src-tauri/tauri.conf.json'
 
 const host = process.env.TAURI_DEV_HOST
+const devServerUrl = new URL(tauriConfig.build.devUrl)
+const devServerPort = Number(devServerUrl.port)
 const devServerIdentityPath = '/__wps_agent_editor_dev_server'
 
 function normalizeProjectRoot(projectRoot: string): string {
@@ -111,14 +114,14 @@ export default defineConfig({
   },
   clearScreen: false,
   server: {
-    host: host || '127.0.0.1',
-    port: 1420,
+    host: host || devServerUrl.hostname,
+    port: devServerPort,
     strictPort: true,
     hmr: host
       ? {
           protocol: 'ws',
           host,
-          port: 1421,
+          port: devServerPort + 1,
         }
       : undefined,
     watch: {

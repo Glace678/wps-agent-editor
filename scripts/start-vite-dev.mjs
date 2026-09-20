@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createConnection } from 'node:net'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 
-const DEFAULT_HOST = process.env.TAURI_DEV_HOST || '127.0.0.1'
-const DEFAULT_PORT = 1420
+const tauriConfig = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
+const devServerUrl = new URL(tauriConfig.build.devUrl)
+const DEFAULT_HOST = process.env.TAURI_DEV_HOST || devServerUrl.hostname
+const DEFAULT_PORT = Number(devServerUrl.port)
 const IDENTITY_PATH = '/__wps_agent_editor_dev_server'
 const IDENTITY_APP = 'wps-agent-editor'
 const PROBE_TIMEOUT_MS = 800
