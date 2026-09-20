@@ -24,6 +24,7 @@ import {
   type SystemFontFace,
 } from '../utils/system-fonts'
 import { MuPdfClientError, MuPdfWorkerClient } from '../pdf/mupdf-client'
+import { pdfTextBaselineShift, pdfTextFontFamily } from '../pdf/pdf-text-layout'
 import {
   normalizePdfRect,
   pdfCanonicalToViewRect,
@@ -1148,6 +1149,7 @@ export function PdfViewer({
       text: line.text,
       font: fontDescriptor(face),
       fontSize,
+      baseline: line.baseline,
       underline: false,
       color: line.color ?? '#000000',
     }
@@ -1500,13 +1502,15 @@ export function PdfViewer({
       const currentAnnotation = annotationsRef.current.find((record) => record.id === annotation.id)
       const client = clientRef.current
       if (currentAnnotation && client) {
-        queueMutation(client, () => client.updateGeometry(currentAnnotation), 'move or resize annotation')
+        queueMutation(client, () => currentAnnotation.type === 'text'
+          ? upsertText(client, currentAnnotation)
+          : client.updateGeometry(currentAnnotation), 'move or resize annotation')
       }
     }
 
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
-  }, [editMode, enterTextAnnotationEdit, queueMutation, selectAnnotation])
+  }, [editMode, enterTextAnnotationEdit, queueMutation, selectAnnotation, upsertText])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1993,49 +1997,54 @@ export function PdfViewer({
                           >
                             {annotation.type === 'text' ? (
                               <div
-                                className={cn(
-                                  'pdf-annot-text h-full w-full whitespace-pre-wrap break-words outline-none',
-                                  // 正文就地编辑草稿：未提交前用白底盖住底层原文字形，避免重影
-                                  bodyDraftsRef.current.has(annotation.id) && 'bg-white',
-                                )}
-                                dir="auto"
-                                suppressContentEditableWarning
-                                style={{
-                                  color: annotation.color,
-                                  fontFamily: annotation.font.familyName,
-                                  fontSize: `${Math.max(4, annotation.fontSize * fontScale)}px`,
-                                  fontStyle: annotation.font.style === 'normal' ? 'normal' : 'italic',
-                                  fontWeight: annotation.font.weight,
-                                  lineHeight: 1.2,
-                                  textDecoration: annotation.underline ? 'underline' : 'none',
-                                  userSelect: editMode ? 'text' : 'none',
-                                }}
-                                onInput={(event) => {
-                                  // 用户一旦改过内容就不再算“新建未输入”，失焦时按实际内容提交/删除
-                                  if (event.currentTarget.innerText !== annotation.text) {
-                                    freshTextAnnotationsRef.current.delete(annotation.id)
-                                  }
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Escape') {
-                                    event.preventDefault()
-                                    // Esc = 明确取消：草稿丢弃，空框立即删除，不等失焦目标判断
-                                    event.currentTarget.dataset.cancelEdit = '1'
-                                    event.currentTarget.blur()
-                                  }
-                                }}
-                                onBlur={(event) => {
-                                  const cancel = event.currentTarget.dataset.cancelEdit === '1'
-                                  delete event.currentTarget.dataset.cancelEdit
-                                  finishTextAnnotationEdit(
-                                    annotation,
-                                    event.currentTarget,
-                                    event.relatedTarget,
-                                    cancel,
-                                  )
-                                }}
+                                className={cn('h-full w-full overflow-hidden', isBodyDraft && 'bg-white')}
+                                data-pdf-text-viewport
                               >
-                                {annotation.text}
+                                <div
+                                  className={cn(
+                                    'pdf-annot-text h-full w-full outline-none',
+                                    annotation.baseline === undefined ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
+                                  )}
+                                  dir="auto"
+                                  suppressContentEditableWarning
+                                  style={{
+                                    color: annotation.color,
+                                    fontFamily: pdfTextFontFamily(annotation),
+                                    fontSize: `${annotation.fontSize * fontScale}px`,
+                                    fontStyle: annotation.font.style === 'normal' ? 'normal' : 'italic',
+                                    fontWeight: annotation.font.weight,
+                                    lineHeight: 1.2,
+                                    transform: `translateY(${pdfTextBaselineShift(annotation, fontScale)}px)`,
+                                    textDecoration: annotation.underline ? 'underline' : 'none',
+                                    userSelect: editMode ? 'text' : 'none',
+                                  }}
+                                  onInput={(event) => {
+                                    // 用户一旦改过内容就不再算“新建未输入”，失焦时按实际内容提交/删除
+                                    if (event.currentTarget.innerText !== annotation.text) {
+                                      freshTextAnnotationsRef.current.delete(annotation.id)
+                                    }
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                      event.preventDefault()
+                                      // Esc = 明确取消：草稿丢弃，空框立即删除，不等失焦目标判断
+                                      event.currentTarget.dataset.cancelEdit = '1'
+                                      event.currentTarget.blur()
+                                    }
+                                  }}
+                                  onBlur={(event) => {
+                                    const cancel = event.currentTarget.dataset.cancelEdit === '1'
+                                    delete event.currentTarget.dataset.cancelEdit
+                                    finishTextAnnotationEdit(
+                                      annotation,
+                                      event.currentTarget,
+                                      event.relatedTarget,
+                                      cancel,
+                                    )
+                                  }}
+                                >
+                                  {annotation.text}
+                                </div>
                               </div>
                             ) : previewUrl ? (
                               <img src={previewUrl} alt="" className="h-full w-full object-fill" draggable={false} />

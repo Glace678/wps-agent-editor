@@ -29,6 +29,8 @@ export interface PdfTextAnnotationRecord {
   text: string
   font: PdfFontDescriptor
   fontSize: number
+  /** Original body-text baseline, in PDF points below the top of rect. */
+  baseline?: number
   underline: boolean
   color: string
 }
@@ -165,6 +167,8 @@ export interface PdfTextLine {
   /** 正文行的字体信息（用于“点原文直接改”时的就地编辑匹配） */
   fontFamily?: string
   fontSize?: number
+  /** Baseline offset from the top of this line, in PDF points. */
+  baseline?: number
   fontBold?: boolean
   fontItalic?: boolean
   color?: string

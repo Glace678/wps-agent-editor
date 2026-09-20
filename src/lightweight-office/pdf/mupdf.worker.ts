@@ -214,7 +214,7 @@ function readWaeRecord(
       if (kind === 'Text' && annotation.getType() === 'FreeText' && validFontDescriptor(payload.font)) {
         const color = typeof payload.color === 'string' ? payload.color : '#000000'
         const fontSize = typeof payload.fontSize === 'number' && Number.isFinite(payload.fontSize)
-          ? Math.min(Math.max(payload.fontSize, 4), 288)
+          ? Math.min(Math.max(payload.fontSize, 0.1), 288)
           : 14
         return {
           id: match[1],
@@ -224,6 +224,8 @@ function readWaeRecord(
           text: annotation.getContents(),
           font: payload.font,
           fontSize,
+          baseline: typeof payload.baseline === 'number' && Number.isFinite(payload.baseline)
+            && payload.baseline >= 0 ? payload.baseline : undefined,
           underline: payload.underline === true,
           color,
         }
@@ -509,16 +511,21 @@ function applyTextAppearance(
   const rect = denormalizeRect(page, record.rect)
   const width = Math.max(1, rect[2] - rect[0])
   const height = Math.max(1, rect[3] - rect[1])
-  const fontSize = Math.min(Math.max(record.fontSize, 4), 288)
+  const fontSize = Math.min(Math.max(record.fontSize, 0.1), 288)
   const color = colorComponents(record.color)
   const font = loadFont(state, record.font, fontData)
   const displayList = new mupdf.DisplayList([0, 0, width, height])
   const device = new mupdf.DisplayListDevice(displayList)
+  const clip = new mupdf.Path()
   try {
-    const padding = Math.min(4, width / 8, height / 8)
+    clip.rect(0, 0, width, height)
+    device.clipPath(clip, false, mupdf.Matrix.identity)
+    const padding = record.baseline === undefined ? Math.min(4, width / 8, height / 8) : 0
     const lineHeight = fontSize * 1.2
-    const lines = wrapText(font, record.text, fontSize, Math.max(1, width - padding * 2))
-    let baseline = padding + fontSize
+    const lines = record.baseline === undefined
+      ? wrapText(font, record.text, fontSize, Math.max(1, width - padding * 2))
+      : record.text.replaceAll('\r\n', '\n').split('\n')
+    let baseline = record.baseline ?? padding + fontSize
     for (const line of lines) {
       if (baseline > height - padding + fontSize * 0.25) break
       const text = new mupdf.Text()
@@ -548,22 +555,26 @@ function applyTextAppearance(
       }
       baseline += lineHeight
     }
+    device.popClip()
     device.close()
     annotation.setRect(rect)
     annotation.setContents(record.text)
     annotation.setBorderWidth(0)
     annotation.setDefaultAppearance('Helvetica', fontSize, color)
+    annotation.setFlags(annotation.getFlags() | mupdf.PDFAnnotation.IS_PRINT)
+    annotation.setModificationDate(new Date())
+    // Finish automatic FreeText updates before installing our exact baseline
+    // and clipping. Later setters/update() would regenerate the stock layout.
+    annotation.update()
+    writeMetadata(state, annotation, record)
     annotation.setAppearanceFromDisplayList(
       null,
       null,
       mupdf.Matrix.translate(rect[0], rect[1]),
       displayList,
     )
-    annotation.setFlags(annotation.getFlags() | mupdf.PDFAnnotation.IS_PRINT)
-    annotation.setModificationDate(new Date())
-    annotation.update()
-    writeMetadata(state, annotation, record)
   } finally {
+    destroyObject(clip)
     destroyObject(device)
     destroyObject(displayList)
   }
@@ -845,6 +856,7 @@ interface ActiveTextLine {
   text: string
   fontFamily?: string
   fontSize?: number
+  baseline?: number
   fontBold?: boolean
   fontItalic?: boolean
   color?: string
@@ -885,8 +897,9 @@ function textLayerForPage(
         height: rect.height,
         fontFamily: line.fontFamily,
         fontSize: typeof line.fontSize === 'number' && Number.isFinite(line.fontSize)
-          ? Math.min(Math.max(line.fontSize, 4), 288)
+          ? Math.min(Math.max(line.fontSize, 0.1), 288)
           : undefined,
+        baseline: line.baseline,
         fontBold: line.fontBold,
         fontItalic: line.fontItalic,
         color: line.color,
@@ -903,13 +916,14 @@ function textLayerForPage(
             text: '',
           }
         },
-        onChar(c, _origin, font, size, _quad, color) {
+        onChar(c, origin, font, size, _quad, color) {
           if (!active) return
           if (active.text.length < MAX_TEXT_LINE_CHARS) active.text += c
           if (!seenFonts.includes(font)) seenFonts.push(font)
           if (active.fontFamily === undefined) {
             active.fontFamily = stripSubsetFontPrefix(font.getName())
             active.fontSize = size
+            active.baseline = origin[1] - active.bbox[1]
             active.fontBold = font.isBold()
             active.fontItalic = font.isItalic()
             active.color = colorToHex(color)

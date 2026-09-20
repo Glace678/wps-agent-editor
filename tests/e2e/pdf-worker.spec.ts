@@ -6,8 +6,9 @@ function sourceUrl(relativePath: string): string {
 }
 
 /** 构造一页带一行 Helvetica 正文的 PDF（MuPDF 可提取其结构化文字层）。 */
-function buildTextPdfBase64(body: string): string {
-  const content = `BT /F1 18 Tf 40 340 Td (${body.replace(/[()\\]/g, '\\$&')}) Tj ET\n`
+function buildTextPdfBase64(body: string, fontSize = 18, ruled = false): string {
+  const rule = ruled ? `q 1 0 0 RG 0.5 w 35 ${340 - fontSize * 0.35} m 265 ${340 - fontSize * 0.35} l S Q\n` : ''
+  const content = `BT /F1 ${fontSize} Tf 40 340 Td (${body.replace(/[()\\]/g, '\\$&')}) Tj ET\n${rule}`
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -678,3 +679,151 @@ test('PDF editor edits original body text in place and saves it', async ({ page 
   expect(new TextDecoder().decode(Uint8Array.from(saved.slice(0, 5)))).toBe('%PDF-')
   expect(pageErrors).toEqual([])
 })
+
+for (const fontSize of [9, 2.5]) {
+  test(`body text keeps its ${fontSize}pt size and baseline inside a ruled editing box`, async ({ page }, testInfo) => {
+    const fixture = buildTextPdfBase64('Hello Body Text', fontSize, true)
+    await installPdfDesktopMock(page, fixture)
+    await page.setViewportSize({ width: 1200, height: 900 })
+    await page.goto('/?session=pdf')
+    const pdfPage = page.locator('[data-page-num="1"]')
+    await expect(pdfPage.locator('img').first()).toBeVisible({ timeout: 30_000 })
+    await page.getByTestId('pdf-edit-mode').click()
+    const bodyLine = page.locator('[data-pdf-body-line]').first()
+    await expect(bodyLine).toBeAttached()
+    await bodyLine.click()
+    const editor = page.locator('.pdf-annot-text').first()
+    await expect(editor).toHaveAttribute('contenteditable', 'true')
+    await expect(page.getByTestId('pdf-font-size')).toHaveText(String(fontSize))
+
+    const assertLayout = async () => {
+      const layout = await editor.evaluate((element) => {
+        const style = getComputedStyle(element)
+        const frame = element.closest('[data-annot-id]')!.getBoundingClientRect()
+        const page = element.closest('[data-page-num]')!.getBoundingClientRect()
+        const text = element.getBoundingClientRect()
+        const context = document.createElement('canvas').getContext('2d')!
+        context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+        const metrics = context.measureText('Mg')
+        const baseline = text.top
+          + (Number.parseFloat(style.lineHeight) - metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2
+          + metrics.fontBoundingBoxAscent
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        const glyphs = range.getBoundingClientRect()
+        return {
+          fontSize: Number.parseFloat(style.fontSize),
+          scale: page.width / 300,
+          baseline: (baseline - page.top) / (page.width / 300),
+          belowBox: glyphs.bottom - frame.bottom,
+          lineHeight: glyphs.height,
+          boxHeight: frame.height,
+          overflow: getComputedStyle(element.parentElement!).overflow,
+          whiteSpace: style.whiteSpace,
+        }
+      })
+      expect(layout.fontSize).toBeCloseTo(fontSize * layout.scale, 2)
+      expect(layout.baseline).toBeCloseTo(60, 1)
+      expect(layout.overflow).toBe('hidden')
+      expect(layout.whiteSpace).toBe('pre')
+      expect(layout.belowBox).toBeLessThanOrEqual(1)
+      expect(layout.lineHeight).toBeLessThanOrEqual(layout.boxHeight + 1)
+    }
+    await editor.press('ArrowRight')
+    await assertLayout()
+    if (fontSize === 9) await pdfPage.screenshot({ path: testInfo.outputPath('editing-original.png') })
+
+    // A longer replacement must not wrap onto the rule or grow the font.
+    const replacementText = 'Hello Edited Text '.repeat(4).trimEnd()
+    await editor.fill(replacementText)
+    await assertLayout()
+    await editor.press('Tab')
+    await expect.poll(() => page.locator('[data-pdf-body-line]').count()).toBe(0)
+    await assertLayout()
+    for (let step = 0; step < 6; step++) await page.getByTestId('pdf-zoom-out').click()
+    await assertLayout()
+    if (fontSize === 2.5) {
+      expect(await editor.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeLessThan(4)
+    }
+    await page.getByTestId('pdf-zoom-reset').click()
+    await assertLayout()
+    // Resizing the box must repaint at the same point size and baseline.
+    const handle = page.locator('[data-annot-id] [data-corner="e"]').first()
+    const handleBox = (await handle.boundingBox())!
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(handleBox.x + handleBox.width / 2 + 40, handleBox.y + handleBox.height / 2, { steps: 3 })
+    await page.mouse.up()
+    await assertLayout()
+    await page.keyboard.press('Control+s')
+    await expect.poll(() => page.evaluate(() => (
+      window as unknown as { __WAE_PDF_SAVE_COUNT__: number }
+    ).__WAE_PDF_SAVE_COUNT__)).toBe(1)
+    await expect.poll(() => page.evaluate(() => (
+      window as unknown as { __WAE_PDF_READ_COUNT__: number }
+    ).__WAE_PDF_READ_COUNT__)).toBeGreaterThanOrEqual(2)
+    await expect(editor).toBeVisible()
+    await assertLayout()
+    if (fontSize === 9) await pdfPage.screenshot({ path: testInfo.outputPath('saved-replacement.png') })
+
+    // Inspect the actual saved PDF, including annotation appearances, outside
+    // our HTML overlay. The strip below the text must remain pixel-identical.
+    const savedLayout = await page.evaluate(async ({ moduleUrl, fixture }) => {
+      const { default: mupdf } = await import(moduleUrl) as typeof import('mupdf')
+      const original = new mupdf.PDFDocument(Uint8Array.from(atob(fixture), (c) => c.charCodeAt(0)))
+      const saved = new mupdf.PDFDocument(Uint8Array.from((
+        window as unknown as { __WAE_SAVED_PDF__: number[] }
+      ).__WAE_SAVED_PDF__))
+      const before = original.loadPage(0)
+      const after = saved.loadPage(0)
+      const annotations = after.getAnnotations()
+      const annotation = annotations[0]
+      const scale = 4
+      const beforePixmap = before.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false, true)
+      const afterPixmap = after.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false, true)
+      const list = annotation.toDisplayList()
+      const text = list.toStructuredText({})
+      const fonts = new Set<InstanceType<typeof mupdf.Font>>()
+      let firstBaseline: number | undefined
+      let renderedFontSize: number | undefined
+      try {
+        text.walk({ onChar(_character, origin, font, size) {
+          firstBaseline ??= origin[1]
+          renderedFontSize ??= size
+          fonts.add(font)
+        } })
+        const rect = annotation.getRect()
+        const pixelsBefore = beforePixmap.getPixels()
+        const pixelsAfter = afterPixmap.getPixels()
+        let changedBelowBox = 0
+        let redRulePixels = 0
+        for (let y = Math.ceil(rect[3] * scale); y < Math.ceil((rect[3] + 6) * scale); y++) {
+          for (let x = 20 * scale; x < 280 * scale; x++) {
+            const offset = y * beforePixmap.getStride() + x * 3
+            if (pixelsBefore[offset] > 200 && pixelsBefore[offset + 1] < 150) redRulePixels++
+            if ([0, 1, 2].some((channel) => pixelsBefore[offset + channel] !== pixelsAfter[offset + channel])) {
+              changedBelowBox++
+            }
+          }
+        }
+        return { firstBaseline, renderedFontSize, changedBelowBox, redRulePixels, contents: annotation.getContents() }
+      } finally {
+        for (const font of fonts) font.destroy()
+        text.destroy()
+        list.destroy()
+        beforePixmap.destroy()
+        afterPixmap.destroy()
+        for (const item of annotations) item.destroy()
+        before.destroy()
+        after.destroy()
+        original.destroy()
+        saved.destroy()
+      }
+    }, { moduleUrl: sourceUrl('node_modules/mupdf/dist/mupdf.js'), fixture })
+    expect(savedLayout.renderedFontSize).toBeCloseTo(fontSize, 3)
+    expect(savedLayout.firstBaseline).toBeCloseTo(60, 2)
+    expect(savedLayout.contents).toBe(replacementText)
+    expect(savedLayout.redRulePixels).toBeGreaterThan(0)
+    expect(savedLayout.changedBelowBox).toBe(0)
+  })
+}
