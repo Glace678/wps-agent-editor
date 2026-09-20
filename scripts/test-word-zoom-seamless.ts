@@ -116,11 +116,11 @@ function calculateAnchoredScroll(params: {
     /pair book-mode pages two-up from the first page/,
     'patch script must pair book-mode pages two-up from the first page',
   )
-  // setZoom 尾部：仅 semantic flow 才挂全量重绘（补丁脚本里是模板字符串，
-  // 换行/制表符为字面 \n / \t 转义；产物里的真换行由第 5 组断言覆盖）
+  // setZoom 尾部：仅 semantic flow 才挂全量重绘。补丁脚本此处使用
+  // 真实换行和字面 \t 转义；同时支持 Git 的 LF / CRLF 检出。
   assert.match(
     patchScript,
-    /if \(this\.#isSemanticFlowMode\(\)\) \{\n(?:\\t)+this\.#pendingDocChange = true;\n(?:\\t)+this\.#scheduleRerender\(\);/,
+    /if \(this\.#isSemanticFlowMode\(\)\) \{\r?\n(?:\\t)+this\.#pendingDocChange = true;\r?\n(?:\\t)+this\.#scheduleRerender\(\);/,
     'setZoom patch must gate pendingDocChange/scheduleRerender behind semantic flow mode',
   )
   // renderBookMode：从第 0 页开始两页一排（Word 多页排法）

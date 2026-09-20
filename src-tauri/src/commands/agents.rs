@@ -117,6 +117,7 @@ pub async fn agents_chat(
             messages: request.messages,
             conversation_id: conversation_id.to_owned(),
             allow_document_tools: true,
+            delegation: None,
         },
     )
     .await;

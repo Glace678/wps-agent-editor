@@ -522,7 +522,7 @@ const agents: AgentsApi = {
       undefined,
     ),
   },
-  async chat(agentId, messages, conversationId, runId, onEvent) {
+  async chat({ agentId, messages, conversationId, runId, onEvent }) {
     const result = await desktopTransport.invoke<AgentTaskResult | { error: string }>(DESKTOP_COMMANDS.agents.chat, {
       request: { agentId, messages, conversationId, runId },
       onEvent: desktopTransport.channel<AgentCollaborationEvent>((event) => {
@@ -531,9 +531,9 @@ const agents: AgentsApi = {
     })
     return { runId, result }
   },
-  async runTask(agentIds, task, runId, rootAgentId, onEvent) {
+  async runTask({ agentIds, task, runId, rootAgentId, mode, onEvent }) {
     const result = await desktopTransport.invoke<AgentTaskResult[] | { error: string }>(DESKTOP_COMMANDS.agents.runTask, {
-      request: { agentIds, task, runId, rootAgentId },
+      request: { agentIds, task, runId, rootAgentId, mode },
       onEvent: desktopTransport.channel<AgentCollaborationEvent>((event) => {
         if (event.runId === runId) onEvent(event)
       }) as unknown,

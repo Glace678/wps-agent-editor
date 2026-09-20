@@ -1,4 +1,4 @@
-import { getProviderLogoAsset, getProviderLogoPresentationColor } from '@/lib/provider-logos'
+import { getProviderLogoPresentationColor, resolveProviderLogoAsset } from '@/lib/provider-logos'
 
 export interface ProviderLogoProps {
   providerId: string
@@ -22,7 +22,7 @@ export function ProviderLogo({
   title,
   decorative = false,
 }: ProviderLogoProps) {
-  const asset = getProviderLogoAsset(providerId)
+  const asset = resolveProviderLogoAsset(providerId, providerName)
   const presentationColor = getProviderLogoPresentationColor(providerId)
   const label = title || providerName
 

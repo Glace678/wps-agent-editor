@@ -9,19 +9,19 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, Check, ChevronDown, Play, Search, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, Layers, Network, Play, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { LanguageCode } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import type { AgentConfig } from '@/types/agent'
+import type { AgentConfig, CollaborationMode } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
 
 interface CollaborationConfigDialogProps {
   agents: AgentConfig[]
   isRunning: boolean
-  onStart: (task: string, agentIds: string[], rootAgentId: string) => void
+  onStart: (task: string, agentIds: string[], rootAgentId: string, mode: CollaborationMode) => void
   onClose: () => void
   providers?: ProviderDefinition[]
 }
@@ -73,6 +73,7 @@ export function CollaborationConfigDialog({
   const [task, setTask] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [rootAgentId, setRootAgentId] = useState('')
+  const [mode, setMode] = useState<CollaborationMode>('directed')
 
   useEffect(() => {
     if (initialProviders && initialProviders.length > 0) {
@@ -385,7 +386,7 @@ export function CollaborationConfigDialog({
         aria-label={t('agentUi.collaborate')}
         onSubmit={(event) => {
           event.preventDefault()
-          if (canStart && rootAgentId) onStart(task.trim(), selectedIds, rootAgentId)
+          if (canStart && rootAgentId) onStart(task.trim(), selectedIds, rootAgentId, mode)
         }}
       >
         <div className="p-5 pb-0">
@@ -410,8 +411,46 @@ export function CollaborationConfigDialog({
           </div>
 
           <div className="space-y-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              {t('agentUi.collaborationMode')}
+            </span>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('agentUi.collaborationMode')}>
+              {([
+                { value: 'directed', icon: Network, testid: 'collaboration-mode-directed' },
+                { value: 'parallel', icon: Layers, testid: 'collaboration-mode-parallel' },
+              ] as const).map(({ value, icon: Icon, testid }) => {
+                const active = mode === value
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    data-testid={testid}
+                    onClick={() => setMode(value)}
+                    className={cn(
+                      'flex flex-col items-start gap-1 rounded-xl border p-2.5 text-left transition-colors',
+                      active
+                        ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/30'
+                        : 'border-border/70 bg-card/40 hover:border-border hover:bg-accent/40',
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                      <Icon className={cn('h-3.5 w-3.5', active ? 'text-primary' : 'text-muted-foreground')} />
+                      {value === 'directed' ? t('agentUi.modeDirected') : t('agentUi.modeParallel')}
+                    </span>
+                    <span className="text-[10.5px] leading-snug text-muted-foreground">
+                      {value === 'directed' ? t('agentUi.modeDirectedHint') : t('agentUi.modeParallelHint')}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground" htmlFor="collaboration-root-agent">
-              {t('agentUi.rootAgent')}
+              {mode === 'directed' ? t('agentUi.directorAgent') : t('agentUi.rootAgent')}
             </label>
             <button
               ref={triggerRef}
@@ -452,7 +491,9 @@ export function CollaborationConfigDialog({
                 </div>
               ) : (
                 <span className="text-muted-foreground">
-                  {selectedAgents.length === 0 ? t('agentUi.enableAtLeastTwo') : t('agentUi.rootAgent')}
+                  {selectedAgents.length === 0
+                    ? t('agentUi.enableAtLeastTwo')
+                    : mode === 'directed' ? t('agentUi.directorAgent') : t('agentUi.rootAgent')}
                 </span>
               )}
               <ChevronDown

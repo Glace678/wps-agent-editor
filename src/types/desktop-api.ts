@@ -1,4 +1,4 @@
-import type { AgentCollaborationEvent, AgentConfig, AgentTaskResult, ChatMessage } from './agent'
+import type { AgentCollaborationEvent, AgentConfig, AgentTaskResult, ChatMessage, CollaborationMode } from './agent'
 import type { AppMenuAction } from './app-menu'
 import type {
   CodeRunResult,
@@ -222,20 +222,21 @@ export interface AgentsApi {
     delete: (conversationId: string) => Promise<boolean>
     importCodex: () => Promise<CodexImportResult>
   }
-  chat: (
-    agentId: string,
-    messages: ChatMessage[],
-    conversationId: string | undefined,
-    runId: string,
-    onEvent: (event: AgentCollaborationEvent) => void,
-  ) => Promise<{ runId: string; result: AgentTaskResult | { error: string } }>
-  runTask: (
-    agentIds: string[],
-    task: string,
-    runId: string,
-    rootAgentId: string | undefined,
-    onEvent: (event: AgentCollaborationEvent) => void,
-  ) => Promise<{ runId: string; result: AgentTaskResult[] | { error: string } }>
+  chat: (options: {
+    agentId: string
+    messages: ChatMessage[]
+    conversationId: string | undefined
+    runId: string
+    onEvent: (event: AgentCollaborationEvent) => void
+  }) => Promise<{ runId: string; result: AgentTaskResult | { error: string } }>
+  runTask: (options: {
+    agentIds: string[]
+    task: string
+    runId: string
+    rootAgentId: string | undefined
+    mode: CollaborationMode
+    onEvent: (event: AgentCollaborationEvent) => void
+  }) => Promise<{ runId: string; result: AgentTaskResult[] | { error: string } }>
   cancel: (runId: string) => Promise<{ success: boolean; alreadyFinished?: boolean }>
   sendDocumentResult: (requestId: string, result: unknown) => Promise<{ success: boolean }>
   sendDocumentEvent: (event: unknown) => Promise<{ success: boolean }>

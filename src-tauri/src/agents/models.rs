@@ -27,6 +27,12 @@ pub struct AgentRunTaskRequest {
     #[serde(default)]
     #[cfg_attr(test, ts(optional))]
     pub root_agent_id: Option<String>,
+    /// Collaboration style: `"directed"` (director delegates sub-tasks to
+    /// peers) or `"parallel"` (independent work followed by synthesis).
+    /// Missing values default to `"directed"`.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -65,6 +65,9 @@ export interface AgentTaskResult {
   cacheUsage: AgentCacheUsage
 }
 
+/** Multi-agent orchestration style requested for a collaboration run. */
+export type CollaborationMode = 'directed' | 'parallel'
+
 export type AgentCollaborationEventType =
   | 'run-start'
   | 'task-created'
@@ -76,6 +79,7 @@ export type AgentCollaborationEventType =
   | 'agent-message'
   | 'agent-stream'
   | 'agent-tool'
+  | 'agent-delegated'
   | 'handoff'
   | 'agent-complete'
   | 'document-operation-prepared'

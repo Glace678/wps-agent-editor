@@ -16,9 +16,9 @@ import { AgentChat } from './AgentChat'
 import { AgentConfigDialog } from './AgentConfigDialog'
 import { TaskStatus } from './TaskStatus'
 import { ProviderSettings } from './ProviderSettings'
-import { CollaborationTimeline } from './CollaborationTimeline'
+import { CollaborationChat } from './CollaborationChat'
 import { CollaborationConfigDialog } from './CollaborationConfigDialog'
-import type { AgentAttachment, AgentCollaborationEvent, AgentConfig, AgentReasoningSelection, ChatMessage } from '@/types/agent'
+import type { AgentAttachment, AgentCollaborationEvent, AgentConfig, AgentReasoningSelection, ChatMessage, CollaborationMode } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
 import type { ConversationMessage } from '@/types/generated'
 
@@ -57,7 +57,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   const [resumeAgentConfig, setResumeAgentConfig] = useState(false)
   const [showCollaborationConfig, setShowCollaborationConfig] = useState(false)
   const [providers, setProviders] = useState<ProviderDefinition[]>([])
-  const [isCollaborationCollapsed, setIsCollaborationCollapsed] = useState(false)
+  const [collaborationMode, setCollaborationMode] = useState<CollaborationMode | null>(null)
 
   const refreshConversations = useCallback(async () => {
     const summaries = await desktopApi.agents.conversations.list()
@@ -145,13 +145,13 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     const conversationId = ensureConversationId(activeAgentId)
     try {
       await persistConversation(conversationId, history)
-      const { result } = await desktopApi.agents.chat(
-        activeAgentId,
-        history,
+      const { result } = await desktopApi.agents.chat({
+        agentId: activeAgentId,
+        messages: history,
         conversationId,
         runId,
-        handleAgentEvent,
-      )
+        onEvent: handleAgentEvent,
+      })
 
       if ('error' in result) {
         if (useAgentStore.getState().isStopping) {
@@ -218,7 +218,12 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     setTaskStatus('')
   }, [activeAgentId, clearCollaborationEvents, clearMessages, isRunning, setTaskStatus])
 
-  const handleMultiAgent = useCallback(async (task: string, agentIds: string[], rootAgentId: string) => {
+  const handleMultiAgent = useCallback(async (
+    task: string,
+    agentIds: string[],
+    rootAgentId: string,
+    mode: CollaborationMode,
+  ) => {
     if (!AGENT_COLLABORATION_ENABLED) return
     if (agentIds.length < 2) {
       setTaskStatus(t('agentUi.enableAtLeastTwo'))
@@ -230,16 +235,18 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     setActiveRunId(runId)
     setIsStopping(false)
     clearCollaborationEvents()
+    setCollaborationMode(mode)
     setTaskStatus(t('agentUi.collaborating'))
 
     try {
-      const { result: results } = await desktopApi.agents.runTask(
+      const { result: results } = await desktopApi.agents.runTask({
         agentIds,
         task,
         runId,
         rootAgentId,
-        handleAgentEvent,
-      )
+        mode,
+        onEvent: handleAgentEvent,
+      })
       if (!Array.isArray(results)) {
         setTaskStatus(useAgentStore.getState().isStopping
           ? t('codeEditor.stopDebug')
@@ -264,7 +271,13 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [clearCollaborationEvents, completeAssistantStream, handleAgentEvent, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [clearCollaborationEvents, completeAssistantStream, handleAgentEvent, setActiveRunId, setCollaborationMode, setIsRunning, setIsStopping, setTaskStatus, t])
+
+  const handleCloseCollaboration = useCallback(() => {
+    setCollaborationMode(null)
+    clearCollaborationEvents()
+    setTaskStatus('')
+  }, [clearCollaborationEvents, setTaskStatus])
 
   const handleStop = useCallback(() => {
     if (!activeRunId || isStopping) return
@@ -305,7 +318,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
         window.removeEventListener(APP_MENU_RUN_MULTI_AGENT_EVENT, runMultiAgent)
       }
     }
-  }, [handleMultiAgent, handleNewAgent])
+  }, [handleNewAgent])
 
   const handleSaveAgent = useCallback(async (agent: AgentConfig) => {
     const updated = await desktopApi.agents.save(agent)
@@ -326,6 +339,19 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   return (
     <TooltipProvider delayDuration={350}>
       <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-sidebar">
+        {collaborationMode ? (
+          <CollaborationChat
+            events={collaborationEvents}
+            agents={agents}
+            providers={providers}
+            mode={collaborationMode}
+            isRunning={isRunning}
+            isStopping={isStopping}
+            onStop={handleStop}
+            onClose={handleCloseCollaboration}
+          />
+        ) : (
+        <>
         {/* Top Header Bar */}
         <div className="flex h-9 shrink-0 items-center justify-between gap-1 border-b border-border/50 bg-background/40 px-2.5 backdrop-blur-xs">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -428,18 +454,11 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
           onImportCodex={handleImportCodex}
           onLoadConversation={handleLoadConversation}
           beforeComposer={(
-            <>
-              {AGENT_COLLABORATION_ENABLED && (
-                <CollaborationTimeline
-                  events={collaborationEvents}
-                  collapsed={isCollaborationCollapsed}
-                  onToggle={() => setIsCollaborationCollapsed((collapsed) => !collapsed)}
-                />
-              )}
-              <TaskStatus status={taskStatus} isRunning={isRunning} />
-            </>
+            <TaskStatus status={taskStatus} isRunning={isRunning} />
           )}
         />
+        </>
+        )}
 
         {showConfig && editingAgent && (
           <AgentConfigDialog
@@ -470,9 +489,9 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
             isRunning={isRunning}
             providers={providers}
             onClose={() => setShowCollaborationConfig(false)}
-            onStart={(task, agentIds, rootAgentId) => {
+            onStart={(task, agentIds, rootAgentId, mode) => {
               setShowCollaborationConfig(false)
-              void handleMultiAgent(task, agentIds, rootAgentId)
+              void handleMultiAgent(task, agentIds, rootAgentId, mode)
             }}
           />
         )}
