@@ -1899,3 +1899,38 @@
   white-space: nowrap;
   cursor: default;
 }
+
+/* ==========================================================================
+   Excel bottom chrome: pin sheet tabs/zoom bar to the very bottom and unify
+   the zoom minus/plus icon styling (problem 23)
+   ========================================================================== */
+.excel-editor-shell .luckysheet-sheet-area {
+  margin-top: auto;
+  flex: 0 0 auto;
+  transition: none;
+}
+
+.excel-editor-shell .fortune-zoom-container {
+  align-items: center;
+}
+
+/* The minus glyph ships without a fill (renders pure black, invisible in
+   dark mode) while the plus uses a gray stroke. SVG <use> clones inherit
+   presentation attributes from the <use>/<svg>, so setting fill & stroke on
+   the svg unifies both glyphs across light and dark themes. */
+.excel-editor-shell .fortune-zoom-button svg {
+  fill: #525c6f;
+  stroke: #525c6f;
+}
+.dark .excel-editor-shell .fortune-zoom-button svg {
+  fill: #d6d6d6;
+  stroke: #d6d6d6;
+}
+.excel-editor-shell .fortune-zoom-button:hover svg {
+  fill: #111;
+  stroke: #111;
+}
+.dark .excel-editor-shell .fortune-zoom-button:hover svg {
+  fill: #fff;
+  stroke: #fff;
+}

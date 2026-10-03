@@ -30,7 +30,7 @@ const MAX_BACKUP_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_BACKUP_ENTRIES: u64 = 20_000;
 const HEALTH_SCHEMA_VERSION: u32 = 1;
 const WINDOWS_UNINSTALL_KEY: &str =
-    "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WPS Agent Editor";
+    "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Office Agentic";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -4174,8 +4174,8 @@ mod tests {
     fn platform_guardians_copy_complete_linux_and_macos_payloads() {
         let root = tempfile::tempdir().unwrap();
         let backup = root.path().join("backup-payload");
-        let target = root.path().join("WPS Agent Editor.app");
-        let launch = target.join("Contents/MacOS/wps-agent-editor");
+        let target = root.path().join("Office Agentic.app");
+        let launch = target.join("Contents/MacOS/office-agentic");
         let linux = guardian_plan(
             GuardianPlatform::Linux,
             root.path(),
@@ -4203,7 +4203,7 @@ mod tests {
         assert_eq!(macos.kind, GuardianKind::MacAppBundle);
         assert!(macos
             .launch_path
-            .ends_with("Contents/MacOS/wps-agent-editor"));
+            .ends_with("Contents/MacOS/office-agentic"));
     }
 
     #[test]

@@ -285,7 +285,7 @@ function normalizeRenderedPresentationSpaces(root: HTMLElement): void {
     textNode.replaceWith(fragment)
   }
 
-  // WPS (and other producers) often write a paragraph's indentation as a run
+  // Some producers often write a paragraph's indentation as a run
   // containing only a single space, split from the CJK text. A lone space run
   // collapses to zero width under white-space: normal (the renderer only
   // preserves runs of two or more spaces), so wrap space-only runs that sit at

@@ -1,8 +1,9 @@
-import { useMemo, useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Bot, ChevronDown, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { modelDisplayName } from '@/lib/agent-model'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { AgentConfig } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
@@ -14,39 +15,6 @@ interface AgentListProps {
   onNew: () => void
   onEdit: (agent: AgentConfig) => void
   providers?: ProviderDefinition[]
-}
-
-const MODEL_TOKEN_NAMES: Record<string, string> = {
-  api: 'API',
-  coder: 'Coder',
-  code: 'Code',
-  gemini: 'Gemini',
-  glm: 'GLM',
-  gpt: 'GPT',
-  kimi: 'Kimi',
-  llama: 'Llama',
-  minimax: 'MiniMax',
-  mimo: 'MiMo',
-  qwen: 'Qwen',
-}
-
-function humanizeModelToken(token: string): string {
-  const knownName = MODEL_TOKEN_NAMES[token.toLowerCase()]
-  if (knownName) return knownName
-  if (/^\d+o$/i.test(token)) return token.toLowerCase()
-  if (/\d/.test(token)) return token.replace(/[a-z]/gi, (letter) => letter.toUpperCase())
-  return token.charAt(0).toUpperCase() + token.slice(1)
-}
-
-function humanizeModelId(modelId: string): string {
-  const leaf = modelId.trim().split('/').filter(Boolean).at(-1) || modelId.trim()
-  if (!leaf) return 'Default'
-
-  return leaf
-    .replace(/[_-]+/g, ' ')
-    .split(/\s+/)
-    .map(humanizeModelToken)
-    .join(' ')
 }
 
 export function AgentList({
@@ -61,33 +29,8 @@ export function AgentList({
   const [isOpen, setIsOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const modelLabels = useMemo(() => {
-    const exact = new Map<string, string>()
-    const byModelId = new Map<string, string>()
-
-    for (const provider of providers) {
-      for (const model of provider.models) {
-        const id = model.id.trim()
-        if (!id) continue
-        const name = model.name.trim()
-        const readableName = name && name.toLowerCase() !== id.toLowerCase() ? name : ''
-        exact.set(`${provider.id}\u0000${id}`, readableName || humanizeModelId(id))
-        if (readableName && !byModelId.has(id.toLowerCase())) {
-          byModelId.set(id.toLowerCase(), readableName)
-        }
-      }
-    }
-
-    return { exact, byModelId }
-  }, [providers])
-
-  const modelLabel = (agent: AgentConfig) => {
-    const modelId = agent.model.trim()
-    if (!modelId) return 'Default'
-    return modelLabels.exact.get(`${agent.providerId}\u0000${modelId}`)
-      ?? modelLabels.byModelId.get(modelId.toLowerCase())
-      ?? humanizeModelId(modelId)
-  }
+  const modelLabel = (agent: AgentConfig) =>
+    modelDisplayName(agent.providerId, agent.model, providers) || 'Default'
 
   const providerLabel = (agent: AgentConfig) => {
     const p = providers.find((item) => item.id === agent.providerId)

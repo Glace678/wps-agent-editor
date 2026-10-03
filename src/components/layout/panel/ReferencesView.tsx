@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { usePanelStore } from '@/stores/panel.store'
-import { useDebugStore } from '@/stores/debug.store'
 
 export function ReferencesView() {
   const { t } = useTranslation()

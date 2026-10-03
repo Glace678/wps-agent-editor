@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { ArrowLeft, Palette, RotateCcw } from 'lucide-react'
 import type { Editor } from '@superdoc-dev/react'

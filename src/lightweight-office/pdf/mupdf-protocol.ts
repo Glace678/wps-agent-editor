@@ -1,5 +1,7 @@
 export type PdfRotation = 0 | 90 | 180 | 270
 
+export type PdfTextAlign = 'left' | 'center' | 'right'
+
 export interface PdfPageInfo {
   index: number
   width: number
@@ -35,6 +37,8 @@ export interface PdfTextAnnotationRecord {
   lineHeight?: number
   firstLineIndent?: number
   paragraph?: boolean
+  /** Horizontal alignment of each rendered line within rect. Defaults to left. */
+  align?: PdfTextAlign
   underline: boolean
   color: string
 }
@@ -190,6 +194,7 @@ export interface PdfTextParagraph extends PdfTextLine {
   lines: PdfTextLine[]
   lineHeight?: number
   firstLineIndent?: number
+  align?: PdfTextAlign
 }
 
 export type PdfWorkerSuccess = {

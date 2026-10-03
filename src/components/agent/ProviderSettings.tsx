@@ -435,11 +435,9 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                     {t('providerSettings.noSearchResults')}
                   </p>
                 )}
-                {filtered.map(({ provider: p, matchedModels }) => {
+                {filtered.map(({ provider: p }) => {
                   const hasConfiguredApiKey = authStatus[p.id]?.configured
                     && authStatus[p.id]?.type === 'api'
-                  const firstMatchedModel = matchedModels[0]
-                  const additionalMatchedModelCount = Math.max(0, matchedModels.length - 1)
                   return (
                     <div
                       key={p.id}
@@ -462,16 +460,6 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate">{p.name}</span>
-                          {firstMatchedModel && (
-                            <span
-                              data-testid={`provider-match-${p.id}`}
-                              className="block truncate text-[10px] font-normal text-muted-foreground"
-                              title={matchedModels.slice(0, 8).map((model) => model.name).join(', ')}
-                            >
-                              {firstMatchedModel.name}
-                              {additionalMatchedModelCount > 0 ? ` +${additionalMatchedModelCount}` : ''}
-                            </span>
-                          )}
                         </span>
                       </button>
                       {hasConfiguredApiKey && (

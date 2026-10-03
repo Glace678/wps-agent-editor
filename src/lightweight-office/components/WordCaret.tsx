@@ -24,7 +24,7 @@ interface CaretRect {
 }
 
 /**
- * WPS / Microsoft Word 风格的文档输入光标（纯黑、慢速持续闪烁、打字即时实心响应）。
+ * Office / Microsoft Word 风格的文档输入光标（纯黑、慢速持续闪烁、打字即时实心响应）。
  * 解决浏览器原生 caret 在闲置 5 秒后停止闪烁、闪烁生硬以及颜色不够纯黑的问题。
  */
 export function WordCaret({
@@ -89,7 +89,7 @@ export function WordCaret({
           Number.isFinite(coords.left) &&
           coords.bottom > coords.top
         ) {
-          const height = Math.max(14, coords.bottom - coords.top)
+          const height = coords.bottom - coords.top
           return {
             left: Math.round(coords.left - rootRect.left),
             top: Math.round(coords.top - rootRect.top),
@@ -135,7 +135,7 @@ export function WordCaret({
         return {
           left: Math.round((rect.left || cRect.left) - rootRect.left),
           top: Math.round((rect.top || cRect.top) - rootRect.top),
-          height: Math.round(Math.max(14, lineHeight)),
+          height: Math.round(lineHeight),
           visible: true,
         }
       }
@@ -242,14 +242,14 @@ export function WordCaret({
     }
   }, [editorRootRef, scheduleUpdate, triggerTypingState, viewMode, zoom])
 
-  // 当自定义光标可见时，在 root 上设置 data-wps-caret-active 属性，以便 CSS 隐藏原生 caret 避免重影
+  // 当自定义光标可见时，在 root 上设置 data-officeagentic-caret-active 属性，以便 CSS 隐藏原生 caret 避免重影
   useEffect(() => {
     const root = editorRootRef.current
     if (!root) return
     if (caretRect.visible) {
-      root.setAttribute('data-wps-caret-active', 'true')
+      root.setAttribute('data-officeagentic-caret-active', 'true')
     } else {
-      root.removeAttribute('data-wps-caret-active')
+      root.removeAttribute('data-officeagentic-caret-active')
     }
   }, [caretRect.visible, editorRootRef])
 
@@ -259,20 +259,20 @@ export function WordCaret({
 
   const style: CSSProperties = {
     position: 'absolute',
-    left: `${caretRect.left}px`,
-    top: `${caretRect.top}px`,
-    height: `${caretRect.height}px`,
-    width: '1.5px',
+    left: `${Math.round(caretRect.left)}px`,
+    top: `${Math.round(caretRect.top)}px`,
+    height: `${Math.round(caretRect.height)}px`,
+    width: '1px',
     pointerEvents: 'none',
     zIndex: 25,
   }
 
   return (
     <div
-      key={`wps-caret-${animKeyRef.current}`}
-      className={`wps-word-caret ${isTyping ? 'wps-word-caret--typing' : ''}`}
+      key={`officeagentic-caret-${animKeyRef.current}`}
+      className={`officeagentic-word-caret ${isTyping ? 'officeagentic-word-caret--typing' : ''}`}
       style={style}
-      data-testid="wps-word-caret"
+      data-testid="officeagentic-word-caret"
     />
   )
 }

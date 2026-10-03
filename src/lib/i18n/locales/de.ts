@@ -4,12 +4,12 @@ import type { Translation } from '../types'
 
 export const de = {
   menu: {
-    about: 'Über WPS Agent Editor',
+    about: 'Über Office Agentic',
     services: 'Dienste',
-    hide: 'WPS Agent Editor ausblenden',
+    hide: 'Office Agentic ausblenden',
     hideOthers: 'Andere ausblenden',
     unhide: 'Alle einblenden',
-    quit: 'WPS Agent Editor beenden',
+    quit: 'Office Agentic beenden',
     file: 'Datei',
     openFile: 'Datei öffnen...',
     openFolder: 'Ordner öffnen...',
@@ -35,8 +35,8 @@ export const de = {
     newAgent: 'Neuer Agent...',
     runMultiAgent: 'Multi-Agent-Zusammenarbeit ausführen',
     help: 'Hilfe',
-    aboutTitle: 'Über WPS Agent Editor',
-    aboutMessage: 'WPS Agent Editor',
+    aboutTitle: 'Über Office Agentic',
+    aboutMessage: 'Office Agentic',
     aboutDetail: 'Plattformübergreifender Dokumenteditor mit Multi-Agent-Zusammenarbeit\nVersion 2.0.0',
   },
   appShell: {

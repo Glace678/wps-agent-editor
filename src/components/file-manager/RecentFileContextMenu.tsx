@@ -34,7 +34,7 @@ interface MenuItem {
   danger?: boolean
 }
 
-// WPS 风格分组：打开/分享 | 重命名/文件信息/历史版本 | 打开文件位置 | 删除记录/删除文件
+// Office 风格分组：打开/分享 | 重命名/文件信息/历史版本 | 打开文件位置 | 删除记录/删除文件
 const MENU_GROUPS: MenuItem[][] = [
   [
     { action: 'open', labelKey: 'recentFiles.menuOpen', icon: ExternalLink },

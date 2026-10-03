@@ -65,7 +65,7 @@ const VISUAL_ORDER = [
 
 /** 首次出现前的兜底值；出现后会被当前主题下的 DOM 实测宽度替代。 */
 const FALLBACK_ITEM_WIDTHS: Record<string, number> = {
-  zoom: 70,
+  zoom: 56,
   fontFamily: 160,
   // Keep the first pass aligned with the compact Word CSS before the browser
   // can measure the rendered item.
@@ -73,7 +73,7 @@ const FALLBACK_ITEM_WIDTHS: Record<string, number> = {
   textAlign: 38,
   list: 41,
   numberedlist: 41,
-  linkedStyles: 144,
+  linkedStyles: 168,
 }
 const DEFAULT_ITEM_WIDTH = 34
 const DEFAULT_ROW_HORIZONTAL_PADDING = 16

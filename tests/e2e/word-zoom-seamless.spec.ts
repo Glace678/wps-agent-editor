@@ -115,14 +115,6 @@ async function installSampler(page: Page): Promise<void> {
     const marks: Record<string, number> = {}
     const t0 = performance.now()
 
-    const countNode = (list: NodeListOf<Element> | Node[], selector: string) => {
-      let n = 0
-      list.forEach((node) => {
-        if (node instanceof Element && node.matches(selector)) n += 1
-      })
-      return n
-    }
-
     const observer = new MutationObserver((records) => {
       for (const record of records) {
         const removed = Array.from(record.removedNodes)

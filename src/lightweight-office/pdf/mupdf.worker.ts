@@ -15,7 +15,7 @@ import type {
   PdfWorkerRequest,
   PdfWorkerResponse,
 } from './mupdf-protocol'
-import { PDF_TEXT_WRAP_TOLERANCE, textParagraphs } from './pdf-text-paragraphs'
+import { PDF_TEXT_WRAP_TOLERANCE, inferBlockAlign, textParagraphs } from './pdf-text-paragraphs'
 
 type MuPdfApi = typeof import('mupdf').default
 
@@ -544,7 +544,15 @@ function applyTextAppearance(
     let baseline = record.baseline ?? padding + fontSize
     for (const [lineIndex, line] of lines.entries()) {
       if (baseline > height - padding + fontSize * 0.25) break
-      const left = padding + (lineIndex === 0 ? firstLineIndent : 0)
+      const firstLineExtra = lineIndex === 0 ? firstLineIndent : 0
+      let left: number
+      if (record.align === 'right') {
+        left = width - padding - glyphAdvance(font, line, fontSize) - firstLineExtra
+      } else if (record.align === 'center') {
+        left = padding + (width - padding * 2 - glyphAdvance(font, line, fontSize)) / 2 - firstLineExtra
+      } else {
+        left = padding + firstLineExtra
+      }
       const text = new mupdf.Text()
       try {
         text.showString(font, [fontSize, 0, 0, -fontSize, left, baseline], line)
@@ -554,7 +562,7 @@ function applyTextAppearance(
       }
       if (record.underline && line) {
         const path = new mupdf.Path()
-        const lineWidth = Math.min(glyphAdvance(font, line, fontSize), width - padding - left)
+        const lineWidth = Math.max(0, Math.min(glyphAdvance(font, line, fontSize), width - padding - left))
         path.moveTo(left, baseline + Math.max(1, fontSize * 0.08))
         path.lineTo(left + lineWidth, baseline + Math.max(1, fontSize * 0.08))
         const stroke = new mupdf.StrokeState({
@@ -900,6 +908,7 @@ function textLayerForPage(
     const bounds = pageBounds(page)
     let blockStart = 0
     let active: ActiveTextLine | null = null
+    let blockLineStart = 0
     // walk 在整个 span 期间复用同一个 Font 对象，不能在 onChar 里提前销毁，
     // 否则后续字符/行的取字会失效；统一在遍历结束后释放。
     const seenFonts: InstanceType<typeof mupdf.Font>[] = []
@@ -933,6 +942,7 @@ function textLayerForPage(
       structuredText.walk({
         beginTextBlock() {
           blockStart = lines.length
+          blockLineStart = lines.length
         },
         beginLine(bbox, wmode, direction) {
           finalizeLine()
@@ -961,8 +971,10 @@ function textLayerForPage(
         },
         endTextBlock() {
           finalizeLine()
+          const blockLines = lines.slice(blockLineStart)
+          const blockAlign = inferBlockAlign(blockLines, bounds[2] - bounds[0])
           paragraphs.push(...textParagraphs(
-            lines.slice(blockStart), bounds[2] - bounds[0], bounds[3] - bounds[1],
+            lines.slice(blockStart), bounds[2] - bounds[0], bounds[3] - bounds[1], blockAlign,
           ))
         },
       })

@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
 import { FileText, Keyboard } from 'lucide-react'
@@ -19,6 +20,7 @@ import {
   type ShortcutHandlerMap,
 } from '@/lib/office-shortcuts'
 import { ShortcutSettingsPanel } from '@/components/shortcuts/ShortcutSettingsPanel'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { MODULE_ID, MODULE_VERSION } from './config'
@@ -89,10 +91,10 @@ function createTab(path: string): TabItem {
 }
 
 /**
- * 编辑器外壳：标签栏与工具栏保持固定尺寸，不参与文档缩放。
- * 整个外壳绝不挂 .document-zoom-target（否则 Ctrl+滚轮会连标签栏一起缩放）；
- * Word 由 DocumentZoom 缩放正文，Excel / 记事本 / PDF 自管缩放
- * （data-manages-document-zoom）。
+ * 编辑器外壳：标签栏与工具栏保持固定尺寸，不参与文档缩放�?
+ * 整个外壳绝不�?.document-zoom-target（否�?Ctrl+滚轮会连标签栏一起缩放）�?
+ * Word �?DocumentZoom 缩放正文，Excel / 记事�?/ PDF 自管缩放
+ * （data-manages-document-zoom）�?
  */
 function EditorPanel({ children }: { children: ReactNode }) {
   return (
@@ -145,8 +147,8 @@ function ShortcutSettingsModal({ onClose }: { onClose: () => void }) {
  * Shared Office-style shortcuts for Word / Excel / PDF shells.
  * Text editor registers its own richer handler map.
  * PDF 借用 word 上下文注册（nav/file 类绑定的 contexts 都是 'all'）；
- * 缩放/适配/旋转等由 PdfViewer 自己的按键监听处理，这里不注册对应 handler，
- * dispatch 会以 no-handler 放行，不拦截事件。
+ * 缩放/适配/旋转等由 PdfViewer 自己的按键监听处理，这里不注册对�?handler�?
+ * dispatch 会以 no-handler 放行，不拦截事件�?
  */
 function useBinaryDocShortcuts(
   kind: 'word' | 'excel' | 'slide' | 'pdf' | null,
@@ -154,7 +156,7 @@ function useBinaryDocShortcuts(
   tabNav?: {
     nextTab: () => void
     previousTab: () => void
-    /** Ctrl+W — close the active shell document tab (not just clear currentFile). */
+    /** Ctrl+W �?close the active shell document tab (not just clear currentFile). */
     closeActiveTab: () => void
   },
 ) {
@@ -183,7 +185,7 @@ function useBinaryDocShortcuts(
             void desktopApi.files.openExternal(target)
             return
           }
-          // 立即切换文件渲染编辑器，最近文件记录后台完成
+          // 立即切换文件渲染编辑器，最近文件记录后台完�?
           void desktopApi.files.open(target)
           setCurrentFile(target)
         })()
@@ -210,6 +212,121 @@ function useBinaryDocShortcuts(
   }, [kind, saveRef, setCurrentFile, tabNav])
 
   useOfficeShortcuts(kind === 'excel' ? 'excel' : 'word', handlers, Boolean(kind))
+}
+
+const SHORTCUT_POSITION_KEY = 'officeagentic-shortcut-position'
+const TOP_BOTTOM_BAR_GAP = 8
+const SNAP_DISTANCE = 12
+
+interface ShortcutPosition { x: number; y: number }
+
+function readStoredPosition(): ShortcutPosition | null {
+  try {
+    const raw = localStorage.getItem(SHORTCUT_POSITION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ShortcutPosition
+    return Number.isFinite(parsed.x) && Number.isFinite(parsed.y) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** Floating shortcuts button, draggable within the area with edge snapping. */
+function ShortcutFloatButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation()
+  const [position, setPosition] = useState<ShortcutPosition | null>(readStoredPosition)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number; moved: boolean } | null>(null)
+
+  const clampAndSnap = useCallback((x: number, y: number): ShortcutPosition => {
+    const button = buttonRef.current
+    const parent = button?.parentElement
+    if (!button || !parent) return { x, y }
+    const w = button.offsetWidth
+    const h = button.offsetHeight
+    const maxX = parent.clientWidth - w
+    const maxY = parent.clientHeight - h
+    let nx = Math.min(Math.max(0, x), Math.max(0, maxX))
+    let ny = Math.min(Math.max(TOP_BOTTOM_BAR_GAP, y), Math.max(TOP_BOTTOM_BAR_GAP, maxY - TOP_BOTTOM_BAR_GAP))
+    // Snap to edges and to top/bottom bars
+    if (nx <= SNAP_DISTANCE) nx = 0
+    if (maxX - nx <= SNAP_DISTANCE) nx = maxX
+    if (ny - TOP_BOTTOM_BAR_GAP <= SNAP_DISTANCE) ny = TOP_BOTTOM_BAR_GAP
+    if (maxY - ny <= SNAP_DISTANCE) ny = maxY - TOP_BOTTOM_BAR_GAP
+    return { x: Math.round(nx), y: Math.round(ny) }
+  }, [])
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return
+    const button = event.currentTarget
+    const rect = button.getBoundingClientRect()
+    dragRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      moved: false,
+    }
+    button.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const parent = buttonRef.current?.parentElement
+    if (!parent) return
+    const parentRect = parent.getBoundingClientRect()
+    const next = clampAndSnap(
+      event.clientX - parentRect.left - drag.offsetX,
+      event.clientY - parentRect.top - drag.offsetY,
+    )
+    drag.moved = true
+    setPosition(next)
+  }
+
+  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    if (buttonRef.current?.hasPointerCapture(event.pointerId)) {
+      buttonRef.current.releasePointerCapture(event.pointerId)
+    }
+    dragRef.current = null
+    if (drag.moved && position) {
+      try { localStorage.setItem(SHORTCUT_POSITION_KEY, JSON.stringify(position)) } catch { /* ignore */ }
+    }
+  }
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            ref={buttonRef}
+            type="button"
+            className="absolute z-20 flex h-8 items-center gap-1.5 rounded-md border border-black/10 bg-white/95 px-2.5 text-[12px] shadow-sm hover:bg-white dark:border-white/10 dark:bg-[#2a2a2a]/95 dark:hover:bg-[#2a2a2a] touch-none"
+            style={position
+              ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto' }
+              : { right: 12, bottom: 48 }}
+            onClick={(event) => {
+              if (dragRef.current?.moved) { event.preventDefault(); return }
+              onClick()
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            data-testid="open-shortcut-settings"
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+            {t('appShell.shortcuts')}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[260px]">
+          <p className="text-[13px] font-semibold leading-tight">{t('appShell.shortcutSettings')}</p>
+          <p className="mt-1 text-[12px] leading-snug opacity-75">{t('appShell.shortcuts')}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
 }
 
 export function LightweightDocumentEditor() {
@@ -520,7 +637,7 @@ export function LightweightDocumentEditor() {
             void desktopApi.files.openExternal(target)
             return
           }
-          // 立即切换文件渲染编辑器，最近文件记录后台完成
+          // 立即切换文件渲染编辑器，最近文件记录后台完�?
           void desktopApi.files.open(target)
           setCurrentFile(target)
         })()
@@ -577,16 +694,7 @@ export function LightweightDocumentEditor() {
               onRegisterSave={handleRegisterSave}
             />
           </Suspense>
-          <button
-            type="button"
-            className="absolute bottom-12 right-3 z-20 flex h-8 items-center gap-1.5 rounded-md border border-black/10 bg-white/95 px-2.5 text-[12px] shadow-sm hover:bg-white dark:border-white/10 dark:bg-[#2a2a2a]/95"
-            onClick={() => setShortcutSettingsOpen(true)}
-            title={t('appShell.shortcutSettings')}
-            data-testid="open-shortcut-settings"
-          >
-            <Keyboard className="h-3.5 w-3.5" />
-            {t('appShell.shortcuts')}
-          </button>
+          <ShortcutFloatButton onClick={() => setShortcutSettingsOpen(true)} />
         </div>
       )
     }
@@ -609,16 +717,7 @@ export function LightweightDocumentEditor() {
               onRegisterSave={handleRegisterSave}
             />
           </Suspense>
-          <button
-            type="button"
-            className="absolute bottom-12 right-3 z-20 flex h-8 items-center gap-1.5 rounded-md border border-black/10 bg-white/95 px-2.5 text-[12px] shadow-sm hover:bg-white dark:border-white/10 dark:bg-[#2a2a2a]/95"
-            onClick={() => setShortcutSettingsOpen(true)}
-            title={t('appShell.shortcutSettings')}
-            data-testid="open-shortcut-settings"
-          >
-            <Keyboard className="h-3.5 w-3.5" />
-            {t('appShell.shortcuts')}
-          </button>
+          <ShortcutFloatButton onClick={() => setShortcutSettingsOpen(true)} />
         </div>
       )
     }

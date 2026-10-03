@@ -35,8 +35,8 @@ export const zhCN = {
     newAgent: '新建 Agent...',
     runMultiAgent: '运行多 Agent 协作',
     help: '帮助',
-    aboutTitle: '关于 WPS Agent Editor',
-    aboutMessage: 'WPS Agent Editor',
+    aboutTitle: '关于 Office Agentic',
+    aboutMessage: 'Office Agentic',
     aboutDetail: '跨平台文档编辑器，支持多 Agent 协作\n版本 2.0.0',
   },
   appShell: {

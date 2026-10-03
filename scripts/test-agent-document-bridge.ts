@@ -54,9 +54,24 @@ async function verifyVisibleWordOperations(): Promise<void> {
     baseRevision: 0,
   })
   assert.equal((insertResult as { success: boolean }).success, true)
-  assert.deepEqual(insertedContent, ['Visible insert'])
+  assert.deepEqual(insertedContent, ['<p>Visible insert</p>'])
   assert.ok(events.some((event) => event.type === 'operation-prepared' && event.operationId === 'word-insert'))
   assert.ok(events.some((event) => event.type === 'operation-applied' && event.operationId === 'word-insert'))
+
+  // Model output is untrusted: HTML metacharacters must never reach SuperDoc's
+  // HTML parser, and newlines must survive as separate paragraphs.
+  const markupResult = await documentBridge.execute({
+    action: 'insertText',
+    text: 'a <b>bold</b> & <img src=x onerror=alert(1)>\nsecond line',
+    runId: 'word-run',
+    operationId: 'word-insert-markup',
+    agentId: 'root-agent',
+    agentName: 'Root Agent',
+  })
+  assert.equal((markupResult as { success: boolean }).success, true)
+  assert.deepEqual(insertedContent.slice(1), [
+    '<p>a &lt;b&gt;bold&lt;/b&gt; &amp; &lt;img src=x onerror=alert(1)&gt;</p><p>second line</p>',
+  ])
 
   await new Promise((resolve) => setTimeout(resolve, 275))
   documentBridge.markUserEdit()
@@ -94,7 +109,10 @@ async function verifyVisibleWordOperations(): Promise<void> {
     }),
     /AGENT_RUN_CANCELLED/,
   )
-  assert.deepEqual(insertedContent, ['Visible insert'])
+  assert.deepEqual(insertedContent, [
+    '<p>Visible insert</p>',
+    '<p>a &lt;b&gt;bold&lt;/b&gt; &amp; &lt;img src=x onerror=alert(1)&gt;</p><p>second line</p>',
+  ])
 
   unsubscribe()
   documentBridge.clear()

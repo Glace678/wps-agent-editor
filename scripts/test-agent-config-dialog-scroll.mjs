@@ -33,7 +33,7 @@ function test(name, fn) {
 test('dialog body scrolls natively and can shrink below content height', () => {
   assert.match(
     dialog,
-    /className="min-h-0 flex-1 overflow-y-auto px-6" data-testid="agent-config-dialog-body"/,
+    /className="min-h-0 flex-1 overflow-y-auto px-5" data-testid="agent-config-dialog-body"/,
     'body must be a min-h-0 flex-1 overflow-y-auto container',
   )
 })

@@ -15,12 +15,9 @@ const MIN_ZOOM = 0.1  // 10%
 const MAX_ZOOM = 5    // 500%
 const ZOOM_STEP = 0.1
 const DEFAULT_ZOOM = 1
-const ZOOM_STORAGE_KEY = 'wps-document-zoom'
-const ZOOM_MODE_KEY = 'wps-zoom-mode'
+const ZOOM_STORAGE_KEY = 'officeagentic-document-zoom'
 const WHEEL_GESTURE_IDLE_MS = 160
 const WHEEL_ZOOM_MIN_INTERVAL_MS = 32
-
-type PageLayoutMode = 'single' | 'two-pages' | 'continuous'
 
 function clampZoom(value: number): number {
   const rounded = Math.round(value * 100) / 100

@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { Table2 } from 'lucide-react'
 import type { Editor } from '@superdoc-dev/react'
 import type { LanguageCode } from '@/lib/i18n'
+import { observeDocumentMutations } from './dom-observer'
 
 export interface WordTablePickerProps {
   language: LanguageCode
@@ -174,7 +175,6 @@ export function installWordTablePicker(options: InstallWordTablePickerOptions): 
   if (typeof document === 'undefined' || typeof window === 'undefined') return () => {}
 
   const activeRoots = new Map<HTMLElement, Root>()
-  let stopped = false
 
   const decorate = (wrapper: HTMLElement) => {
     if (wrapper.dataset.wordTablePickerReady === 'true') return
@@ -226,18 +226,15 @@ export function installWordTablePicker(options: InstallWordTablePickerOptions): 
     )
   }
 
+  // The grid wrapper only exists inside an open table dropdown. Coalescing the
+  // document-wide query avoids a querySelectorAll per ProseMirror mutation.
   const scan = () => {
-    if (stopped) return
     document.querySelectorAll<HTMLElement>('.toolbar-table-grid-wrapper').forEach(decorate)
   }
 
-  const observer = new MutationObserver(scan)
-  observer.observe(document.body, { childList: true, subtree: true })
-  scan()
-
+  const disposeObserver = observeDocumentMutations(scan)
   return () => {
-    stopped = true
-    observer.disconnect()
+    disposeObserver()
     activeRoots.forEach((root) => {
       try {
         root.unmount()

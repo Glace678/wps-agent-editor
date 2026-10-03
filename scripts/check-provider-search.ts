@@ -37,10 +37,10 @@ function resultIds(
   return searchProviders(providers, query, language).map(({ provider }) => provider.id)
 }
 
-assert.equal(BUNDLED_PROVIDER_CATALOG.length, 178, 'all bundled providers must be indexed')
+assert.equal(BUNDLED_PROVIDER_CATALOG.length, 179, 'all bundled providers must be indexed')
 assert.equal(
   BUNDLED_PROVIDER_CATALOG.reduce((count, provider) => count + provider.models.length, 0),
-  5_482,
+  5_485,
   'all bundled model metadata must remain searchable',
 )
 
@@ -176,13 +176,11 @@ for (const { query, providers } of familyChecks) {
     assert.ok(ids.includes(providerId), `${query} must suggest ${providerId}`)
   }
 }
-// Brands that only exist as hosted models (no dedicated provider entry) are
-// invisible to provider-name search but stay reachable for model pickers
+// Dedicated brand entries (e.g. Volcengine Doubao) now surface under their
+// own brand name; brands that only exist as hosted models are still reachable
 // through the model-inclusive scope.
 for (const [query, modelPattern] of [
   ['百度', /(?:ernie|qianfan|wenxin)/i],
-  ['豆包', /(?:doubao|seed)/i],
-  ['火山方舟', /(?:doubao|seed)/i],
 ] as const) {
   assert.deepEqual(
     resultIds(query),
@@ -195,6 +193,10 @@ for (const [query, modelPattern] of [
     results.some(({ matchedModels }) => matchedModels.some((model) => modelPattern.test(`${model.id} ${model.name}`))),
     `${query} must expose matching model hints`,
   )
+}
+// 豆包 / 火山方舟 now have a dedicated Volcengine entry and must surface it.
+for (const query of ['豆包', '火山方舟', '糖包']) {
+  assert.ok(resultIds(query).includes('volcengine'), `${query} must surface the volcengine provider`)
 }
 assert.equal(resultIds('MiMo').some((id) => id === 'gmicloud'), false, 'MiMo must not match across unrelated word boundaries')
 

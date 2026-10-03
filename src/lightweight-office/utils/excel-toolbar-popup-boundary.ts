@@ -81,7 +81,7 @@ function openBorderSubmenu(option: HTMLElement): HTMLElement | null {
 
 /** Move flyout menus out of their scrollable parent list's clipping context. */
 function placeNestedPopup(
-  shell: HTMLElement,
+  _shell: HTMLElement,
   popup: HTMLElement,
   shellRect: DOMRect,
 ): boolean {

@@ -130,7 +130,7 @@ const PDF_MESSAGES = {
     passwordCancelled: 'The encrypted PDF was not opened because no password was provided.',
     readOnly: 'This PDF can be viewed, but its permissions do not allow annotations.',
     signed: 'This PDF contains signature fields. Changes can only be saved to a new file and may change signature verification status.',
-    conflict: 'The file changed outside WPS Agent Editor. Select OK to reload it and discard these edits, or Cancel to save the edits as a new PDF.',
+    conflict: 'The file changed outside Office Agentic. Select OK to reload it and discard these edits, or Cancel to save the edits as a new PDF.',
     invalidImage: 'Choose a PNG, JPEG, or WebP image whose MIME type matches its file contents.',
     imageTooLarge: 'Images are limited to 25 MiB and 40 million pixels.',
     saveCancelled: 'Save As was cancelled.',
@@ -355,6 +355,8 @@ export function PdfViewer({
   const layoutRef = useRef<PdfPageLayout>('single')
   const fitModeRef = useRef<PdfFitMode>('custom')
   const fitZoomRef = useRef<number | null>(null)
+  // 进入适合模式前的原始缩放，二次点击时恢复。
+  const preFitZoomRef = useRef<number | null>(null)
   const loadedWorkerFontsRef = useRef(new Set<string>())
   const fontBytesRef = useRef(new Map<string, Promise<Uint8Array>>())
   const mutationQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -365,6 +367,7 @@ export function PdfViewer({
   const selectedAnnotIdRef = useRef<string | null>(null)
   // 文本工具在页面上新建的文本框：等 worker 在页面对应位置生成注释、元素挂载后立即进入编辑
   const pendingTextEditRef = useRef<Set<string>>(new Set())
+  const pendingBodyClickXRef = useRef<Map<string, number>>(new Map())
   // 刚创建、用户尚未输入任何内容的文本框（blur/退出编辑时为空或仍是占位符则自动删除）
   const freshTextAnnotationsRef = useRef<Set<string>>(new Set())
   // 页面对应的 MuPDF 结构化文字层（懒加载，按可见页缓存）
@@ -645,18 +648,22 @@ export function PdfViewer({
     setFitZoom(next)
   }, [])
 
+  // 仅在容器/布局真正变化且已处于适合模式时重算，避免切换 fitMode 时
+  // 同一轮被重复计算导致的跳动与横向滚动条闪现。
   useEffect(() => {
     if (fitMode !== 'custom') applyFit(fitMode)
-  }, [applyFit, containerWidth, currentPage, fitMode, layout, rotation])
+  }, [applyFit, containerWidth, layout, rotation])
 
   const exitFitMode = useCallback(() => {
     if (fitModeRef.current === 'custom') return
-    const currentFit = fitZoomRef.current
     fitModeRef.current = 'custom'
     fitZoomRef.current = null
     setFitMode('custom')
     setFitZoom(null)
-    if (currentFit != null) setZoomPercent(Math.round(currentFit * 100))
+    // 恢复进入适合模式之前的原始缩放
+    const original = preFitZoomRef.current
+    preFitZoomRef.current = null
+    if (original != null) setZoomPercent(Math.round(original * 100))
   }, [setZoomPercent])
 
   const zoomInPdf = useCallback(() => {
@@ -677,10 +684,14 @@ export function PdfViewer({
       exitFitMode()
       return
     }
+    // 记录当前实际缩放作为还原点（仅首次进入适合模式时记录）
+    if (fitModeRef.current === 'custom') {
+      preFitZoomRef.current = clampZoom(zoom)
+    }
     fitModeRef.current = mode
     setFitMode(mode)
     applyFit(mode)
-  }, [applyFit, exitFitMode])
+  }, [applyFit, exitFitMode, zoom])
 
   const setLayoutMode = useCallback((mode: PdfPageLayout) => {
     layoutRef.current = mode
@@ -759,35 +770,35 @@ export function PdfViewer({
     }
     if (changed) setRenderRevision((value) => value + 1)
 
-    // 正文行替换成功后，强制丢弃该页旧位图并重新渲染（与旋转/缩放无关）
+    // 正文行替换成功后需要新位图，但保留旧图垫底，等新位图就绪后再替换，
+    // 避免提交后出现空白帧（点击外部时的闪烁）。
+    const deviceScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3)
+    const targetWidthAll = Math.max(64, Math.round(displayWidth * deviceScale))
+    const staleWidths = new Map<number, number>()
     if (forcedRerenderRef.current.size > 0) {
       for (const pageIndex of forcedRerenderRef.current) {
-        const stale = renderedPagesRef.current.get(pageIndex)
-        if (stale) {
-          URL.revokeObjectURL(stale.url)
-          renderedPagesRef.current.delete(pageIndex)
-        }
+        staleWidths.set(pageIndex, targetWidthAll)
       }
       forcedRerenderRef.current.clear()
-      setRenderRevision((value) => value + 1)
     }
 
-    const deviceScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3)
-    const targetWidth = Math.max(64, Math.round(displayWidth * deviceScale))
     for (const pageIndex of renderTargets) {
+      const forced = staleWidths.has(pageIndex)
+      const requiredWidth = targetWidthAll
       const currentRendered = renderedPagesRef.current.get(pageIndex)
       if (
-        currentRendered
+        !forced
+        && currentRendered
         && currentRendered.rotation === rotation
-        && targetWidth >= currentRendered.targetWidth * 0.9
-        && targetWidth <= currentRendered.targetWidth * 1.1
+        && requiredWidth >= currentRendered.targetWidth * 0.9
+        && requiredWidth <= currentRendered.targetWidth * 1.1
       ) continue
-      void client.render(pageIndex, targetWidth, rotation)
+      void client.render(pageIndex, requiredWidth, rotation)
         .then((result) => {
           if (renderEpochRef.current !== epoch || clientRef.current !== client || !targets.has(pageIndex)) return
           const url = URL.createObjectURL(new Blob([result.png], { type: 'image/png' }))
           const previous = renderedPagesRef.current.get(pageIndex)
-          renderedPagesRef.current.set(pageIndex, { url, targetWidth, rotation })
+          renderedPagesRef.current.set(pageIndex, { url, targetWidth: requiredWidth, rotation })
           if (previous) URL.revokeObjectURL(previous.url)
           setRenderRevision((value) => value + 1)
         })
@@ -1106,13 +1117,51 @@ export function PdfViewer({
     syncTextEditState(record)
   }, [setSelectedAnnotationId, syncTextEditState])
 
-  const enterTextAnnotationEdit = useCallback((annotationId: string, selectAll: boolean) => {
+  const placeCaretAtX = useCallback((element: HTMLElement, clientX: number) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    let bestOffset: { node: Node; offset: number } | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+    let textNode: Node | null = walker.nextNode()
+    while (textNode) {
+      const length = textNode.textContent?.length ?? 0
+      for (let offset = 0; offset <= length; offset += 1) {
+        const range = document.createRange()
+        range.setStart(textNode, offset)
+        range.collapse(true)
+        const rect = range.getBoundingClientRect()
+        const x = rect.width > 0 ? rect.left : element.getBoundingClientRect().left
+        const distance = Math.abs(x - clientX)
+        if (distance < bestDistance) {
+          bestDistance = distance
+          bestOffset = { node: textNode, offset }
+        }
+      }
+      textNode = walker.nextNode()
+    }
+    if (!bestOffset) return
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.setStart(bestOffset.node, bestOffset.offset)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  }, [])
+
+  const enterTextAnnotationEdit = useCallback((
+    annotationId: string,
+    selectAll: boolean,
+    clickX?: number,
+  ) => {
     const element = rootRef.current?.querySelector<HTMLElement>(
       `[data-annot-id="${annotationId}"] .pdf-annot-text`,
     )
     if (!element || element.isContentEditable) return
     element.contentEditable = 'true'
     element.focus()
+    if (clickX != null && !selectAll) {
+      placeCaretAtX(element, clickX)
+      return
+    }
     if (selectAll) {
       const range = document.createRange()
       range.selectNodeContents(element)
@@ -1120,12 +1169,13 @@ export function PdfViewer({
       selection?.removeAllRanges()
       selection?.addRange(range)
     }
-  }, [])
+  }, [placeCaretAtX])
 
   /** 点击正文段落：多行共用一个草稿，保留原字号、行距和首行缩进。 */
   const startBodyParagraphEdit = useCallback((
     pageIndex: number,
     paragraph: PdfTextParagraph,
+    clickX?: number,
   ) => {
     const existingId = annotationsRef.current
       .find((annotation) => annotation.type === 'text'
@@ -1134,7 +1184,7 @@ export function PdfViewer({
         && Math.abs(annotation.rect.y - paragraph.y) < 0.002)?.id
     if (existingId) {
       setSelectedAnnotationId(existingId)
-      enterTextAnnotationEdit(existingId, true)
+      enterTextAnnotationEdit(existingId, false, clickX)
       return
     }
     // 进入前先提交正在编辑的其他框
@@ -1157,6 +1207,7 @@ export function PdfViewer({
       lineHeight: paragraph.lineHeight,
       firstLineIndent: paragraph.firstLineIndent,
       paragraph: paragraph.lines.length > 1,
+      align: paragraph.align ?? 'left',
       underline: false,
       color: paragraph.color ?? '#000000',
     }
@@ -1172,6 +1223,7 @@ export function PdfViewer({
     setSelectedAnnotationId(annotation.id)
     syncTextEditState(annotation)
     pendingTextEditRef.current.add(annotation.id)
+    if (clickX != null) pendingBodyClickXRef.current.set(annotation.id, clickX)
   }, [
     blurActiveTextEditor,
     discardFreshAnnotations,
@@ -1187,7 +1239,9 @@ export function PdfViewer({
     for (const annotationId of pending) {
       if (annotations.some((record) => record.id === annotationId && record.type === 'text')) {
         pending.delete(annotationId)
-        enterTextAnnotationEdit(annotationId, true)
+        const clickX = pendingBodyClickXRef.current.get(annotationId)
+        pendingBodyClickXRef.current.delete(annotationId)
+        enterTextAnnotationEdit(annotationId, clickX == null, clickX)
       }
     }
   }, [annotations, enterTextAnnotationEdit])
@@ -1425,7 +1479,7 @@ export function PdfViewer({
       event.preventDefault()
       event.stopPropagation()
       selectAnnotation(annotation)
-      enterTextAnnotationEdit(annotation.id, true)
+      enterTextAnnotationEdit(annotation.id, false, event.clientX)
       return
     }
     // preventDefault 会阻止原生失焦：切到别的注释前先让当前编辑框提交内容
@@ -1501,13 +1555,13 @@ export function PdfViewer({
       const state = dragStateRef.current
       dragStateRef.current = null
       if (!state?.moved) {
-        // 已保存的正文行也保持「首次点击全选，再次点击定位光标」的交互。
+        // 已保存的正文行：点击后光标直接落在点击位置，不再全选。
         if (
           state && !state.resizeCorner
           && annotation.type === 'text'
           && (annotation.baseline !== undefined || currentToolRef.current === 'text')
         ) {
-          enterTextAnnotationEdit(annotation.id, true)
+          enterTextAnnotationEdit(annotation.id, false, state.startX)
         }
         return
       }
@@ -1855,6 +1909,8 @@ export function PdfViewer({
               const pageHeight = Math.max(64, Math.round(displayWidth * view.height / view.width))
               const canonicalWidth = rotation === 90 || rotation === 270 ? pageHeight : displayWidth
               const canonicalHeight = rotation === 90 || rotation === 270 ? displayWidth : pageHeight
+              // 缓存按当前 rotation 命中；旋转瞬间若新位图未就绪，直接复用
+              // 已缓存的同页旧图（配合 CSS rotate 立即显示），避免卡顿。
               const rendered = renderedPagesRef.current.get(pageIndex)
               const textLayer = textLayersRef.current.get(pageIndex)
               const pageAnnotations = annotations.filter((record) => record.pageIndex === pageIndex)
@@ -1971,7 +2027,7 @@ export function PdfViewer({
                               onClick={(event) => {
                                 event.preventDefault()
                                 event.stopPropagation()
-                                startBodyParagraphEdit(pageIndex, paragraph)
+                                startBodyParagraphEdit(pageIndex, paragraph, event.clientX)
                               }}
                             />
                           ))}
@@ -2048,6 +2104,12 @@ export function PdfViewer({
                                       event.stopPropagation()
                                       // 全局快捷键会忽略可编辑元素；在这里提交正在编辑的整段并保存。
                                       void saveDocument().catch(() => {})
+                                      return
+                                    }
+                                    if (event.key === 'Enter' && !event.shiftKey) {
+                                      // 回车 = 在光标处新建一行，不提交、不清空已有内容。
+                                      event.preventDefault()
+                                      document.execCommand('insertLineBreak')
                                       return
                                     }
                                     if (event.key === 'Escape') {

@@ -26,7 +26,7 @@ const primaryNames = supportedReleaseTargets.map((target) => {
   const arch = target.slice(separator + 1)
   return releaseArtifactSpec(tag, platform, arch, directory).primaryName
 })
-const sourceName = `WPS-Agent-Editor-${tag}-source.zip`
+const sourceName = `Office-Agentic-${tag}-source.zip`
 const metadataNames = ['sbom-npm.cdx.json', 'sbom-rust.cdx.json', sourceName]
 const expectedNames = [...primaryNames, ...metadataNames].sort()
 const expected = new Set(expectedNames)

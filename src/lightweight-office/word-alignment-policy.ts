@@ -1,4 +1,5 @@
 ﻿import type { Editor } from '@superdoc-dev/react'
+import { observeDocumentMutations } from './dom-observer'
 
 export interface InstallWordAlignmentPolicyOptions {
   getEditor: () => Editor | null
@@ -42,8 +43,6 @@ function getActiveAlignment(editor: unknown): AlignmentKey {
 
 export function installWordAlignmentPolicy(options: InstallWordAlignmentPolicyOptions): () => void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return () => {}
-
-  let stopped = false
 
   const updateAlignmentButtons = (container: HTMLElement) => {
     const editor = options.getEditor()
@@ -89,17 +88,11 @@ export function installWordAlignmentPolicy(options: InstallWordAlignmentPolicyOp
     })
   }
 
+  // Alignment state only changes on selection moves, not on every DOM mutation
+  // ProseMirror emits while typing. Coalescing keeps one query per frame.
   const scan = () => {
-    if (stopped) return
     document.querySelectorAll<HTMLElement>('.alignment-buttons').forEach(updateAlignmentButtons)
   }
 
-  const observer = new MutationObserver(scan)
-  observer.observe(document.body, { childList: true, subtree: true })
-  scan()
-
-  return () => {
-    stopped = true
-    observer.disconnect()
-  }
+  return observeDocumentMutations(scan)
 }

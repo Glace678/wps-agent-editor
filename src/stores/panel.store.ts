@@ -16,8 +16,8 @@ export interface RunOutputData {
   errorCode?: string
 }
 
-export const BOTTOM_PANEL_HEIGHT_KEY = 'wps-bottom-panel-height'
-export const BOTTOM_PANEL_TAB_KEY = 'wps-bottom-panel-tab'
+export const BOTTOM_PANEL_HEIGHT_KEY = 'officeagentic-bottom-panel-height'
+export const BOTTOM_PANEL_TAB_KEY = 'officeagentic-bottom-panel-tab'
 
 export const PANEL_MIN_HEIGHT = 96
 export const PANEL_MAX_HEIGHT_RATIO = 0.55

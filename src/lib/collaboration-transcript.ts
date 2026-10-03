@@ -1,4 +1,9 @@
-import type { AgentCollaborationEvent, AgentConfig, CollaborationMode } from '@/types/agent'
+import type {
+  AgentCacheUsage,
+  AgentCollaborationEvent,
+  AgentConfig,
+  CollaborationMode,
+} from '@/types/agent'
 import { resolveAgentIdentity, type AgentIdentity } from './agent-model'
 
 /** A right-aligned bubble: the user task that started the collaboration. */
@@ -116,6 +121,44 @@ export function stripToolFencesLive(text: string): string {
   // Collaboration turns only use fences for tool calls, so an unclosed fence
   // is always a half-emitted ```tool block.
   return closed.replace(/```[\s\S]*$/i, '').trim()
+}
+
+/**
+ * Aggregates provider-reported prompt-cache usage across a collaboration run.
+ *
+ * Only frames whose provider actually measured caching contribute, so a run
+ * against a provider that never reports cache numbers stays `measured: false`
+ * instead of showing a fabricated 0% hit rate.
+ */
+export function summarizeCollaborationCacheUsage(
+  events: AgentCollaborationEvent[],
+): AgentCacheUsage {
+  const summary: AgentCacheUsage = {
+    measured: false,
+    requests: 0,
+    promptTokens: 0,
+    cacheReadTokens: 0,
+    cacheMissTokens: 0,
+    cacheWriteTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    hitRate: 0,
+  }
+  for (const event of events) {
+    const usage = event.cacheUsage
+    if (!usage?.measured) continue
+    summary.measured = true
+    summary.requests += usage.requests
+    summary.promptTokens += usage.promptTokens
+    summary.cacheReadTokens += usage.cacheReadTokens
+    summary.cacheMissTokens += usage.cacheMissTokens
+    summary.cacheWriteTokens += usage.cacheWriteTokens
+    summary.completionTokens += usage.completionTokens
+    summary.totalTokens += usage.totalTokens
+  }
+  const denominator = summary.cacheReadTokens + summary.cacheMissTokens
+  summary.hitRate = denominator > 0 ? summary.cacheReadTokens / denominator : 0
+  return summary
 }
 
 /**

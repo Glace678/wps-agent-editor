@@ -10,7 +10,7 @@ async fn main() {
         .next()
         .expect("usage: inspect_word_conversion <source.doc> <destination.docx>");
     let result =
-        wps_agent_editor_lib::documents::converter::prepare_word_with_metadata(Path::new(&source))
+        office_agentic_lib::documents::converter::prepare_word_with_metadata(Path::new(&source))
             .await
             .expect("Word conversion failed");
     fs::write(&destination, &result.data).expect("cannot write converted document");

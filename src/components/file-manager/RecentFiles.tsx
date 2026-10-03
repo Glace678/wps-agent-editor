@@ -111,7 +111,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
         break
       }
       case 'rename': {
-        // 正在编辑的文件重命名会让已打开的标签页指向失效路径（可能丢失未保存内容），按 WPS 惯例阻止
+        // 正在编辑的文件重命名会让已打开的标签页指向失效路径（可能丢失未保存内容），按 Office 惯例阻止
         if (useEditorStore.getState().currentFile === file.path) {
           showError(t('recentFiles.errorFileOpen'))
           break

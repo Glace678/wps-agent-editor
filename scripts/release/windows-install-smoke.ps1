@@ -60,7 +60,7 @@ function Get-WaeUninstallEntries {
     Get-ItemProperty -Path $root -ErrorAction SilentlyContinue |
       Where-Object {
         $null -ne $_.PSObject.Properties['DisplayName'] -and
-          $_.DisplayName -eq 'WPS Agent Editor'
+          $_.DisplayName -eq 'Office Agentic'
       }
   }
   return @($entries)
@@ -75,13 +75,13 @@ function Get-ExecutableFromEntry($Entry) {
   }
   if ($Entry.PSObject.Properties['InstallLocation'] -and $Entry.InstallLocation) {
     $location = ([string]$Entry.InstallLocation).Trim().Trim('"')
-    $candidates += (Join-Path $location 'WPS Agent Editor.exe')
-    $candidates += (Join-Path $location 'wps-agent-editor.exe')
-    $candidates += (Join-Path $location 'wps_agent_editor.exe')
+    $candidates += (Join-Path $location 'Office Agentic.exe')
+    $candidates += (Join-Path $location 'Office-Agentic.exe')
+    $candidates += (Join-Path $location 'office_agentic.exe')
     if (Test-Path -LiteralPath $location -PathType Container) {
       $candidates += Get-ChildItem -LiteralPath $location -Filter '*.exe' -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notmatch '(?i)uninstall|esbuild' } |
-        Sort-Object @{ Expression = { if ($_.Name -match '(?i)wps.*agent.*editor') { 0 } else { 1 } } }, Name |
+        Sort-Object @{ Expression = { if ($_.Name -match '(?i)office.*agentic') { 0 } else { 1 } } }, Name |
         Select-Object -ExpandProperty FullName
     }
   }
@@ -134,7 +134,7 @@ if (-not $AllowUnsigned -and -not $authenticode.SignerCertificate) {
 
 $existingEntries = @(Get-WaeUninstallEntries)
 if ($existingEntries.Count -ne 0) {
-  throw 'The runner already has WPS Agent Editor installed; refusing to produce an ambiguous smoke result'
+  throw 'The runner already has Office Agentic installed; refusing to produce an ambiguous smoke result'
 }
 
 $installer = Start-Process -FilePath $artifactPath -ArgumentList '/S' -Wait -PassThru
@@ -145,7 +145,7 @@ for ($attempt = 0; $attempt -lt 30 -and $null -eq $entry; $attempt += 1) {
   $entry = Get-WaeUninstallEntries | Select-Object -First 1
   if ($null -eq $entry) { Start-Sleep -Seconds 1 }
 }
-if ($null -eq $entry) { throw 'NSIS completed but no WPS Agent Editor uninstall registration was created' }
+if ($null -eq $entry) { throw 'NSIS completed but no Office Agentic uninstall registration was created' }
 
 $executable = Get-ExecutableFromEntry $entry
 if (-not $executable) { throw 'The installed application executable could not be resolved from its uninstall registration' }
@@ -212,7 +212,7 @@ for ($attempt = 0; $attempt -lt 30; $attempt += 1) {
   Start-Sleep -Seconds 1
 }
 $remainingEntries = @(Get-WaeUninstallEntries)
-if ($remainingEntries.Count -ne 0) { throw 'Silent uninstall left the WPS Agent Editor uninstall registration behind' }
+if ($remainingEntries.Count -ne 0) { throw 'Silent uninstall left the Office Agentic uninstall registration behind' }
 if (Test-Path -LiteralPath $executable) { throw "Silent uninstall left the installed executable behind: $executable" }
 $associationCleanupCount = 0
 foreach ($group in $associationGroups) {

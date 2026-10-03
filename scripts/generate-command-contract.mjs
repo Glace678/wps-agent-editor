@@ -54,7 +54,8 @@ if (write) {
   await writeFile(outputPath, generated)
   console.log(`Generated ${registered.length} desktop command names`)
 } else {
-  const existing = await readFile(outputPath, 'utf8').catch(() => '')
+  // Normalize CRLF so Windows checkouts with core.autocrlf=true still compare equal.
+  const existing = (await readFile(outputPath, 'utf8').catch(() => '')).replace(/\r\n/g, '\n')
   if (existing !== generated) {
     throw new Error('Desktop command manifest is stale; run npm run generate:commands')
   }

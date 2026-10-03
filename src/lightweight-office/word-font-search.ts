@@ -4,6 +4,7 @@ import {
   buildFontSearchTerms,
   normalizeFontSearchText,
 } from './utils/font-search'
+import { observeDocumentMutations } from './dom-observer'
 
 export interface WordFontPickerSearchOptions {
   language: LanguageCode
@@ -192,21 +193,15 @@ export function installWordFontPickerSearch(
   if (typeof document === 'undefined' || typeof window === 'undefined') return () => {}
 
   const termsByFamily = buildFontSearchTerms(options.fontFaces)
-  let stopped = false
   const scan = () => {
-    if (stopped) return
     document.querySelectorAll<HTMLElement>('.sd-font-combobox__listbox').forEach((popup) => {
       decorateFontPicker(popup, options, termsByFamily)
     })
   }
 
-  const observer = new MutationObserver(scan)
-  observer.observe(document.body, { childList: true, subtree: true })
-  scan()
-
+  const disposeObserver = observeDocumentMutations(scan)
   return () => {
-    stopped = true
-    observer.disconnect()
+    disposeObserver()
     document.querySelectorAll<HTMLElement>('.word-font-picker-search').forEach((header) => header.remove())
     document.querySelectorAll<HTMLElement>('.word-font-picker-empty').forEach((empty) => empty.remove())
     document.querySelectorAll<HTMLElement>('.word-font-picker-listbox').forEach((popup) => {

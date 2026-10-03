@@ -4,12 +4,12 @@ import type { Translation } from '../types'
 
 export const ar = {
   menu: {
-    about: 'حول WPS Agent Editor',
+    about: 'حول Office Agentic',
     services: 'الخدمات',
-    hide: 'إخفاء WPS Agent Editor',
+    hide: 'إخفاء Office Agentic',
     hideOthers: 'إخفاء الآخرين',
     unhide: 'إظهار الكل',
-    quit: 'خروج من WPS Agent Editor',
+    quit: 'خروج من Office Agentic',
     file: 'ملف',
     openFile: 'فتح ملف...',
     openFolder: 'فتح مجلد...',
@@ -35,8 +35,8 @@ export const ar = {
     newAgent: 'Agent جديد...',
     runMultiAgent: 'تشغيل التعاون بين عدة Agents',
     help: 'مساعدة',
-    aboutTitle: 'حول WPS Agent Editor',
-    aboutMessage: 'WPS Agent Editor',
+    aboutTitle: 'حول Office Agentic',
+    aboutMessage: 'Office Agentic',
     aboutDetail: 'محرر مستندات متعدد المنصات يدعم التعاون بين عدة Agents\nالإصدار 2.0.0',
   },
   appShell: {

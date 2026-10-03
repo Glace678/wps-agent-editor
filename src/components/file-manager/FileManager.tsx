@@ -178,11 +178,12 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   }, [activeTab, goBackToPreviousDir])
 
   // DOM auxclick covers platforms/drivers which expose X1 as the fourth button.
+  // 侧键在浏览区块任意位置按下都回到上一级目录。
   const handleBrowseTabAuxClick = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     if (event.button !== MOUSE_BACK_BUTTON) return
     event.preventDefault()
-    goBackToPreviousDir('dom')
-  }, [goBackToPreviousDir])
+    goUp()
+  }, [])
 
   const effectiveMainDirectory = mainDirectory ?? systemHome
 
@@ -209,7 +210,10 @@ export function FileManager({ onCollapse }: FileManagerProps) {
 
   return (
     <TooltipProvider delayDuration={450}>
-      <aside className="flex h-full min-h-0 w-full flex-col">
+      <aside
+        className="flex h-full min-h-0 w-full flex-col"
+        onAuxClick={activeTab === 'browse' ? handleBrowseTabAuxClick : undefined}
+      >
         <div className="flex items-center justify-between gap-1 px-1.5 py-1.5">
           <div className="flex min-w-0 items-center gap-0.5">
             {onCollapse && (
@@ -368,7 +372,6 @@ export function FileManager({ onCollapse }: FileManagerProps) {
         <TabsContent
           value="browse"
           className="m-0 mt-0 p-0 min-h-0 flex-1 flex-col overflow-hidden data-[state=active]:flex"
-          onAuxClick={handleBrowseTabAuxClick}
         >
           <div className="shrink-0 px-1.5 py-1">
             <Tooltip>

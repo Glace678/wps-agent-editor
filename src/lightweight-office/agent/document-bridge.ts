@@ -393,8 +393,15 @@ async function insertWordText(text: string, append: boolean): Promise<unknown> {
   const editor = state.superdoc?.activeEditor as any
   if (!editor) return { success: false, error: 'Word editor not ready' }
   try {
-    if (append) editor.commands.insertContentAt(editor.state.doc.content.size, `<p>${escapeHtml(text)}</p>`)
-    else editor.commands.insertContent(text)
+    // Agent text is model output and may contain HTML metacharacters, and
+    // SuperDoc parses insertContent as HTML. Escape before inserting, and keep
+    // newlines as separate paragraphs so multi-line replies stay readable.
+    const paragraphs = text
+      .split(/\r?\n/)
+      .map((line) => `<p>${escapeHtml(line)}</p>`)
+      .join('')
+    if (append) editor.commands.insertContentAt(editor.state.doc.content.size, paragraphs)
+    else editor.commands.insertContent(paragraphs)
     return { success: true }
   } catch (error) {
     return { success: false, error: String(error) }

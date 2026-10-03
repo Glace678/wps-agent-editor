@@ -114,7 +114,7 @@ for (const name of ['sbom-npm.cdx.json', 'sbom-rust.cdx.json']) {
   const sbom = JSON.parse(await readFile(path, 'utf8'))
   if (sbom.bomFormat !== 'CycloneDX') throw new Error(`${name} is not a CycloneDX SBOM`)
 }
-const sourceArchiveName = `WPS-Agent-Editor-${tag}-source.zip`
+const sourceArchiveName = `Office-Agentic-${tag}-source.zip`
 const sourceArchive = await requireRegularAsset(sourceArchiveName, 'Source archive')
 const sourceHeader = (await readFile(sourceArchive)).subarray(0, 4)
 if (sourceHeader.length < 4 || sourceHeader[0] !== 0x50 || sourceHeader[1] !== 0x4b) {
@@ -123,14 +123,14 @@ if (sourceHeader.length < 4 || sourceHeader[0] !== 0x50 || sourceHeader[1] !== 0
 
 const releaseMetadata = {
   version,
-  notes: `WPS Agent Editor ${version}`,
+  notes: `Office Agentic ${version}`,
   pub_date: new Date().toISOString(),
   platforms,
 }
 await writeFile(join(directory, 'latest.json'), `${JSON.stringify(releaseMetadata, null, 2)}\n`)
 await writeFile(join(directory, 'latest-tampered.json'), `${JSON.stringify({
   ...releaseMetadata,
-  notes: `WPS Agent Editor ${version} signature rejection fixture`,
+  notes: `Office Agentic ${version} signature rejection fixture`,
   platforms: Object.fromEntries(Object.entries(platforms).map(([key, value]) => [
     key,
     { ...value, signature: tamperSignature(value.signature) },
@@ -138,7 +138,7 @@ await writeFile(join(directory, 'latest-tampered.json'), `${JSON.stringify({
 }, null, 2)}\n`)
 await writeFile(join(directory, 'latest-invalid-install.json'), `${JSON.stringify({
   ...releaseMetadata,
-  notes: `WPS Agent Editor ${version} rejected-install preservation fixture`,
+  notes: `Office Agentic ${version} rejected-install preservation fixture`,
   platforms: invalidInstallPlatforms,
 }, null, 2)}\n`)
 

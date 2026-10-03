@@ -1,5 +1,5 @@
-export const PANEL_STORAGE_KEY = 'wps-panel-sizes'
-export const PANEL_COLLAPSE_STORAGE_KEY = 'wps-panel-collapsed'
+export const PANEL_STORAGE_KEY = 'officeagentic-panel-sizes'
+export const PANEL_COLLAPSE_STORAGE_KEY = 'officeagentic-panel-collapsed'
 
 export const DEFAULT_LEFT_WIDTH = 200
 export const DEFAULT_RIGHT_WIDTH = 210

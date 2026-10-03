@@ -2873,6 +2873,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "office-agentic"
+version = "2.0.0-rc.1"
+dependencies = [
+ "arboard",
+ "bytes",
+ "dirs",
+ "dunce",
+ "encoding_rs",
+ "eventsource-stream",
+ "fontdb",
+ "futures-util",
+ "hex",
+ "keyring",
+ "libc",
+ "log",
+ "parking_lot",
+ "pdf-extract",
+ "percent-encoding",
+ "png 0.18.1",
+ "portable-pty",
+ "quick-xml",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "trash",
+ "ts-rs",
+ "ttf-parser",
+ "tungstenite",
+ "url",
+ "uuid",
+ "which",
+ "zip",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6173,54 +6221,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "wps-agent-editor"
-version = "2.0.0-rc.1"
-dependencies = [
- "arboard",
- "bytes",
- "dirs",
- "dunce",
- "encoding_rs",
- "eventsource-stream",
- "fontdb",
- "futures-util",
- "hex",
- "keyring",
- "libc",
- "log",
- "parking_lot",
- "pdf-extract",
- "percent-encoding",
- "png 0.18.1",
- "portable-pty",
- "quick-xml",
- "reqwest 0.12.28",
- "semver",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "tokio-util",
- "trash",
- "ts-rs",
- "ttf-parser",
- "tungstenite",
- "url",
- "uuid",
- "which",
- "zip",
-]
 
 [[package]]
 name = "writeable"

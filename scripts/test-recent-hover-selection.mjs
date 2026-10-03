@@ -26,15 +26,15 @@ test('selection square is always visible and selectable', () => {
 })
 
 test('selection square has explicit light and dark theme colors', () => {
-  assert.match(source, /border-black\/55[^']*bg-white/)
-  assert.match(source, /dark:border-white\/65[^']*dark:bg-\[#242424\]/)
+  assert.match(source, /border-border\/90[^']*bg-background/)
+  assert.match(source, /dark:border-white\/50[^']*dark:bg-\[#202020\]/)
   assert.match(source, /border-primary bg-primary text-primary-foreground/)
 })
 
 test('checkbox clicks toggle paths without bubbling into row open behavior', () => {
   assert.match(source, /data-recent-file-select/)
   assert.match(source, /<button\s+type="button"[\s\S]*role="checkbox"/)
-  assert.match(source, /className="flex h-6 w-6 shrink-0 items-center justify-center/)
+  assert.match(source, /className="flex h-5 w-5 shrink-0 items-center justify-center/)
   assert.doesNotMatch(source, /pointer-events-none/)
   assert.match(source, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/)
   assert.match(source, /onMouseDown=\{\(event\) => event\.stopPropagation\(\)\}/)
@@ -42,7 +42,7 @@ test('checkbox clicks toggle paths without bubbling into row open behavior', () 
 })
 
 test('clicking a row opens the file', () => {
-  assert.match(source, /<div\s+data-recent-file-index=\{index\}[\s\S]*role="option"/)
+  assert.match(source, /data-recent-file-index=\{index\}[\s\S]*role="option"/)
   assert.doesNotMatch(source, /<button\s+type="button"\s+data-recent-file-index/)
   assert.match(source, /onClick=\{\(\) => onOpen\(file\.path\)\}/)
 })

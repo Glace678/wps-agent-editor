@@ -16,7 +16,7 @@ use std::{
 use url::Url;
 use uuid::Uuid;
 
-const KEYRING_SERVICE: &str = "com.wpsagent.editor.providers";
+const KEYRING_SERVICE: &str = "com.officeagentic.editor.providers";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -174,7 +174,7 @@ impl ProviderStore {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(60))
-            .user_agent("WPS-Agent-Editor/2.0")
+            .user_agent("Office-Agentic/2.0")
             .build()?;
         Ok(Self {
             client,

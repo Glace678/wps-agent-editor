@@ -86,7 +86,7 @@ $roots = @(
 )
 $entry = @($roots | ForEach-Object {
   Get-ItemProperty -Path $_ -ErrorAction SilentlyContinue |
-    Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'WPS Agent Editor' }
+    Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'Office Agentic' }
 } | Select-Object -First 1)
 if ($entry.Count -eq 1) {
   $value = $entry[0]
@@ -112,7 +112,7 @@ async function windowsExecutable(entry) {
   if (iconMatch) candidates.push(iconMatch[1] || iconMatch[2].trim())
   const location = String(entry?.InstallLocation || '').replace(/^"|"$/g, '')
   if (location) {
-    candidates.push(join(location, 'WPS Agent Editor.exe'))
+    candidates.push(join(location, 'Office Agentic.exe'))
     for (const item of await readdir(location, { withFileTypes: true }).catch(() => [])) {
       if (item.isFile() && /\.exe$/i.test(item.name) && !/(uninstall|esbuild)/i.test(item.name)) {
         candidates.push(join(location, item.name))
@@ -293,7 +293,7 @@ let mountDirectory
 let installedApp
 try {
   if (platform === 'windows') {
-    if (windowsEntry()) throw new Error('WPS Agent Editor is already installed on the updater smoke runner')
+    if (windowsEntry()) throw new Error('Office Agentic is already installed on the updater smoke runner')
     run(previousPackage, ['/S'], { timeout: 180_000 })
     windowsInstalledEntry = await waitForWindowsEntry()
     installedExecutable = await windowsExecutable(windowsInstalledEntry)
@@ -313,7 +313,7 @@ try {
     installedExecutable = await macExecutable(installedApp)
   } else {
     linuxEnvironment = await startLinuxDesktopSession()
-    installedExecutable = join(workDirectory, 'wps-agent-editor.AppImage')
+    installedExecutable = join(workDirectory, 'Office-Agentic.AppImage')
     await copyFile(previousPackage, installedExecutable)
     await chmod(installedExecutable, 0o755)
   }

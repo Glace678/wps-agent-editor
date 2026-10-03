@@ -791,12 +791,6 @@ function applyExcelFontColorToEditorTextSelection(
   return true
 }
 
-function isExcelCellEditorActiveWithoutSelection(shell: HTMLElement) {
-  const editor = getActiveExcelCellEditor(shell)
-  if (!editor) return false
-  return captureExcelCellEditorTextRange(shell) === null
-}
-
 function cloneExcelSelection(selection: ExcelSelection): ExcelSelection {
   return selection.map((range) => ({
     row: [...range.row],
@@ -1136,7 +1130,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     const shell = shellRef.current
     if (!shell || !sheets) return
     // Live content preview while dragging column/row resize handles.
-    if (localStorage.getItem('wps-live-resize-disabled') === '1') return
+    if (localStorage.getItem('officeagentic-live-resize-disabled') === '1') return
     return attachExcelLiveResize(
       shell,
       () => workbookRef.current as FortuneWorkbookApiLike | null,
@@ -1286,7 +1280,13 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     }
 
     let editorWasActive = getActiveExcelCellEditor(shell) !== null
-    const editorStateObserver = new MutationObserver(() => {
+    // The probe reads getComputedStyle, so running it on every Fortune mutation
+    // forces a style recalculation per DOM change while typing or scrolling.
+    // Coalesce into one probe per frame; the active/inactive transition is only
+    // needed within a frame of it happening.
+    let editorStateFrame: number | null = null
+    const probeEditorState = () => {
+      editorStateFrame = null
       const editorIsActive = getActiveExcelCellEditor(shell) !== null
       if (editorWasActive && !editorIsActive && pendingResetAfterEdit) {
         const resetCommand = pendingResetAfterEdit
@@ -1294,7 +1294,12 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
         scheduleFallback(resetCommand, true)
       }
       editorWasActive = editorIsActive
-    })
+    }
+    const scheduleEditorStateProbe = () => {
+      if (editorStateFrame !== null) return
+      editorStateFrame = requestAnimationFrame(probeEditorState)
+    }
+    const editorStateObserver = new MutationObserver(scheduleEditorStateProbe)
     editorStateObserver.observe(shell, {
       attributes: true,
       attributeFilter: ['style'],
@@ -1311,6 +1316,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       shell.removeEventListener('click', handleFontColorPointer, true)
       shell.removeEventListener('focusout', handleEditorFocusOut, true)
       editorStateObserver.disconnect()
+      if (editorStateFrame !== null) cancelAnimationFrame(editorStateFrame)
       for (const timer of pendingTimers) window.clearTimeout(timer)
       pendingTimers.clear()
     }
@@ -1319,7 +1325,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   useEffect(() => {
     const shell = shellRef.current
     if (!shell || !sheets) return
-    if (localStorage.getItem('wps-smooth-excel-scroll-disabled') === '1') return
+    if (localStorage.getItem('officeagentic-smooth-excel-scroll-disabled') === '1') return
     return attachExcelFrameScroll(shell)
   }, [sheets, fontLibraryReady])
 
@@ -1729,7 +1735,17 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       closeControl.click()
     }
 
-    const dialogObserver = new MutationObserver(decorateFortuneDialogs)
+    // Dialogs are rare, but this observer also sees every sheet mutation. Run
+    // the decoration at most once per frame instead of once per record.
+    let dialogFrame: number | null = null
+    const scheduleDialogDecoration = () => {
+      if (dialogFrame !== null) return
+      dialogFrame = requestAnimationFrame(() => {
+        dialogFrame = null
+        decorateFortuneDialogs()
+      })
+    }
+    const dialogObserver = new MutationObserver(scheduleDialogDecoration)
     dialogObserver.observe(shell, {
       childList: true,
       subtree: true,
@@ -1774,6 +1790,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       resizeObserver.disconnect()
       themeObserver.disconnect()
       dialogObserver.disconnect()
+      if (dialogFrame !== null) cancelAnimationFrame(dialogFrame)
       toolbarShortcutObserver.disconnect()
       if (toolbarShortcutTimer !== null) window.clearTimeout(toolbarShortcutTimer)
       shell.removeEventListener('wheel', handleNativeZoomWheel, true)

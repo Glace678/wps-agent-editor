@@ -12,8 +12,8 @@ import {
   type SystemFontFace,
 } from './system-fonts'
 
-const PATCH_FLAG = Symbol.for('wps.fortune.worksheet-dark-defaults-v2')
-const ACTIVE_CELL_PAINT = Symbol('wps.fortune.active-cell-paint')
+const PATCH_FLAG = Symbol.for('officeagentic.fortune.worksheet-dark-defaults-v2')
+const ACTIVE_CELL_PAINT = Symbol('officeagentic.fortune.active-cell-paint')
 const DRAW_METHODS = [
   'drawMain',
   'drawRowHeader',
@@ -295,6 +295,14 @@ function snapCanvasCssSizeToBacking(canvas: HTMLCanvasElement) {
   const height = `${Math.round(cssH * 10000) / 10000}px`
   if (canvas.style.width !== width) canvas.style.width = width
   if (canvas.style.height !== height) canvas.style.height = height
+  // 位置也必须整像素吸附：即使 CSS 尺寸精确，left/top 落在半像素仍会让整屏
+  // 被双线性重采样发糊。仅在 Fortune 用 style 定位时取整，不破坏正常布局。
+  if (canvas.style.left && !Number.isNaN(Number.parseFloat(canvas.style.left))) {
+    canvas.style.left = `${Math.round(Number.parseFloat(canvas.style.left))}px`
+  }
+  if (canvas.style.top && !Number.isNaN(Number.parseFloat(canvas.style.top))) {
+    canvas.style.top = `${Math.round(Number.parseFloat(canvas.style.top))}px`
+  }
   // 锐利的图像重采样：在任何非整数缩放或亚像素定位时，优先保持边缘清晰。
   if (canvas.style.imageRendering !== 'auto') {
     canvas.style.imageRendering = 'auto'

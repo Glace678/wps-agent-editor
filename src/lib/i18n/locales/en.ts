@@ -33,8 +33,8 @@ export const en = {
     newAgent: 'New Agent...',
     runMultiAgent: 'Run Multi-Agent Collaboration',
     help: 'Help',
-    aboutTitle: 'About WPS Agent Editor',
-    aboutMessage: 'WPS Agent Editor',
+    aboutTitle: 'About Office Agentic',
+    aboutMessage: 'Office Agentic',
     aboutDetail: 'Cross-platform document editor with multi-Agent collaboration\nVersion 2.0.0',
   },
   appShell: {

@@ -121,7 +121,7 @@ pub fn app_window_new(
         state.enqueue_startup_file(&label, child_grant);
     }
     let result = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-        .title("WPS Agent Editor")
+        .title("Office Agentic")
         .inner_size(1400.0, 900.0)
         .min_inner_size(1000.0, 600.0)
         .build();
@@ -223,20 +223,20 @@ pub fn app_menu_perform(
 fn show_about_dialog(window: &WebviewWindow, language: &str) {
     let version = env!("CARGO_PKG_VERSION");
     let (title, version_label) = match language {
-        "zh-CN" => ("关于 WPS Agent Editor", format!("版本 {version}")),
-        "ja" => ("WPS Agent Editor について", format!("バージョン {version}")),
-        "es" => ("Acerca de WPS Agent Editor", format!("Versión {version}")),
-        "pt" => ("Sobre o WPS Agent Editor", format!("Versão {version}")),
-        "de" => ("Über WPS Agent Editor", format!("Version {version}")),
-        "fr" => ("À propos de WPS Agent Editor", format!("Version {version}")),
-        "ru" => ("О программе WPS Agent Editor", format!("Версия {version}")),
-        "ar" => ("حول WPS Agent Editor", format!("الإصدار {version}")),
-        _ => ("About WPS Agent Editor", format!("Version {version}")),
+        "zh-CN" => ("关于 Office Agentic", format!("版本 {version}")),
+        "ja" => ("Office Agentic について", format!("バージョン {version}")),
+        "es" => ("Acerca de Office Agentic", format!("Versión {version}")),
+        "pt" => ("Sobre o Office Agentic", format!("Versão {version}")),
+        "de" => ("Über Office Agentic", format!("Version {version}")),
+        "fr" => ("À propos de Office Agentic", format!("Version {version}")),
+        "ru" => ("О программе Office Agentic", format!("Версия {version}")),
+        "ar" => ("حول Office Agentic", format!("الإصدار {version}")),
+        _ => ("About Office Agentic", format!("Version {version}")),
     };
     window
         .app_handle()
         .dialog()
-        .message(format!("WPS Agent Editor\n{version_label}"))
+        .message(format!("Office Agentic\n{version_label}"))
         .title(title)
         .buttons(MessageDialogButtons::Ok)
         .parent(window)

@@ -1,14 +1,14 @@
 [package]
-name = "wps-agent-editor"
+name = "office-agentic"
 version = "2.0.0-rc.1"
 description = "Cross-platform document editor with local agent support"
-authors = ["WPS Agent Editor"]
+authors = ["Office Agentic"]
 license = "AGPL-3.0-only"
 edition = "2021"
 rust-version = "1.77.2"
 
 [lib]
-name = "wps_agent_editor_lib"
+name = "office_agentic_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

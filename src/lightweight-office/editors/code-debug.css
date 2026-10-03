@@ -1,5 +1,5 @@
-.margin-view-overlays .wps-debug-breakpoint-glyph,
-.margin-view-overlays .wps-debug-current-glyph {
+.margin-view-overlays .officeagentic-debug-breakpoint-glyph,
+.margin-view-overlays .officeagentic-debug-current-glyph {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -7,7 +7,7 @@
   height: 100%;
 }
 
-.margin-view-overlays .wps-debug-breakpoint-glyph::before {
+.margin-view-overlays .officeagentic-debug-breakpoint-glyph::before {
   content: '';
   display: block;
   width: 9px;
@@ -17,7 +17,7 @@
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
-.margin-view-overlays .wps-debug-current-glyph::before {
+.margin-view-overlays .officeagentic-debug-current-glyph::before {
   content: '▶';
   display: block;
   font-size: 11px;
@@ -25,15 +25,15 @@
   color: #e2a03f;
 }
 
-.wps-debug-current-line {
+.officeagentic-debug-current-line {
   background-color: rgba(226, 160, 63, 0.12);
 }
 
-.wps-code-native-scrollbar-thumb {
+.officeagentic-code-native-scrollbar-thumb {
   opacity: 0 !important;
 }
 
-.wps-code-fixed-scrollbar {
+.officeagentic-code-fixed-scrollbar {
   position: absolute;
   z-index: 12;
   top: 0;
@@ -45,11 +45,11 @@
   touch-action: none;
 }
 
-.wps-code-fixed-scrollbar[hidden] {
+.officeagentic-code-fixed-scrollbar[hidden] {
   display: none;
 }
 
-.wps-code-fixed-scrollbar-thumb {
+.officeagentic-code-fixed-scrollbar-thumb {
   position: absolute;
   right: 2px;
   width: 10px;
@@ -58,10 +58,10 @@
   cursor: pointer;
 }
 
-.wps-code-fixed-scrollbar-thumb:hover {
+.officeagentic-code-fixed-scrollbar-thumb:hover {
   background: var(--vscode-scrollbarSlider-hoverBackground);
 }
 
-.wps-code-fixed-scrollbar-thumb.active {
+.officeagentic-code-fixed-scrollbar-thumb.active {
   background: var(--vscode-scrollbarSlider-activeBackground);
 }

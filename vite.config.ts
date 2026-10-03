@@ -9,7 +9,7 @@ import tauriConfig from './src-tauri/tauri.conf.json'
 const host = process.env.TAURI_DEV_HOST
 const devServerUrl = new URL(tauriConfig.build.devUrl)
 const devServerPort = Number(devServerUrl.port)
-const devServerIdentityPath = '/__wps_agent_editor_dev_server'
+const devServerIdentityPath = '/__office_agentic_dev_server'
 
 function normalizeProjectRoot(projectRoot: string): string {
   const normalized = projectRoot.replaceAll('\\', '/')
@@ -23,7 +23,7 @@ function devServerIdentityPlugin(): Plugin {
     .digest('hex')
 
   return {
-    name: 'wps-agent-editor-dev-server-identity',
+    name: 'office-agentic-dev-server-identity',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use(devServerIdentityPath, (request, response, next) => {
@@ -36,7 +36,7 @@ function devServerIdentityPlugin(): Plugin {
         response.setHeader('Content-Type', 'application/json; charset=utf-8')
         response.setHeader('Cache-Control', 'no-store')
         response.setHeader('X-Content-Type-Options', 'nosniff')
-        response.end(JSON.stringify({ app: 'wps-agent-editor', rootHash }))
+        response.end(JSON.stringify({ app: 'office-agentic', rootHash }))
       })
     },
   }
@@ -65,7 +65,7 @@ function chunkEngines(chunk: OutputChunk): string[] {
 
 function bundleContractPlugin(): Plugin {
   return {
-    name: 'wps-agent-editor-bundle-contract',
+    name: 'office-agentic-bundle-contract',
     apply: 'build',
     generateBundle(_options, bundle) {
       const chunks = Object.values(bundle)

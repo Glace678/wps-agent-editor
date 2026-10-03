@@ -25,8 +25,6 @@ import {
 } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import DOMPurify from 'dompurify'
-import { marked } from 'marked'
-import TurndownService from 'turndown'
 import { useEditorStore } from '@/stores/editor.store'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
@@ -69,7 +67,6 @@ import {
   findPlainTextBodyRegions,
   findTableRegions,
   insertHtmlTableAtSelection,
-  preserveBodyNewlinesInHtml,
   removeTableFromSource,
   renderPlainTextTableDocument,
   replaceMarkdownBodyRegion,
@@ -80,303 +77,40 @@ import {
   shouldSkipPreviewTableRebuild,
   stripTableRegions,
 } from './notepad-tables'
-
-// GFM tables + soft line breaks so body text stays line-oriented like 记事本.
-marked.setOptions({ gfm: true, breaks: true })
-
-const markdownBodySerializer = new TurndownService({
-  headingStyle: 'atx',
-  bulletListMarker: '-',
-  codeBlockStyle: 'fenced',
-  emDelimiter: '*',
-  strongDelimiter: '**',
-  // Turndown appends its own newline around <br>; an empty marker preserves one line break.
-  br: '',
-})
-
-markdownBodySerializer.addRule('strikethrough', {
-  filter: (node) => ['DEL', 'S', 'STRIKE'].includes(node.tagName),
-  replacement: (content) => `~~${content}~~`,
-})
-markdownBodySerializer.addRule('underline', {
-  filter: 'u',
-  replacement: (content) => `<u>${content}</u>`,
-})
-
-function renderMarkdownBodyRegion(source: string, index: number): string {
-  const raw = marked.parse(source, { async: false }) as string
-  const body = preserveBodyNewlinesInHtml(raw).trim() || '<p><br></p>'
-  return `<div data-notepad-markdown-region="${index}">${body}</div>`
-}
-
-function renderNotepadMarkdown(source: string): string {
-  const tables = findTableRegions(source)
-  const parts: string[] = []
-  let cursor = 0
-
-  for (let index = 0; index < tables.length; index += 1) {
-    const table = tables[index]
-    parts.push(renderMarkdownBodyRegion(source.slice(cursor, table.start), index))
-    const tableSource = source.slice(table.start, table.end)
-    parts.push(/^\s*<table\b/i.test(tableSource)
-      ? tableSource
-      : marked.parse(tableSource, { async: false }) as string)
-    cursor = table.end
-  }
-  parts.push(renderMarkdownBodyRegion(source.slice(cursor), tables.length))
-
-  const withTableClass = parts.join('').replace(
-    /<table(?![^>]*\bclass=)/gi,
-    '<table class="notepad-md-table"',
-  )
-  return DOMPurify.sanitize(withTableClass)
-}
-
-function serializeMarkdownBodyRegion(region: HTMLElement): string {
-  return markdownBodySerializer.turndown(region)
-    .replace(/\u00a0/g, ' ')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-}
-
-function serializePlainTextBodyRegion(region: HTMLElement): string {
-  return (region.innerText ?? region.textContent ?? '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-}
-
-function elementForNode(node: Node): Element | null {
-  return node instanceof Element ? node : node.parentElement
-}
-
-function rangeInsideRoot(root: HTMLElement, range: Range): boolean {
-  return root.contains(range.startContainer) && root.contains(range.endContainer)
-}
-
-/**
- * Map source character offsets onto the formatted preview DOM. Plain-text
- * regions render their source verbatim (escaped entities decode back to the
- * same characters), so a textarea selection maps 1:1 while it stays inside
- * the text regions.
- */
-function locatePreviewRangeByOffsets(root: HTMLElement, start: number, end: number): Range | null {
-  if (end <= start) return null
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  let consumed = 0
-  let startBound: { node: Node; offset: number } | null = null
-  let endBound: { node: Node; offset: number } | null = null
-  let node: Node | null = null
-  while ((node = walker.nextNode())) {
-    const length = node.textContent?.length ?? 0
-    if (!startBound && start <= consumed + length) {
-      startBound = { node, offset: Math.min(start - consumed, length) }
-    }
-    if (end <= consumed + length) {
-      endBound = { node, offset: Math.min(end - consumed, length) }
-      break
-    }
-    consumed += length
-  }
-  if (!startBound || !endBound) return null
-  const range = document.createRange()
-  range.setStart(startBound.node, startBound.offset)
-  range.setEnd(endBound.node, endBound.offset)
-  return range.collapsed ? null : range
-}
-
-function serializeBodyRegionAtCaret(
-  region: HTMLElement,
-  range: Range,
-  documentType: 'plain' | 'markdown',
-): { source: string; offset: number } | null {
-  if (!region.contains(range.startContainer)) return null
-
-  let markerText = 'NOTEPADTABLEINSERTIONCARET'
-  while (region.textContent?.includes(markerText)) markerText += 'X'
-  const marker = document.createElement('span')
-  marker.setAttribute('data-notepad-table-insertion-caret', 'true')
-  marker.textContent = markerText
-
-  const caret = range.cloneRange()
-  caret.collapse(true)
-  caret.insertNode(marker)
-  const serialized = documentType === 'markdown'
-    ? serializeMarkdownBodyRegion(region).trim()
-    : serializePlainTextBodyRegion(region)
-  marker.remove()
-
-  const offset = serialized.indexOf(markerText)
-  if (offset < 0) return null
-  return {
-    source: serialized.slice(0, offset) + serialized.slice(offset + markerText.length),
-    offset,
-  }
-}
-
-function enableEditablePreviewRegions(
-  root: HTMLElement,
-  spellCheckEnabled: boolean,
-) {
-  root.querySelectorAll<HTMLTableCellElement>('th, td').forEach((cell) => {
-    cell.contentEditable = 'true'
-    cell.spellcheck = spellCheckEnabled
-    cell.setAttribute('data-notepad-cell', 'true')
-    cell.setAttribute('role', 'textbox')
-    cell.tabIndex = 0
-  })
-  root.querySelectorAll<HTMLElement>(
-    '[data-notepad-text-region], [data-notepad-markdown-region]',
-  ).forEach((region) => {
-    region.contentEditable = 'true'
-    region.spellcheck = spellCheckEnabled
-    region.setAttribute('role', 'textbox')
-    region.tabIndex = 0
-  })
-}
-
-function focusAdjacentTableCell(cell: HTMLTableCellElement, direction: 1 | -1): boolean {
-  const table = cell.closest('table')
-  if (!table) return false
-  const cells = Array.from(table.querySelectorAll<HTMLTableCellElement>('th, td'))
-  const index = cells.indexOf(cell)
-  if (index < 0) return false
-  const next = cells[index + direction]
-  if (!next) return false
-  next.focus()
-  const selection = window.getSelection()
-  if (selection) {
-    const range = document.createRange()
-    range.selectNodeContents(next)
-    selection.removeAllRanges()
-    selection.addRange(range)
-  }
-  return true
-}
-
-function focusMarkdownBodyRegion(
-  root: HTMLElement,
-  regionIndex: number,
-  direction: 1 | -1,
-): boolean {
-  const region = root.querySelector<HTMLElement>(
-    `[data-notepad-markdown-region="${regionIndex}"]`,
-  )
-  if (!region) return false
-  region.focus()
-  const selection = window.getSelection()
-  if (selection) {
-    const range = document.createRange()
-    range.selectNodeContents(region)
-    range.collapse(direction > 0)
-    selection.removeAllRanges()
-    selection.addRange(range)
-  }
-  return true
-}
-
-function focusPlainTextBodyRegion(
-  root: HTMLElement,
-  regionIndex: number,
-  atEnd: boolean,
-): boolean {
-  const region = root.querySelector<HTMLElement>(
-    `[data-notepad-text-region="${regionIndex}"]`,
-  )
-  if (!region) return false
-  region.focus()
-  const selection = window.getSelection()
-  if (selection) {
-    const range = document.createRange()
-    range.selectNodeContents(region)
-    range.collapse(atEnd)
-    selection.removeAllRanges()
-    selection.addRange(range)
-  }
-  return true
-}
-
-function markTableRowInsertTarget(
-  previous: HTMLTableRowElement | null,
-  next: HTMLTableRowElement | null,
-): void {
-  if (previous && previous !== next) {
-    previous.removeAttribute('data-notepad-row-insert-after')
-  }
-  if (next) next.setAttribute('data-notepad-row-insert-after', 'true')
-}
-
-function markTableSelected(
-  previous: HTMLTableElement | null,
-  next: HTMLTableElement | null,
-): void {
-  if (previous && previous !== next) {
-    previous.removeAttribute('data-notepad-table-selected')
-    previous.removeAttribute('aria-selected')
-  }
-  if (next) {
-    next.setAttribute('data-notepad-table-selected', 'true')
-    next.setAttribute('aria-selected', 'true')
-  }
-}
-
-function clearTableRowSelection(table: HTMLTableElement | null): void {
-  table?.querySelectorAll<HTMLTableRowElement>('tr[data-notepad-row-selected="true"]')
-    .forEach((row) => row.removeAttribute('data-notepad-row-selected'))
-}
-
-function markTableRowRangeSelected(
-  table: HTMLTableElement,
-  start: HTMLTableRowElement | null,
-  end: HTMLTableRowElement | null,
-): void {
-  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'))
-  const startIndex = start ? rows.indexOf(start) : -1
-  const endIndex = end ? rows.indexOf(end) : -1
-  if (startIndex < 0 || endIndex < 0) return
-
-  const first = Math.min(startIndex, endIndex)
-  const last = Math.max(startIndex, endIndex)
-  clearTableRowSelection(table)
-  rows.slice(first, last + 1).forEach((row) => {
-    row.setAttribute('data-notepad-row-selected', 'true')
-  })
-  const allRowsSelected = first === 0 && last === rows.length - 1
-  markTableSelected(table, allRowsSelected ? table : null)
-}
-
-function tableRowAtPoint(
-  table: HTMLTableElement,
-  clientY: number,
-): HTMLTableRowElement | null {
-  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'))
-  return rows.find((row) => {
-    const rect = row.getBoundingClientRect()
-    return clientY >= rect.top && clientY <= rect.bottom
-  }) ?? null
-}
-
-function insertTableRowAfter(row: HTMLTableRowElement): HTMLTableRowElement | null {
-  const table = row.closest('table') as HTMLTableElement | null
-  if (!table) return null
-
-  const columnCount = Math.max(
-    1,
-    Array.from(row.cells).reduce((count, cell) => count + Math.max(1, cell.colSpan), 0),
-  )
-  const parentSection = row.parentElement as HTMLTableSectionElement | null
-  const body = table.tBodies[0] ?? table.createTBody()
-  const inserted = parentSection?.tagName === 'THEAD'
-    ? body.insertRow(0)
-    : parentSection instanceof HTMLTableSectionElement
-      ? parentSection.insertRow(row.sectionRowIndex + 1)
-      : table.insertRow(row.rowIndex + 1)
-  for (let index = 0; index < columnCount; index += 1) {
-    const cell = inserted.insertCell()
-    cell.append(document.createElement('br'))
-  }
-  return inserted
-}
+import { escapeNotepadLinkAttribute, escapeNotepadLinkText } from './text-editor/escape'
+import { fontStretchValue, spellCheckFormatForName, type SpellCheckFormat } from './text-editor/format'
+import {
+  renderNotepadMarkdown,
+  serializeBodyRegionAtCaret,
+  serializeMarkdownBodyRegion,
+} from './text-editor/markdown'
+import {
+  elementForNode,
+  enableEditablePreviewRegions,
+  focusAdjacentTableCell,
+  focusMarkdownBodyRegion,
+  focusPlainTextBodyRegion,
+  locatePreviewRangeByOffsets,
+  rangeInsideRoot,
+} from './text-editor/preview-dom'
+import { expandPrintTemplate } from './text-editor/print'
+import { readBooleanSetting, readNumberSetting } from './text-editor/settings'
+import {
+  clearTableRowSelection,
+  insertTableRowAfter,
+  markTableRowInsertTarget,
+  markTableRowRangeSelected,
+  markTableSelected,
+  tableRowAtPoint,
+} from './text-editor/table'
+import {
+  clampNotepadZoom,
+  NOTEPAD_FONT_POINT_TO_PIXEL,
+  NOTEPAD_WHEEL_ZOOM_IDLE_MS,
+  NOTEPAD_ZOOM_STEP,
+  restoreNotepadZoomAnchor,
+  type NotepadZoomAnchor,
+} from './text-editor/zoom'
 
 interface TextEditorProps {
   filePath: string
@@ -439,55 +173,6 @@ interface PageSetup {
   footer: string
 }
 
-type SpellCheckFormat = 'txt' | 'markdown' | 'subtitles' | 'lrc' | 'lic'
-
-function fontStretchValue(stretch: number): string {
-  return [
-    'normal',
-    'ultra-condensed',
-    'extra-condensed',
-    'condensed',
-    'semi-condensed',
-    'normal',
-    'semi-expanded',
-    'expanded',
-    'extra-expanded',
-    'ultra-expanded',
-  ][stretch] || 'normal'
-}
-
-function spellCheckFormatForName(name: string): SpellCheckFormat | null {
-  const extension = name.toLowerCase().match(/\.([^.]+)$/)?.[1]
-  if (!extension) return 'txt'
-  if (extension === 'txt') return 'txt'
-  if (extension === 'md' || extension === 'markdown') return 'markdown'
-  if (extension === 'srt' || extension === 'ass') return 'subtitles'
-  if (extension === 'lrc') return 'lrc'
-  if (extension === 'lic') return 'lic'
-  return null
-}
-
-const NOTEPAD_MIN_ZOOM = 10
-const NOTEPAD_MAX_ZOOM = 500
-const NOTEPAD_ZOOM_STEP = 10
-const NOTEPAD_WHEEL_ZOOM_IDLE_MS = 160
-const NOTEPAD_FONT_POINT_TO_PIXEL = 96 / 72
-
-function clampNotepadZoom(value: number): number {
-  const stepped = Math.round(value / NOTEPAD_ZOOM_STEP) * NOTEPAD_ZOOM_STEP
-  return Math.min(NOTEPAD_MAX_ZOOM, Math.max(NOTEPAD_MIN_ZOOM, stepped))
-}
-
-interface NotepadZoomAnchor {
-  surface: HTMLElement
-  viewportX: number
-  viewportY: number
-  scrollLeft: number
-  scrollTop: number
-  scrollWidth: number
-  scrollHeight: number
-}
-
 function applyNotepadTextZoom(
   root: HTMLElement | null,
   fontSizePoints: number,
@@ -498,79 +183,8 @@ function applyNotepadTextZoom(
   root.style.setProperty('--notepad-editor-font-size', `${pixels}px`)
 }
 
-function restoreNotepadZoomAnchor(
-  anchor: NotepadZoomAnchor | null,
-  wordWrap: boolean,
-): void {
-  if (!anchor?.surface.isConnected) return
-  const { surface } = anchor
-
-  const verticalProgress = (
-    anchor.scrollTop + anchor.viewportY
-  ) / Math.max(1, anchor.scrollHeight)
-  const nextScrollTop = verticalProgress * surface.scrollHeight - anchor.viewportY
-  surface.scrollTop = Math.min(
-    Math.max(0, nextScrollTop),
-    Math.max(0, surface.scrollHeight - surface.clientHeight),
-  )
-
-  if (wordWrap) {
-    surface.scrollLeft = 0
-    return
-  }
-
-  const horizontalProgress = (
-    anchor.scrollLeft + anchor.viewportX
-  ) / Math.max(1, anchor.scrollWidth)
-  const nextScrollLeft = horizontalProgress * surface.scrollWidth - anchor.viewportX
-  surface.scrollLeft = Math.min(
-    Math.max(0, nextScrollLeft),
-    Math.max(0, surface.scrollWidth - surface.clientWidth),
-  )
-}
-
 function createTabId(): string {
   return `notepad-tab-${crypto.randomUUID()}`
-}
-
-function expandPrintTemplate(template: string, fileName: string): string {
-  const now = new Date()
-  return template
-    .replaceAll('&f', fileName)
-    .replaceAll('&d', now.toLocaleDateString())
-    .replaceAll('&t', now.toLocaleTimeString())
-    .replaceAll('&p', '1')
-    .replaceAll('&&', '&')
-}
-
-function readBooleanSetting(key: string, fallback: boolean): boolean {
-  try {
-    const value = localStorage.getItem(key)
-    return value === null ? fallback : value === 'true'
-  } catch {
-    return fallback
-  }
-}
-
-function readNumberSetting(key: string, fallback: number): number {
-  try {
-    const value = Number(localStorage.getItem(key))
-    return Number.isFinite(value) && value > 0 ? value : fallback
-  } catch {
-    return fallback
-  }
-}
-
-function escapeNotepadLinkText(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-function escapeNotepadLinkAttribute(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
 }
 
 function Modal({

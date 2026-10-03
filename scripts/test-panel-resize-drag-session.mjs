@@ -48,8 +48,8 @@ test('drag-only visual overrides cannot keep an expanded sidebar invisible', () 
 
 test('sidebar content and collapsed rail cross-fade progressively in both directions', () => {
   assert.match(source, /function setPanelRevealProgress\(/)
-  assert.match(source, /const contentProgress = smoothstep/)
-  assert.match(source, /const railProgress = smoothstep/)
+  assert.match(source, /const contentProgress = clamp\(/)
+  assert.match(source, /const railProgress = clamp\(/)
   assert.match(source, /elements\.content\.style\.opacity = contentProgress\.toFixed\(3\)/)
   assert.match(source, /elements\.rail\.style\.opacity = railProgress\.toFixed\(3\)/)
   assert.match(source, /getPanelRevealProgress\(latestWidth, minWidth\)/)

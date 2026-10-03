@@ -10,8 +10,8 @@ import {
   type TranslationParams,
 } from './types'
 
-export const APP_LANGUAGE_STORAGE_KEY = 'wps-agent-language'
-export const APP_LANGUAGE_EVENT = 'wps-agent-language-change'
+export const APP_LANGUAGE_STORAGE_KEY = 'officeagentic-agent-language'
+export const APP_LANGUAGE_EVENT = 'officeagentic-agent-language-change'
 
 const languageCodes = new Set<LanguageCode>(languages.map(({ code }) => code))
 const subscribers = new Set<() => void>()

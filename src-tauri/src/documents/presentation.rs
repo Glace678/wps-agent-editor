@@ -1639,7 +1639,7 @@ fn write_generated_text_shape(
 ) -> AppResult<()> {
     let escaped = quick_xml::escape::escape(text);
     let xml = format!(
-        "<p:sp><p:nvSpPr><p:cNvPr id=\"{id}\" name=\"WPS Agent Text {id}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr><p:ph type=\"{placeholder_type}\"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"457200\" y=\"{y}\"/><a:ext cx=\"8229600\" cy=\"{height}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"zh-CN\"/><a:t xml:space=\"preserve\">{escaped}</a:t></a:r><a:endParaRPr lang=\"zh-CN\"/></a:p></p:txBody></p:sp>"
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"{id}\" name=\"Office Agentic Text {id}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr><p:ph type=\"{placeholder_type}\"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"457200\" y=\"{y}\"/><a:ext cx=\"8229600\" cy=\"{height}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"zh-CN\"/><a:t xml:space=\"preserve\">{escaped}</a:t></a:r><a:endParaRPr lang=\"zh-CN\"/></a:p></p:txBody></p:sp>"
     );
     writer
         .get_mut()

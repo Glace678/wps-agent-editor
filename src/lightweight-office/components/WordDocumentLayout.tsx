@@ -108,7 +108,7 @@ function restoreScrollAnchor(viewport: HTMLElement, pagesHost: HTMLElement, anch
  * 图片需要重新解码，极端情况下会透出一两帧空白。这里把切换前的页面宿主
  * 深克隆一张「截图」盖在布局容器上（不随滚动移动、不接收指针事件），
  * 重绘与滚动锚定都在覆盖层下方完成，到点后撤走——用户全程只看到旧画面
- * 原地变成新画面，与 Word/WPS 的双页↔单页切换一致。
+ * 原地变成新画面，与 Word 的双页↔单页切换一致。
  * 返回撤收函数。
  */
 function coverWithPagesClone(container: HTMLElement, pagesHost: HTMLElement): () => void {

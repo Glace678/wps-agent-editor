@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 
 const read = (file) => readFile(new URL(`../${file}`, import.meta.url), 'utf8')
+// The agent runtime is split into runtime.rs plus runtime/*.rs; assert against all of it.
+const readAgentRuntime = async () => {
+  const dir = 'src-tauri/src/agents/runtime'
+  const parts = (await readdir(new URL(`../${dir}`, import.meta.url))).filter((name) => name.endsWith('.rs')).sort()
+  const sources = await Promise.all(['src-tauri/src/agents/runtime.rs', ...parts.map((name) => `${dir}/${name}`)].map(read))
+  return sources.join('\n')
+}
 
 const [packageSource, terminalView, desktopApi, appLayout, appMenu, tauriLib, appState, rustTerminal, agentRuntime] = await Promise.all([
   read('package.json'),
@@ -12,7 +19,7 @@ const [packageSource, terminalView, desktopApi, appLayout, appMenu, tauriLib, ap
   read('src-tauri/src/lib.rs'),
   read('src-tauri/src/state.rs'),
   read('src-tauri/src/process/terminal.rs'),
-  read('src-tauri/src/agents/runtime.rs'),
+  readAgentRuntime(),
 ])
 
 const packageJson = JSON.parse(packageSource)

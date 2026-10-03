@@ -1,16 +1,13 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
-  Bold,
   Check,
   ChevronDown,
   ChevronRight,
   Indent,
   Italic,
-  Link,
   Link2,
   List,
-  ListChecks,
   ListOrdered,
   MoreHorizontal,
   Outdent,

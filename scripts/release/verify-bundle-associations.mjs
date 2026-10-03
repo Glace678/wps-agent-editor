@@ -174,10 +174,10 @@ async function verifyLinux(root, expected) {
     candidates.map(async (path) => ({ path, source: await readFile(path, 'utf8') })),
   )
   const selected =
-    parsed.find(({ source }) => desktopValue(source, 'Name') === 'WPS Agent Editor') ??
+    parsed.find(({ source }) => desktopValue(source, 'Name') === 'Office Agentic') ??
     (parsed.length === 1 ? parsed[0] : undefined)
   if (!selected) {
-    fail(`Could not identify the WPS Agent Editor .desktop file among: ${candidates.join(', ')}`)
+    fail(`Could not identify the Office Agentic .desktop file among: ${candidates.join(', ')}`)
   }
 
   const mimeValue = desktopValue(selected.source, 'MimeType')

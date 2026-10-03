@@ -1,5 +1,3 @@
-import { flushSync } from 'react-dom'
-
 /**
  * Live preview for Fortune column/row resize drags.
  *
@@ -117,35 +115,26 @@ export function attachExcelLiveResize(
     if (!api || !session || session.lastApplied === len) return
     session.lastApplied = len
     shell.dataset.excelLiveResizeLen = String(len)
-    // Two patches per frame, atomically:
-    //  - the previewed track size (content reflows immediately);
-    //  - Fortune's drag-start marker, advanced by the applied delta, so its
-    //    own mouseup commit computes original + total-delta from the previewed
-    //    state. The preview therefore needs NO restore dispatch at mouseup —
-    //    the commit runs under exactly the native queue conditions, which is
-    //    what keeps fortune-sheet's impure undo push from double-recording
-    //    (React re-executes updaters that share a queue with a skipped one).
-    // flushSync keeps every preview apply synchronous so no low-priority
-    // preview update is ever pending when the discrete commit dispatches.
-    flushSync(() => {
-      api.applyOp([
-        {
-          op: 'replace',
-          path: ['config', session!.axis === 'col' ? 'columnlen' : 'rowlen'],
-          value: { ...session!.originalMap, [session!.index]: len },
-        },
-        {
-          op: 'replace',
-          path: [session!.axis === 'col'
-            ? 'luckysheet_cols_change_size_start'
-            : 'luckysheet_rows_change_size_start'],
-          value: [
-            session!.startNative + (len - session!.originalLen) * session!.zoom,
-            session!.index,
-          ],
-        },
-      ])
-    })
+    // 拖拽预览只下发一次 applyOp，不使用 flushSync：强制同步渲染会让 Fortune
+    // 在每个 pointermove 上全画布重排（连带右侧整块数字区），是卡顿根源。
+    // 去掉 flushSync 后，op 与浏览器帧合并，仅在帧末重绘一次，实时且流畅。
+    api.applyOp([
+      {
+        op: 'replace',
+        path: ['config', session.axis === 'col' ? 'columnlen' : 'rowlen'],
+        value: { ...session.originalMap, [session.index]: len },
+      },
+      {
+        op: 'replace',
+        path: [session.axis === 'col'
+          ? 'luckysheet_cols_change_size_start'
+          : 'luckysheet_rows_change_size_start'],
+        value: [
+          session.startNative + (len - session.originalLen) * session.zoom,
+          session.index,
+        ],
+      },
+    ])
   }
 
   /** Mirror Fortune's own guide-line DOM updates (mouseRender) for the axis. */

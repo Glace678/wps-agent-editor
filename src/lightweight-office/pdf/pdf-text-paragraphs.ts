@@ -1,11 +1,45 @@
-import type { PdfTextLine, PdfTextParagraph } from './mupdf-protocol'
+import type { PdfTextAlign, PdfTextLine, PdfTextParagraph } from './mupdf-protocol'
 
 // PDF/browser font metrics and CSS subpixel rounding differ slightly. Allow a
 // fraction of a point for wrapping; the original rectangle still clips ink.
 export const PDF_TEXT_WRAP_TOLERANCE = 0.1
 
+/**
+ * Detect alignment of a single text block from the shared edge of its lines.
+ * Multi-line blocks share a left or right edge; single ambiguous lines are
+ * treated as right-aligned only when they look like numeric/amount content
+ * (the common case for lottery/financial table cells edited in place).
+ */
+export function inferBlockAlign(
+  lines: PdfTextLine[],
+  pageWidth: number,
+): PdfTextAlign {
+  if (lines.length <= 1) {
+    const text = lines[0]?.text ?? ''
+    return /\d/.test(text) && !/[A-Za-z\u4e00-\u9fff]{2,}/.test(text) ? 'right' : 'left'
+  }
+  const tolerance = 0.008
+  const first = lines[0]
+  let leftHits = 0
+  let rightHits = 0
+  for (const line of lines.slice(1)) {
+    const leftDelta = Math.abs(line.x - first.x) * pageWidth
+    const rightDelta = Math.abs((line.x + line.width) - (first.x + first.width)) * pageWidth
+    if (leftDelta <= tolerance * (line.fontSize ?? 12) * 2) leftHits += 1
+    if (rightDelta <= tolerance * (line.fontSize ?? 12) * 2) rightHits += 1
+  }
+  if (rightHits > leftHits && rightHits >= lines.length - 2) return 'right'
+  if (leftHits >= lines.length - 2) return 'left'
+  return 'left'
+}
+
 /** Split a MuPDF text block at columns, paragraph gaps, or changes of body style. */
-export function textParagraphs(lines: PdfTextLine[], pageWidth: number, pageHeight: number): PdfTextParagraph[] {
+export function textParagraphs(
+  lines: PdfTextLine[],
+  pageWidth: number,
+  pageHeight: number,
+  blockAlign?: PdfTextAlign,
+): PdfTextParagraph[] {
   const groups: PdfTextLine[][] = []
   for (const line of lines) {
     const group = groups.at(-1)
@@ -49,6 +83,7 @@ export function textParagraphs(lines: PdfTextLine[], pageWidth: number, pageHeig
         ? ((last.y - first.y) * pageHeight + (last.baseline ?? 0) - (first.baseline ?? 0)) / (group.length - 1)
         : undefined,
       firstLineIndent: (first.x - x) * pageWidth,
+      align: blockAlign ?? 'left',
       lines: group,
     }
   })

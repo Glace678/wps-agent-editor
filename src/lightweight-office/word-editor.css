@@ -404,7 +404,7 @@ body .word-font-picker-empty {
   color: var(--sd-ui-text-muted, #a3a3a3);
 }
 
-/* Word Insert Table Picker Dropdown, matching Office/WPS specifications */
+/* Word Insert Table Picker Dropdown, matching Office specifications */
 body .sd-toolbar-dropdown-menu:has(.toolbar-table-grid-wrapper),
 body .toolbar-dropdown-menu:has(.toolbar-table-grid-wrapper),
 body .sd-toolbar-dropdown-menu:has(.word-table-picker),
@@ -1047,13 +1047,20 @@ body .link-input-ctn .go-to-anchor a:hover {
   width: 100%;
   min-width: 0;
   height: 29px;
-  color: #d7d7d7;
-  background: #181818;
-  border-top: 1px solid #2c2c2c;
+  color: #1f1f1f;
+  background: #f7f7f7;
+  border-top: 1px solid #e0e0e0;
   font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', Arial, sans-serif;
   font-size: 12px;
   line-height: 1;
   letter-spacing: 0;
+}
+
+/* Dark mode keeps the original dark status bar. */
+.dark .word-status-bar {
+  color: #d7d7d7;
+  background: #181818;
+  border-top-color: #2c2c2c;
 }
 
 .word-status-controls {
@@ -1089,8 +1096,8 @@ body .link-input-ctn .go-to-anchor a:hover {
 
 .word-status-icon-button:hover,
 .word-zoom-trigger:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.1);
+  color: #111111;
+  background: rgba(0, 0, 0, 0.06);
   border-color: transparent;
   outline: none;
 }
@@ -1098,14 +1105,34 @@ body .link-input-ctn .go-to-anchor a:hover {
 .word-status-icon-button[data-active='true'],
 .word-status-icon-button[aria-pressed='true'],
 .word-zoom-trigger[aria-expanded='true'] {
-  color: #70b5ff !important;
-  background: #173f6c !important;
-  border: 1px solid rgba(59, 130, 246, 0.55) !important;
+  color: #0f5cb8 !important;
+  background: #ddeafb !important;
+  border: 1px solid rgba(37, 99, 235, 0.4) !important;
   outline: none;
 }
 
 .word-status-icon-button[data-active='true']:hover,
 .word-zoom-trigger[aria-expanded='true']:hover {
+  color: #0b3f86 !important;
+  background: #cfe2fb !important;
+  border-color: #3b82f6 !important;
+}
+
+.dark .word-zoom-trigger:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dark .word-status-icon-button[data-active='true'],
+.dark .word-status-icon-button[aria-pressed='true'],
+.dark .word-zoom-trigger[aria-expanded='true'] {
+  color: #70b5ff !important;
+  background: #173f6c !important;
+  border-color: rgba(59, 130, 246, 0.55) !important;
+}
+
+.dark .word-status-icon-button[data-active='true']:hover,
+.dark .word-zoom-trigger[aria-expanded='true']:hover {
   color: #ffffff !important;
   background: #1e5088 !important;
   border-color: #60a5fa !important;
@@ -1137,6 +1164,10 @@ body .link-input-ctn .go-to-anchor a:hover {
   width: 1px;
   height: 18px;
   margin: 0 3px;
+  background: #c9c9c9;
+}
+
+.dark .word-status-separator {
   background: #444;
 }
 
@@ -1429,7 +1460,7 @@ body .link-input-ctn .go-to-anchor a:hover {
   font-size: 13px;
 }
 
-/* WPS-style eye-care tint applies to both the editable paper and projections. */
+/* Office-style eye-care tint applies to both the editable paper and projections. */
 .word-editor-panel[data-word-eye-care='true'] .superdoc-editor-container,
 .word-editor-panel[data-word-eye-care='true'] .superdoc__sub-document,
 .word-editor-panel[data-word-eye-care='true'] .word-alternate-view {
@@ -1901,7 +1932,7 @@ body .link-input-ctn .go-to-anchor a:hover {
 }
 
 /* ==========================================================================
-   WPS / Microsoft Word 风格文档光标（纯黑色、慢速持续呼吸闪烁、打字即时实心响应）
+   Office / Microsoft Word 风格文档光标（纯黑色、慢速持续呼吸闪烁、打字即时实心响应）
    ========================================================================== */
 
 .word-editor-panel .ProseMirror {
@@ -1913,41 +1944,41 @@ body .link-input-ctn .go-to-anchor a:hover {
   caret-color: #ffffff !important;
 }
 
-/* 当自定义 WPS Caret 层激活时，隐藏原生浏览器 caret 避免双重光标重影 */
-.word-editor-panel[data-wps-caret-active='true'] .ProseMirror {
+/* 当自定义 Office Caret 层激活时，隐藏原生浏览器 caret 避免双重光标重影 */
+.word-editor-panel[data-officeagentic-caret-active='true'] .ProseMirror {
   caret-color: transparent !important;
 }
 
-/* 自定义 WPS / Office 纯黑光标条 */
-.wps-word-caret {
+/* 自定义 Office 纯黑光标条 */
+.officeagentic-word-caret {
   position: absolute;
-  width: 1.5px;
+  width: 1px;
   background-color: #000000;
   pointer-events: none;
   z-index: 25;
-  border-radius: 0.5px;
-  animation: wps-word-caret-blink 1.05s ease-in-out infinite;
+  border-radius: 0;
+  animation: officeagentic-word-caret-blink 1.05s ease-in-out infinite;
   will-change: opacity, top, left, height;
 }
 
 /* 打字/交互时保持实心可见，暂停后恢复慢速闪烁 */
-.wps-word-caret.wps-word-caret--typing {
+.officeagentic-word-caret.officeagentic-word-caret--typing {
   animation: none !important;
   opacity: 1 !important;
 }
 
 /* 暗色模式下光标对比度适配 */
-.dark .wps-word-caret {
+.dark .officeagentic-word-caret {
   background-color: #ffffff;
 }
 
 /* 如果暗色模式下页面背景仍为浅色纸张或护眼绿，光标保持纯黑 */
-.dark [data-word-eye-care='true'] .wps-word-caret {
+.dark [data-word-eye-care='true'] .officeagentic-word-caret {
   background-color: #000000;
 }
 
-/* WPS / Office 标准 1.05s 平缓慢速呼吸闪烁周期，永不停顿 */
-@keyframes wps-word-caret-blink {
+/* Office 标准 1.05s 平缓慢速呼吸闪烁周期，永不停顿 */
+@keyframes officeagentic-word-caret-blink {
   0%, 45% {
     opacity: 1;
   }

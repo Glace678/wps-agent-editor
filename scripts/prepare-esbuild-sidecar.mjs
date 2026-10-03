@@ -101,6 +101,20 @@ async function main() {
   const suffix = target.includes('windows') ? '.exe' : ''
   const destination = resolve('src-tauri', 'binaries', `esbuild-${target}${suffix}`)
   await mkdir(resolve('src-tauri', 'binaries'), { recursive: true })
+  // Fast path: an already-prepared sidecar of the pinned version is reused,
+  // avoiding the copy + version exec on every dev start.
+  if (existsSync(destination) && canExecuteTarget(target)) {
+    try {
+      const existing = execFileSync(destination, ['--version'], { encoding: 'utf8', windowsHide: true }).trim()
+      if (existing === version) {
+        console.log(`Reusing prepared esbuild ${version} for ${target}`)
+        if (downloaded) await rm(resolve(source, '..'), { recursive: true, force: true })
+        return
+      }
+    } catch {
+      // fall through and re-prepare
+    }
+  }
   await cp(source, destination)
   if (downloaded) await rm(resolve(source, '..'), { recursive: true, force: true })
   if (canExecuteTarget(target)) {

@@ -94,10 +94,10 @@ test('the current font name is centered in the toolbar combobox', () => {
 })
 
 test('the Word zoom combobox uses a compact width and font-family has room', () => {
-  assert.match(css, /:has\(\[data-item='btn-zoom'\]\)[\s\S]*?width:\s*54px\s*!important/)
-  assert.match(css, /:has\(\.toolbar-dropdown-option\[data-item='btn-zoom-option'\]\)[\s\S]*?width:\s*62px\s*!important/)
+  assert.match(css, /:has\(\[data-item='btn-zoom'\]\)[\s\S]*?width:\s*56px\s*!important/)
+  assert.match(css, /:has\(\.toolbar-dropdown-option\[data-item='btn-zoom-option'\]\)[\s\S]*?width:\s*70px\s*!important/)
   assert.match(css, /\.superdoc-toolbar\s+\.sd-font-combobox[\s\S]*?width:\s*160px\s*!important/)
-  assert.match(overflowPolicy, /zoom:\s*54/)
+  assert.match(overflowPolicy, /zoom:\s*56/)
   assert.match(overflowPolicy, /fontFamily:\s*160/)
 })
 

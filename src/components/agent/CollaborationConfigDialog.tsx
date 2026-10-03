@@ -15,6 +15,7 @@ import { Separator } from '@/components/ui/separator'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { LanguageCode } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { modelDisplayName } from '@/lib/agent-model'
 import type { AgentConfig, CollaborationMode } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
 
@@ -87,14 +88,10 @@ export function CollaborationConfigDialog({
     return () => { cancelled = true }
   }, [initialProviders])
 
-  const getCleanModelName = useCallback((agent: AgentConfig): string => {
-    const raw = agent.model?.trim()
-    if (!raw) return 'default'
-    const withoutCustomPrefix = raw.replace(/^custom-[a-f0-9-]+\//i, '')
-    const provider = providers.find((p) => p.id === agent.providerId)
-    const found = provider?.models?.find((m) => m.id === withoutCustomPrefix || m.id === raw)
-    return found?.name || withoutCustomPrefix
-  }, [providers])
+  const getCleanModelName = useCallback(
+    (agent: AgentConfig): string => modelDisplayName(agent.providerId, agent.model, providers) || 'default',
+    [providers],
+  )
 
   const getProviderLabel = useCallback((providerId: string | undefined): string => {
     if (!providerId) return ''

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   CheckCircle2,
   CircleAlert,
+  Database,
   Layers,
   Loader2,
   Network,
@@ -21,6 +22,7 @@ import { useTranslation } from '@/lib/i18n/runtime'
 import {
   buildCollaborationTranscript,
   isSystemLineKey,
+  summarizeCollaborationCacheUsage,
   type SystemTranscriptItem,
 } from '@/lib/collaboration-transcript'
 import { modelDisplayName, type AgentIdentity } from '@/lib/agent-model'
@@ -108,6 +110,20 @@ export function CollaborationChat({
     [events, agents, mode],
   )
 
+  // Prompt-cache readout for the whole run: the backend caches the system
+  // prefix plus a rolling window over the conversation tail, so a healthy run
+  // should sit well above 90% once more than one turn is issued.
+  const cacheSummary = useMemo(
+    () => summarizeCollaborationCacheUsage(events),
+    [events],
+  )
+  const cacheRateLabel = `${(cacheSummary.hitRate * 100).toFixed(1)}%`
+  const cacheTooltip = t('agentUi.cacheRate', {
+    rate: cacheRateLabel,
+    read: cacheSummary.cacheReadTokens,
+    total: cacheSummary.cacheReadTokens + cacheSummary.cacheMissTokens,
+  })
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [items, isRunning])
@@ -165,6 +181,17 @@ export function CollaborationChat({
               {mode === 'directed' ? t('agentUi.modeDirected') : t('agentUi.modeParallel')}
             </span>
             {isRunning && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />}
+            {cacheSummary.measured && (
+              <span
+                className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                title={cacheTooltip}
+                aria-label={cacheTooltip}
+                data-testid="collaboration-cache-rate"
+              >
+                <Database className="h-2.5 w-2.5" />
+                {cacheRateLabel}
+              </span>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             {isRunning && (

@@ -170,7 +170,7 @@ pub fn run() {
             commands::app::app_startup_healthy,
         ])
         .run(tauri::generate_context!())
-        .expect("failed to run WPS Agent Editor");
+        .expect("failed to run Office Agentic");
 }
 
 fn register_initial_file(state: &AppState, window_label: &str) {
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn second_instance_never_opens_argv_zero_as_a_document() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let executable = directory.path().join("wps-agent-editor.exe");
+        let executable = directory.path().join("office-agentic.exe");
         fs::write(&executable, b"binary").expect("write executable fixture");
 
         let arguments = vec![executable.to_string_lossy().into_owned()];
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn second_instance_finds_a_document_after_argv_zero() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let executable = directory.path().join("wps-agent-editor.exe");
+        let executable = directory.path().join("office-agentic.exe");
         let document = directory.path().join("notes.txt");
         fs::write(&executable, b"binary").expect("write executable fixture");
         fs::write(&document, b"notes").expect("write document fixture");
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn second_instance_skips_executable_file_arguments() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let application = directory.path().join("wps-agent-editor.exe");
+        let application = directory.path().join("office-agentic.exe");
         let executable = directory.path().join("payload.EXE");
         let document = directory.path().join("notes.txt");
         fs::write(&application, b"application").expect("write application fixture");

@@ -1,26 +1,61 @@
 import type { AgentConfig } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
 
-const CUSTOM_PROVIDER_PREFIX = /^custom-[a-f0-9-]+\//i
+const CUSTOM_PROVIDER_PREFIX =
+  /^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//i
 
 /** Custom providers sometimes prefix model ids with `custom-<uuid>/`. */
 export function stripCustomPrefix(model: string): string {
   return model.trim().replace(CUSTOM_PROVIDER_PREFIX, '')
 }
 
-/** Fallback prettifier for model ids missing from the provider catalog. */
+const MODEL_TOKEN_NAMES: Record<string, string> = {
+  api: 'API',
+  coder: 'Coder',
+  code: 'Code',
+  gemini: 'Gemini',
+  glm: 'GLM',
+  gpt: 'GPT',
+  kimi: 'Kimi',
+  llama: 'Llama',
+  minimax: 'MiniMax',
+  mimo: 'MiMo',
+  qwen: 'Qwen',
+}
+
+function humanizeModelToken(token: string): string {
+  const knownName = MODEL_TOKEN_NAMES[token.toLowerCase()]
+  if (knownName) return knownName
+  if (/^\d+o$/i.test(token)) return token.toLowerCase()
+  if (/\d/.test(token)) return token.replace(/[a-z]/gi, (letter) => letter.toUpperCase())
+  return token.charAt(0).toUpperCase() + token.slice(1)
+}
+
+/** Fallback prettifier for model ids missing from the provider catalog: uses the last path segment. */
 export function humanizeModelId(modelId: string): string {
-  const normalized = modelId.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim()
-  return normalized
-    .split(' ')
+  const leaf = modelId.trim().split('/').filter(Boolean).at(-1) ?? ''
+  return leaf
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
     .filter(Boolean)
-    .map((word) => (/^[a-z]/.test(word) ? `${word[0].toUpperCase()}${word.slice(1)}` : word))
+    .map(humanizeModelToken)
     .join(' ')
 }
 
 type ProviderModels = Pick<ProviderDefinition, 'id' | 'models'>
 
-/** Resolves the human-friendly model name from the catalog, falling back to a humanized id. */
+/** Catalog name when it adds information beyond the id itself. */
+function readableCatalogName(model: { id: string; name: string }): string {
+  const name = model.name?.trim() ?? ''
+  return name && name.toLowerCase() !== model.id.trim().toLowerCase() ? name : ''
+}
+
+/**
+ * Resolves the human-friendly model name. Order: exact provider catalog hit,
+ * then a cross-provider hit only when every provider agrees on the name,
+ * then a humanized id. Returns '' for an empty model so callers keep their
+ * own "default" wording.
+ */
 export function modelDisplayName(
   providerId: string | undefined,
   modelId: string | undefined,
@@ -29,9 +64,25 @@ export function modelDisplayName(
   const raw = modelId?.trim()
   if (!raw) return ''
   const withoutPrefix = stripCustomPrefix(raw)
+  const matches = (id: string) => id === withoutPrefix || id === raw
+
   const provider = providers.find((item) => item.id === providerId)
-  const match = provider?.models?.find((model) => model.id === withoutPrefix || model.id === raw)
-  return match?.name || humanizeModelId(withoutPrefix)
+  const exact = provider?.models?.find((model) => matches(model.id))
+  const exactName = exact ? readableCatalogName(exact) : ''
+  if (exactName) return exactName
+
+  const crossNames = new Set<string>()
+  for (const item of providers) {
+    for (const model of item.models ?? []) {
+      if (matches(model.id)) {
+        const name = readableCatalogName(model)
+        if (name) crossNames.add(name)
+      }
+    }
+  }
+  if (!exact && crossNames.size === 1) return [...crossNames][0]
+
+  return humanizeModelId(withoutPrefix) || withoutPrefix
 }
 
 /** Minimal identity carried by collaboration transcript rows. */

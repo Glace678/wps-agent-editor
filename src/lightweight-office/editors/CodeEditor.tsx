@@ -66,7 +66,7 @@ const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>()
 let themesRegistered = false
 let languageDefaultsConfigured = false
 
-const LEGACY_CODE_FONT_SIZE_KEY = 'wps-code-editor-font-size'
+const LEGACY_CODE_FONT_SIZE_KEY = 'officeagentic-code-editor-font-size'
 const CODE_FONT_SIZE_MIN = 8
 const CODE_FONT_SIZE_MAX = 32
 const CODE_FONT_SIZE_DEFAULT = 14
@@ -90,11 +90,11 @@ function installFixedVerticalScrollbar(
 
   const track = document.createElement('div')
   const thumb = document.createElement('div')
-  track.className = 'wps-code-fixed-scrollbar'
+  track.className = 'officeagentic-code-fixed-scrollbar'
   track.dataset.testid = 'code-fixed-scrollbar'
   track.setAttribute('role', 'presentation')
   track.setAttribute('aria-hidden', 'true')
-  thumb.className = 'wps-code-fixed-scrollbar-thumb'
+  thumb.className = 'officeagentic-code-fixed-scrollbar-thumb'
   thumb.dataset.testid = 'code-fixed-scrollbar-thumb'
   track.appendChild(thumb)
   editorRoot.appendChild(track)
@@ -130,7 +130,7 @@ function installFixedVerticalScrollbar(
     )
     const nativeThumb = nativeScrollbar?.querySelector<HTMLElement>(':scope > .slider')
     if (nativeThumb && !hiddenNativeThumbs.has(nativeThumb)) {
-      nativeThumb.classList.add('wps-code-native-scrollbar-thumb')
+      nativeThumb.classList.add('officeagentic-code-native-scrollbar-thumb')
       hiddenNativeThumbs.add(nativeThumb)
     }
 
@@ -231,7 +231,7 @@ function installFixedVerticalScrollbar(
       track.removeEventListener('pointerdown', onTrackPointerDown)
       thumb.removeEventListener('pointerdown', onThumbPointerDown)
       track.removeEventListener('wheel', onWheel)
-      hiddenNativeThumbs.forEach((element) => element.classList.remove('wps-code-native-scrollbar-thumb'))
+      hiddenNativeThumbs.forEach((element) => element.classList.remove('officeagentic-code-native-scrollbar-thumb'))
       track.remove()
     },
   }
@@ -239,7 +239,7 @@ function installFixedVerticalScrollbar(
 
 function configureMonaco(): void {
   if (!themesRegistered) {
-    monaco.editor.defineTheme('wps-code-light', {
+    monaco.editor.defineTheme('officeagentic-code-light', {
       base: 'vs',
       inherit: true,
       rules: [
@@ -263,7 +263,7 @@ function configureMonaco(): void {
         'editorIndentGuide.background1': '#D9DEE3',
       },
     })
-    monaco.editor.defineTheme('wps-code-dark', {
+    monaco.editor.defineTheme('officeagentic-code-dark', {
       base: 'vs-dark',
       inherit: true,
       rules: [
@@ -326,12 +326,6 @@ function getDarkTheme(): boolean {
 
 function isSameFile(left: string, right: string): boolean {
   return left.replace(/\\/g, '/').toLowerCase() === right.replace(/\\/g, '/').toLowerCase()
-}
-
-interface ReferenceItem {
-  line: number
-  column: number
-  preview: string
 }
 
 type CodeCommand =
@@ -786,7 +780,7 @@ export function CodeEditor({
         documentBridge.setPlainText(model.getValue(), filePath, 'system')
         editor = monaco.editor.create(host, {
           model,
-          theme: getDarkTheme() ? 'wps-code-dark' : 'wps-code-light',
+          theme: getDarkTheme() ? 'officeagentic-code-dark' : 'officeagentic-code-light',
           automaticLayout: true,
           contextmenu: false,
           fontFamily: 'Cascadia Code, Consolas, monospace',
@@ -925,7 +919,7 @@ export function CodeEditor({
         range: new monaco.Range(line, 1, line, 1),
         options: {
           isWholeLine: false,
-          glyphMarginClassName: 'wps-debug-breakpoint-glyph',
+          glyphMarginClassName: 'officeagentic-debug-breakpoint-glyph',
           stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
         },
       })
@@ -936,8 +930,8 @@ export function CodeEditor({
         range: new monaco.Range(debugCurrentLine, 1, debugCurrentLine, 1),
         options: {
           isWholeLine: true,
-          className: 'wps-debug-current-line',
-          glyphMarginClassName: 'wps-debug-current-glyph',
+          className: 'officeagentic-debug-current-line',
+          glyphMarginClassName: 'officeagentic-debug-current-glyph',
           stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
         },
       })
@@ -964,7 +958,7 @@ export function CodeEditor({
   }, [changeFontSize, resetFontSize])
 
   useEffect(() => {
-    const applyTheme = () => monaco.editor.setTheme(getDarkTheme() ? 'wps-code-dark' : 'wps-code-light')
+    const applyTheme = () => monaco.editor.setTheme(getDarkTheme() ? 'officeagentic-code-dark' : 'officeagentic-code-light')
     const observer = new MutationObserver(applyTheme)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     applyTheme()

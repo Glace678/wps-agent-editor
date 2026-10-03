@@ -137,7 +137,7 @@ const PROVIDER_ALIAS_RULES: readonly ProviderAliasRule[] = [
     aliases: aliases(
       ['doubao', 'doubao ai', 'volcengine', 'volcano engine', 'volcengine ark', 'bytedance', 'byte dance', 'seed'],
       {
-        'zh-CN': ['豆包', '豆包大模型', '火山引擎', '火山方舟', '字节跳动', '字节', '豆包模型'],
+        'zh-CN': ['豆包', '豆包大模型', '火山引擎', '火山方舟', '字节跳动', '字节', '豆包模型', '糖包', '糖包大模型'],
         ja: ['豆包', 'ドウバオ', 'Volcano Engine', 'バイトダンス'],
         es: ['Doubao', 'Volcano Engine', 'ByteDance'],
         pt: ['Doubao', 'Volcano Engine', 'ByteDance'],
@@ -155,7 +155,7 @@ const PROVIDER_ALIAS_RULES: readonly ProviderAliasRule[] = [
     aliases: aliases(
       ['deepseek', 'deep seek', 'deepseek ai', 'deepseek api'],
       {
-        'zh-CN': ['深度求索', '深度求索 AI', '深度求索模型', 'DeepSeek 模型'],
+        'zh-CN': ['深度求索', '深度求索 AI', '深度求索模型', 'DeepSeek 模型', '大鲸鱼', '大肥鱼', '大鲸', '大肥'],
         ja: ['ディープシーク', 'DeepSeek AI', 'DeepSeekモデル'],
         es: ['DeepSeek AI', 'modelo DeepSeek'],
         pt: ['DeepSeek AI', 'modelo DeepSeek'],
@@ -281,7 +281,7 @@ const PROVIDER_ALIAS_RULES: readonly ProviderAliasRule[] = [
     aliases: aliases(
       ['openai', 'open ai', 'chatgpt', 'chat gpt', 'gpt api', 'codex'],
       {
-        'zh-CN': ['OpenAI', 'ChatGPT', 'GPT', 'GPT 模型', 'OpenAI 接口'],
+        'zh-CN': ['OpenAI', 'ChatGPT', 'GPT', 'GPT 模型', 'OpenAI 接口', '鸡皮剃', '鸡皮t', '鸡毛t', '欧朋AI'],
         ja: ['OpenAI', 'オープンAI', 'ChatGPT', 'GPTモデル'],
         es: ['OpenAI', 'ChatGPT', 'modelo GPT'],
         pt: ['OpenAI', 'ChatGPT', 'modelo GPT'],
@@ -812,14 +812,13 @@ const GENERIC_TOKEN_ALIASES: Record<string, Partial<Record<ProviderSearchLocale,
 
 const QUERY_ALIAS_REPLACEMENTS: readonly { aliases: readonly string[]; canonical: string }[] = [
   { aliases: ['通义灵码', '灵码', 'tongyi lingma', 'lingma'], canonical: 'qwen coding' },
-  { aliases: ['通义千问', '通義千問', '千问', '千問', 'tongyi qianwen', 'qianwen', 'tongyi'], canonical: 'qwen' },
   { aliases: ['小爱同学', '小米大模型', '小米模型', '小米', '小米 MiMo', '小米Mimo', '小爱', 'xiaoai', 'xiao ai', 'シャオミ', 'ミーモ', 'ミモ', 'Сяоми', 'شاومي'], canonical: 'xiaomi' },
-  { aliases: ['腾讯混元', '腾讯元宝', '混元大模型', '混元', '腾讯云', '腾讯', 'tencent yuanbao', 'テンセント', 'Тенсент', 'تينسنت'], canonical: 'tencent' },
-  { aliases: ['深度求索', '深度求索 AI', 'ディープシーク', 'ДипСик', 'ديب سيك'], canonical: 'deepseek' },
-  { aliases: ['月之暗面', '月之暗面 Kimi', 'ムーンショット', 'Кими', 'كيمي'], canonical: 'kimi' },
-  { aliases: ['智谱 AI', '智谱', '智谱大模型', 'チープー', 'Чжипу', 'زيبو'], canonical: 'zhipu' },
-  { aliases: ['百度智能云', '百度千帆', '文心一言', '文心大模型', '百度', 'バイドゥ', 'Байду', 'بايدو'], canonical: 'baidu' },
-  { aliases: ['火山方舟', '火山引擎', '豆包大模型', '豆包', 'volcengine ark', 'ドウバオ', 'БайтДэнс', 'بايت دانس'], canonical: 'doubao' },
+  { aliases: ['通义千问', '通義千問', '千问', '千問', 'tongyi qianwen', 'qianwen', 'tongyi', '通义', 'qianwen 大模型'], canonical: 'qwen' },
+  { aliases: ['深度求索', '深度求索 AI', 'ディープシーク', 'ДипСик', 'ديب سيك', '大鲸鱼', '大肥鱼', '大鲸', '大肥', '鲸鱼', '肥鱼'], canonical: 'deepseek' },
+  { aliases: ['月之暗面', '月之暗面 Kimi', 'ムーンショット', 'Кими', 'كيمي', 'kimi 大模型'], canonical: 'kimi' },
+  { aliases: ['智谱 AI', '智谱', '智谱大模型', 'チープー', 'Чжипу', 'زيبو', '清言'], canonical: 'zhipu' },
+  { aliases: ['百度智能云', '百度千帆', '文心一言', '文心大模型', '百度', 'バイドゥ', 'Байду', 'بايدو', '文言一心', '文心'], canonical: 'baidu' },
+  { aliases: ['火山方舟', '火山引擎', '豆包大模型', '豆包', 'volcengine ark', 'ドウバオ', 'БайтДэнс', 'بايت دانس', '糖包', '糖包大模型'], canonical: 'doubao' },
   { aliases: ['阶跃星辰', '阶跃 AI', '阶跃', '跃问', 'yuewen', 'ステップファン'], canonical: 'stepfun' },
   { aliases: ['硅基流动', '硅基流动平台', '硅基流动云', 'siliconcloud', 'silicon cloud', 'シリコンフロー', 'СиликонФлоу', 'سيليكون فلو'], canonical: 'siliconflow' },
   { aliases: ['魔搭社区', '魔搭', 'モデルスコープ'], canonical: 'modelscope' },
@@ -829,6 +828,8 @@ const QUERY_ALIAS_REPLACEMENTS: readonly { aliases: readonly string[]; canonical
   { aliases: ['亚马逊云', '亚马逊', 'アマゾン', 'Амазон', 'أمازون'], canonical: 'amazon' },
   { aliases: ['脸书 AI', '메타', 'メタ', 'Мета', 'ميتا'], canonical: 'meta' },
   { aliases: ['抱抱脸', 'ハギングフェイス', 'Хаггинг Фейс', 'هاغينغ فيس'], canonical: 'huggingface' },
+  { aliases: ['鸡皮剃', '鸡皮t', '鸡毛t', 'ChatGPT', 'chat gpt', '聊天GPT'], canonical: 'openai' },
+  { aliases: ['克劳德', 'Claude', ' Claude AI'], canonical: 'anthropic' },
 ]
 
 const CONTEXT_REPLACEMENTS: readonly { aliases: readonly string[]; canonical: string }[] = [

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import catalog from '../src-tauri/resources/provider-catalog.json'
 
-assert.equal(catalog.length, 178, 'the bundled provider directory must contain 178 providers')
-assert.equal(new Set(catalog.map((provider) => provider.id)).size, 178, 'provider IDs must be unique')
+assert.equal(catalog.length, 179, 'the bundled provider directory must contain 179 providers')
+assert.equal(new Set(catalog.map((provider) => provider.id)).size, 179, 'provider IDs must be unique')
 assert.equal(
   catalog.reduce((count, provider) => count + provider.models.length, 0),
-  5_482,
+  5_485,
   'the bundled provider directory must retain the complete model snapshot',
 )
 assert.deepEqual(

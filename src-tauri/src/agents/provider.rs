@@ -19,6 +19,41 @@ const MAX_PROVIDER_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESPONSE_TEXT_BYTES: usize = 1024 * 1024;
 const MAX_SSE_EVENTS: usize = 16_384;
 
+/// Anthropic rejects a request with more than four explicit `cache_control`
+/// breakpoints across `system`, `messages`, and `tools`.
+const ANTHROPIC_CACHE_BREAKPOINT_CAP: usize = 4;
+/// The stable system prefix is cached on its own breakpoint. Everything the
+/// caller still has budget for becomes a rolling window over the conversation
+/// tail, so a follow-up turn (or the next tool round) reads the entire history
+/// from cache instead of re-billing it as cache misses.
+const ANTHROPIC_SYSTEM_BREAKPOINTS: usize = 1;
+const ANTHROPIC_CONVERSATION_BREAKPOINTS: usize =
+    ANTHROPIC_CACHE_BREAKPOINT_CAP.saturating_sub(ANTHROPIC_SYSTEM_BREAKPOINTS);
+
+fn ephemeral_cache_control() -> Value {
+    json!({ "type": "ephemeral" })
+}
+
+/// Marks the trailing `count` Anthropic conversation entries with a cache
+/// breakpoint. A breakpoint caches the whole request prefix up to and including
+/// that block, which is what makes the next request's identical prefix a read.
+fn mark_anthropic_conversation_breakpoints(messages: &mut [Value], count: usize) {
+    let start = messages.len().saturating_sub(count.min(messages.len()));
+    for message in messages.iter_mut().skip(start) {
+        let Some(blocks) = message
+            .get_mut("content")
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+        // A breakpoint is honoured on the block the prefix ends at; marking the
+        // last block of the message is enough for the prefix to be cached.
+        if let Some(block) = blocks.last_mut().filter(|block| block.is_object()) {
+            block["cache_control"] = ephemeral_cache_control();
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderMessage {
     pub role: String,
@@ -212,8 +247,13 @@ async fn complete_openai(
     if let Some(effort) = openai_reasoning_effort(reasoning) {
         body["reasoning_effort"] = Value::String(effort);
     }
-    if provider.id == "openai" || provider.api.contains("opencode.ai") {
-        body["prompt_cache_key"] = Value::String(prompt_cache_key(context.conversation_id));
+    // A stable key routes OpenAI's automatic prefix cache to the same shard
+    // across turns of one conversation, and keeps different providers from
+    // evicting each other. Strict OpenAI-compatible deployments 400 on unknown
+    // fields, so the hint is only sent where it is documented.
+    if provider_supports_prompt_cache_key(provider) {
+        body["prompt_cache_key"] =
+            Value::String(prompt_cache_key(&provider.id, context.conversation_id));
     }
     let mut request = store.client.post(url).json(&body);
     if !provider.is_local {
@@ -263,6 +303,55 @@ fn openai_messages(
         .collect()
 }
 
+/// Builds the Anthropic Messages request body.
+///
+/// Caching policy: one breakpoint anchors the joined system prefix, and a
+/// rolling window anchors the conversation tail. Together they mean the next
+/// turn of the same conversation (and the next tool round) re-sends a prefix
+/// that is already resident, so only the newly appended tokens are billed as
+/// cache misses instead of the whole history.
+fn anthropic_request_body(
+    model: &str,
+    reasoning: &Option<Value>,
+    messages: &[ProviderMessage],
+) -> Value {
+    let system = messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let mut conversation = messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .map(|message| {
+            json!({
+                "role": if message.role == "assistant" { "assistant" } else { "user" },
+                "content": [{ "type": "text", "text": message.content }]
+            })
+        })
+        .collect::<Vec<_>>();
+    mark_anthropic_conversation_breakpoints(
+        &mut conversation,
+        ANTHROPIC_CONVERSATION_BREAKPOINTS,
+    );
+    let mut body = json!({
+        "model": model,
+        "max_tokens": 8192,
+        "messages": conversation,
+        "stream": true
+    });
+    if !system.trim().is_empty() {
+        body["system"] = json!([{
+            "type": "text",
+            "text": system,
+            "cache_control": ephemeral_cache_control()
+        }]);
+    }
+    apply_anthropic_reasoning(&mut body, reasoning);
+    body
+}
+
 async fn complete_anthropic(
     store: &ProviderStore,
     provider: &ResolvedProvider,
@@ -276,34 +365,7 @@ async fn complete_anthropic(
     } else {
         append_endpoint(&provider.api, "v1/messages")
     };
-    let system = messages
-        .iter()
-        .filter(|message| message.role == "system")
-        .map(|message| message.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let conversation = messages
-        .iter()
-        .filter(|message| message.role != "system")
-        .map(|message| {
-            json!({
-                "role": if message.role == "assistant" { "assistant" } else { "user" },
-                "content": message.content
-            })
-        })
-        .collect::<Vec<_>>();
-    let mut body = json!({
-        "model": model,
-        "max_tokens": 8192,
-        "system": [{
-            "type": "text",
-            "text": system,
-            "cache_control": { "type": "ephemeral" }
-        }],
-        "messages": conversation,
-        "stream": true
-    });
-    apply_anthropic_reasoning(&mut body, reasoning);
+    let body = anthropic_request_body(model, reasoning, messages);
     let request = store
         .client
         .post(url)
@@ -919,11 +981,21 @@ fn google_thinking_config(reasoning: &Option<Value>) -> Option<Value> {
     }
 }
 
-fn prompt_cache_key(conversation_id: &str) -> String {
+fn prompt_cache_key(provider_id: &str, conversation_id: &str) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"wps-office-agent-cache-v2\0");
+    digest.update(b"office-agentic-cache-v3\0");
+    digest.update(provider_id.as_bytes());
+    digest.update(b"\0");
     digest.update(conversation_id.as_bytes());
     hex::encode(digest.finalize())
+}
+
+/// True for deployments that document `prompt_cache_key`. An unknown field is a
+/// hard 400 on strict OpenAI-compatible servers, so the hint is never sent
+/// speculatively.
+fn provider_supports_prompt_cache_key(provider: &ResolvedProvider) -> bool {
+    matches!(provider.protocol, ProviderProtocol::Openai)
+        || provider.api.contains("opencode.ai")
 }
 
 fn append_endpoint(base: &str, endpoint: &str) -> String {
@@ -1237,6 +1309,123 @@ mod tests {
         assert_eq!(usage.prompt_tokens, 12);
         assert_eq!(usage.completion_tokens, 4);
         assert!(usage.measured);
+    }
+
+    #[test]
+    fn anthropic_body_anchors_the_system_prefix_and_the_conversation_tail() {
+        let messages = vec![
+            ProviderMessage {
+                role: "system".to_owned(),
+                content: "rules".to_owned(),
+            },
+            ProviderMessage {
+                role: "user".to_owned(),
+                content: "first".to_owned(),
+            },
+            ProviderMessage {
+                role: "assistant".to_owned(),
+                content: "second".to_owned(),
+            },
+            ProviderMessage {
+                role: "user".to_owned(),
+                content: "third".to_owned(),
+            },
+            ProviderMessage {
+                role: "assistant".to_owned(),
+                content: "fourth".to_owned(),
+            },
+            ProviderMessage {
+                role: "user".to_owned(),
+                content: "fifth".to_owned(),
+            },
+        ];
+        let body = anthropic_request_body("claude", &None, &messages);
+
+        let system = body["system"].as_array().unwrap();
+        assert_eq!(system.len(), 1);
+        assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
+
+        let conversation = body["messages"].as_array().unwrap();
+        assert_eq!(conversation.len(), 5);
+        // Every turn of the history is lowered to a text content block so the
+        // trailing blocks can carry a cache breakpoint.
+        assert!(conversation
+            .iter()
+            .all(|message| message["content"][0]["type"] == "text"));
+        // The rolling window marks the tail and nothing older, and it never
+        // exceeds Anthropic's four-breakpoint request cap once the system
+        // prefix is counted.
+        let breakpoints = conversation
+            .iter()
+            .filter(|message| message["content"][0]["cache_control"].is_object())
+            .count();
+        assert_eq!(breakpoints, ANTHROPIC_CONVERSATION_BREAKPOINTS);
+        assert!(breakpoints + 1 <= ANTHROPIC_CACHE_BREAKPOINT_CAP);
+        assert!(conversation[0]["content"][0]["cache_control"].is_null());
+        assert!(conversation[1]["content"][0]["cache_control"].is_null());
+        assert!(conversation[3]["content"][0]["cache_control"].is_object());
+        assert!(conversation[4]["content"][0]["cache_control"].is_object());
+    }
+
+    #[test]
+    fn anthropic_body_marks_every_conversation_turn_below_the_cap() {
+        let messages = vec![
+            ProviderMessage {
+                role: "user".to_owned(),
+                content: "only".to_owned(),
+            },
+        ];
+        let body = anthropic_request_body("claude", &None, &messages);
+        let conversation = body["messages"].as_array().unwrap();
+        assert!(conversation
+            .iter()
+            .all(|message| message["content"][0]["cache_control"].is_object()));
+    }
+
+    #[test]
+    fn anthropic_body_omits_an_empty_system_block() {
+        let messages = vec![ProviderMessage {
+            role: "user".to_owned(),
+            content: "hi".to_owned(),
+        }];
+        let body = anthropic_request_body("claude", &None, &messages);
+        assert!(body.get("system").is_none());
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+    }
+
+    #[test]
+    fn prompt_cache_keys_are_stable_and_provider_scoped() {
+        let openai = ResolvedProvider {
+            id: "openai".to_owned(),
+            api: "https://api.openai.com/v1".to_owned(),
+            protocol: ProviderProtocol::Openai,
+            is_local: false,
+        };
+        let gateway = ResolvedProvider {
+            id: "gateway".to_owned(),
+            api: "https://gateway.example/v1".to_owned(),
+            protocol: ProviderProtocol::OpenaiCompatible,
+            is_local: false,
+        };
+        assert!(provider_supports_prompt_cache_key(&openai));
+        // An unknown field is a hard 400 on strict compatible endpoints.
+        assert!(!provider_supports_prompt_cache_key(&gateway));
+
+        assert_eq!(
+            prompt_cache_key("openai", "conversation"),
+            prompt_cache_key("openai", "conversation")
+        );
+        assert_ne!(
+            prompt_cache_key("openai", "conversation"),
+            prompt_cache_key("anthropic", "conversation")
+        );
+        assert_ne!(
+            prompt_cache_key("openai", "conversation"),
+            prompt_cache_key("openai", "other")
+        );
     }
 
     #[test]

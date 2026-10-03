@@ -35,7 +35,7 @@ case "$arch" in
 esac
 
 mkdir -p "$install_dir"
-installed_appimage="$install_dir/wps-agent-editor.AppImage"
+installed_appimage="$install_dir/Office-Agentic.AppImage"
 cp "$appimage" "$installed_appimage"
 chmod 0755 "$installed_appimage"
 

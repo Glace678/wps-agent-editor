@@ -15,7 +15,7 @@ function writeOctal(header, offset, length, value) {
 }
 
 function createTarWithoutAppImage() {
-  const body = Buffer.from('WPS Agent Editor signed invalid-install fixture\n', 'utf8')
+  const body = Buffer.from('Office Agentic signed invalid-install fixture\n', 'utf8')
   const header = Buffer.alloc(512)
   header.write('invalid-install-fixture.txt', 0, 100, 'ascii')
   writeOctal(header, 100, 8, 0o644)
@@ -36,7 +36,7 @@ function createTarWithoutAppImage() {
 
 const payload = platform === 'linux'
   ? gzipSync(createTarWithoutAppImage(), { level: 9, mtime: 0 })
-  : Buffer.from(`WPS Agent Editor signed non-installable updater fixture for ${target}\n`, 'utf8')
+  : Buffer.from(`Office Agentic signed non-installable updater fixture for ${target}\n`, 'utf8')
 const outputDirectory = resolve(outputArg)
 const outputPath = resolve(outputDirectory, `updater-invalid-install-${target}.bin`)
 await mkdir(outputDirectory, { recursive: true })

@@ -45,7 +45,7 @@ export function BottomPanel() {
   const debugStatus = useDebugStore((s) => s.status)
   const [problemCount, setProblemCount] = useState(0)
   const resizeRef = useRef<{ cleanup: (() => void) | null }>({ cleanup: null })
-  const startResize = useCallback((startY: number) => {
+  const startResize = useCallback(() => {
     const onMove = (event: MouseEvent) => {
       const next = window.innerHeight - event.clientY
       const clamped = Math.min(
@@ -114,7 +114,7 @@ export function BottomPanel() {
           className="h-[4px] shrink-0 cursor-ns-resize bg-transparent hover:bg-primary/40 active:bg-primary/60"
           onMouseDown={(event) => {
             event.preventDefault()
-            startResize(event.clientY)
+            startResize()
           }}
           data-testid="bottom-panel-resize-handle"
         />

@@ -67,7 +67,7 @@ async function createReleaseFixture(name) {
   }
   await writeFile(join(directory, 'sbom-npm.cdx.json'), '{"bomFormat":"CycloneDX"}\n')
   await writeFile(join(directory, 'sbom-rust.cdx.json'), '{"bomFormat":"CycloneDX"}\n')
-  await writeFile(join(directory, `WPS-Agent-Editor-${tag}-source.zip`), Buffer.from('504b0304', 'hex'))
+  await writeFile(join(directory, `Office-Agentic-${tag}-source.zip`), Buffer.from('504b0304', 'hex'))
   return directory
 }
 
@@ -83,7 +83,7 @@ async function createUnsignedFixture(name, tag) {
   }
   await writeFile(join(directory, 'sbom-npm.cdx.json'), '{"bomFormat":"CycloneDX"}\n')
   await writeFile(join(directory, 'sbom-rust.cdx.json'), '{"bomFormat":"CycloneDX"}\n')
-  await writeFile(join(directory, `WPS-Agent-Editor-${tag}-source.zip`), Buffer.from('504b0304', 'hex'))
+  await writeFile(join(directory, `Office-Agentic-${tag}-source.zip`), Buffer.from('504b0304', 'hex'))
   return directory
 }
 
@@ -154,7 +154,7 @@ try {
     'icons/icon.ico',
   ])
   const linuxDesktopRelativePath = tauriConfig.bundle.linux?.deb?.desktopTemplate
-  assert.equal(linuxDesktopRelativePath, 'linux/wps-agent-editor.desktop')
+  assert.equal(linuxDesktopRelativePath, 'linux/Office-Agentic.desktop')
   const linuxDesktop = await readFile(join(root, 'src-tauri', linuxDesktopRelativePath), 'utf8')
   assert.match(linuxDesktop, /^Exec=\{\{exec\}\} %F$/m)
   assert.match(linuxDesktop, /^StartupWMClass=\{\{exec\}\}$/m)

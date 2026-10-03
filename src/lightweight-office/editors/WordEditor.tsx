@@ -743,7 +743,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
         eyeCare={eyeCare}
         onEyeCareChange={setEyeCare}
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={(mode) => setViewMode((current) => (current === mode ? 'page' : mode))}
       />
       <WordCaret
         editorRootRef={editorRootRef}

@@ -6,7 +6,7 @@ import type {
   DebugVariable,
 } from '@/types/code'
 
-export const BREAKPOINT_STORAGE_KEY = 'wps-code-breakpoints'
+export const BREAKPOINT_STORAGE_KEY = 'officeagentic-code-breakpoints'
 
 export interface DebugConsoleLine {
   id: string
