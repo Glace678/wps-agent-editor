@@ -979,6 +979,8 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   const baselineFingerprintRef = useRef('')
   const lastContentSnapshotRef = useRef<readonly Sheet[] | null>(null)
   const dirtyCheckTimerRef = useRef<number | null>(null)
+  /** Tracks the 500ms post-mount baseline settle timer so it can be cancelled. */
+  const baselineSettleTimerRef = useRef<number | null>(null)
   const dirtyReportedRef = useRef(false)
   const activeCellColorSyncRef = useRef<() => void>(() => {})
   const sheetsRef = useRef<Sheet[]>([])
@@ -1022,6 +1024,15 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   }, [cancelPendingDirtyCheck])
 
   useEffect(() => () => cancelPendingDirtyCheck(), [cancelPendingDirtyCheck])
+
+  const cancelBaselineSettle = useCallback(() => {
+    if (baselineSettleTimerRef.current === null) return
+    window.clearTimeout(baselineSettleTimerRef.current)
+    baselineSettleTimerRef.current = null
+  }, [])
+
+  // Cancel the post-mount baseline settle timer on unmount.
+  useEffect(() => () => cancelBaselineSettle(), [cancelBaselineSettle])
 
   const workbookLanguage = language === 'zh-CN'
     ? 'zh'
@@ -1069,6 +1080,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     lastContentSnapshotRef.current = null
     dirtyReportedRef.current = false
     cancelPendingDirtyCheck()
+    cancelBaselineSettle()
     documentBridge.clear()
     savePathRef.current = getExtension(filePath) === 'xlsx'
       ? filePath
@@ -1081,6 +1093,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
         console.log('[ExcelEditor] 文件读取成功，大小:', buffer.byteLength, 'bytes')
         if (cancelled) return
         const loaded = await xlsxBufferToSheets(buffer)
+        // The parse await can span a file switch; discard a stale result so it
+        // cannot overwrite the newly requested workbook / baseline / state.
+        if (cancelled) return
         console.log('[ExcelEditor] 解析成功，工作表数:', loaded.length)
         sheetsRef.current = loaded
         lastContentSnapshotRef.current = loaded
@@ -1099,7 +1114,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       documentBridge.clear()
       onRegisterSave(null)
     }
-  }, [cancelPendingDirtyCheck, filePath, onRegisterSave])
+  }, [cancelBaselineSettle, cancelPendingDirtyCheck, filePath, onRegisterSave])
 
   useEffect(() => {
     onRegisterSave(async () => {
@@ -2385,7 +2400,13 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     documentBridge.setExcel(api, filePath)
     // Wait for Fortune's post-mount normalization, then lock the clean baseline.
     // (Single rAF was too short — click/selection still looked "dirty".)
-    window.setTimeout(() => {
+    cancelBaselineSettle()
+    baselineSettleTimerRef.current = window.setTimeout(() => {
+      baselineSettleTimerRef.current = null
+      // Guard against a file switch / re-mount while the timer was pending:
+      // only the workbook instance that scheduled this settle may lock the
+      // baseline, otherwise the new workbook would be treated as already saved.
+      if (workbookRef.current !== api) return
       const snapshot = workbookRef.current?.getAllSheets?.() ?? sheetsRef.current
       sheetsRef.current = snapshot
       lastContentSnapshotRef.current = snapshot
@@ -2394,7 +2415,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       suppressDirtyRef.current = false
     }, 500)
     onReadyRef.current()
-  }, [filePath])
+  }, [cancelBaselineSettle, filePath])
 
   /**
    * DPR 变化监听（窗口拖到不同缩放比的显示器）：

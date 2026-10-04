@@ -22,13 +22,25 @@ export const BOTTOM_PANEL_TAB_KEY = 'officeagentic-bottom-panel-tab'
 export const PANEL_MIN_HEIGHT = 96
 export const PANEL_MAX_HEIGHT_RATIO = 0.55
 
+function clampHeight(height: number): number {
+  return Number.isFinite(height) ? Math.max(PANEL_MIN_HEIGHT, Math.min(800, height)) : 200
+}
+
 function loadHeight(): number {
   try {
     const raw = localStorage.getItem(BOTTOM_PANEL_HEIGHT_KEY)
-    const parsed = raw ? Number(raw) : 200
-    return Number.isFinite(parsed) ? Math.max(PANEL_MIN_HEIGHT, Math.min(800, parsed)) : 200
+    return clampHeight(raw ? Number(raw) : 200)
   } catch {
     return 200
+  }
+}
+
+/** Fault-tolerant write: in-memory state must never depend on storage success. */
+function persist(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Storage unavailable (private mode / quota / security policy).
   }
 }
 
@@ -78,16 +90,19 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   setOpen: (open) => set({ open }),
   toggleOpen: () => set((state) => ({ open: !state.open })),
   setTab: (tab) => {
-    localStorage.setItem(BOTTOM_PANEL_TAB_KEY, tab)
     set({ tab })
+    persist(BOTTOM_PANEL_TAB_KEY, tab)
   },
   openTab: (tab) => {
-    localStorage.setItem(BOTTOM_PANEL_TAB_KEY, tab)
     set({ open: true, tab })
+    persist(BOTTOM_PANEL_TAB_KEY, tab)
   },
   setHeight: (height) => {
-    localStorage.setItem(BOTTOM_PANEL_HEIGHT_KEY, String(height))
-    set({ height })
+    // Reuse the same finite-check + clamp as the restore path so the current
+    // session never persists an out-of-range / non-finite height.
+    const clamped = clampHeight(height)
+    set({ height: clamped })
+    persist(BOTTOM_PANEL_HEIGHT_KEY, String(clamped))
   },
   showRunResult: (output) => {
     set({

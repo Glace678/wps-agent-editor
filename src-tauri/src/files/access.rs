@@ -11,6 +11,12 @@ use crate::error::{AppError, AppResult};
 
 use super::{app_error, models::GrantedPath, path_key, path_string};
 
+/// Hard cap on how many `GrantSource::Child` grants a single owner may hold at
+/// once. Repeated directory listings reuse an existing child grant, so this only
+/// backstops genuinely distinct paths and bounds registry growth over a long
+/// window.
+const MAX_CHILD_GRANTS_PER_OWNER: usize = 2048;
+
 /// The trusted action which caused the native side to mint an opaque path grant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GrantSource {
@@ -32,6 +38,7 @@ struct Grant {
     is_directory: bool,
     source: GrantSource,
     expires_at: Option<Instant>,
+    minted_at: Instant,
 }
 
 #[derive(Default)]
@@ -101,6 +108,22 @@ impl AccessRegistry {
         }
         let metadata = std::fs::metadata(&canonical)
             .map_err(|error| io_error("grant-child", &canonical, error))?;
+        // Reuse an existing child grant for this owner and canonical path so that
+        // repeatedly listing the same directory returns stable grant ids instead
+        // of minting an unbounded number of new UUID grants.
+        {
+            let grants = self.grants.read().map_err(lock_error)?;
+            if let Some((existing_id, _)) = grants.iter().find(|(_, grant)| {
+                grant.owner == owner
+                    && grant.source == GrantSource::Child
+                    && path_key(&grant.path) == path_key(&canonical)
+            }) {
+                return Ok(GrantedPath {
+                    path: path_string(&canonical)?,
+                    grant_id: existing_id.clone(),
+                });
+            }
+        }
         self.insert(
             owner,
             canonical,
@@ -307,7 +330,11 @@ impl AccessRegistry {
         validate_owner(owner)?;
         let id = Uuid::new_v4().to_string();
         let expires_at = expires_after.and_then(|duration| Instant::now().checked_add(duration));
-        self.grants.write().map_err(lock_error)?.insert(
+        let mut grants = self.grants.write().map_err(lock_error)?;
+        if source == GrantSource::Child {
+            self.enforce_child_grant_budget(&mut grants, owner);
+        }
+        grants.insert(
             id.clone(),
             Grant {
                 owner: owner.to_owned(),
@@ -316,12 +343,36 @@ impl AccessRegistry {
                 is_directory,
                 source,
                 expires_at,
+                minted_at: Instant::now(),
             },
         );
         Ok(GrantedPath {
             path: path_string(&path)?,
             grant_id: id,
         })
+    }
+
+    /// Evicts least-recently-minted child grants for an owner until the owner is
+    /// back under the per-owner budget, bounding registry growth while a window
+    /// stays alive.
+    fn enforce_child_grant_budget(
+        &self,
+        grants: &mut HashMap<String, Grant>,
+        owner: &str,
+    ) {
+        let mut child_ids: Vec<(String, Instant)> = grants
+            .iter()
+            .filter(|(_, grant)| grant.owner == owner && grant.source == GrantSource::Child)
+            .map(|(id, grant)| (id.clone(), grant.minted_at))
+            .collect();
+        child_ids.sort_unstable_by_key(|(_, minted_at)| *minted_at);
+        while child_ids.len() >= MAX_CHILD_GRANTS_PER_OWNER {
+            let Some((oldest, _)) = child_ids.first().cloned() else {
+                break;
+            };
+            grants.remove(&oldest);
+            child_ids.remove(0);
+        }
     }
 }
 

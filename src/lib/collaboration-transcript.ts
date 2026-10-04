@@ -112,15 +112,47 @@ export function stripToolFences(text: string): string {
 }
 
 /**
+ * True when a fence info string identifies a (possibly half-emitted) tool
+ * fence: "tool", or a partial prefix typed mid-stream such as "t"/"to"/"too".
+ */
+function isToolLikeFenceTag(tag: string): boolean {
+  return tag.length > 0 && ('tool'.startsWith(tag) || tag.startsWith('tool'))
+}
+
+/**
+ * After complete ```tool blocks are removed, drop only an *unclosed* tool fence
+ * that is still streaming. A normal, still-open Markdown code fence (e.g. an
+ * unclosed ```python) must stay visible — it is not a tool call.
+ */
+function stripUnclosedToolFenceLive(text: string): string {
+  const lines = text.split('\n')
+  let openTag: string | null = null
+  let openIndex = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*```/.test(lines[i])) continue
+    if (openTag === null) {
+      openTag = lines[i].replace(/^\s*```/, '').trim()
+      openIndex = i
+    } else {
+      // A closing fence balances the currently open one.
+      openTag = null
+      openIndex = -1
+    }
+  }
+  if (openTag === null) return text
+  // Unterminated fence at EOF: hide only when it is a (partial) tool fence.
+  return isToolLikeFenceTag(openTag) ? lines.slice(0, openIndex).join('\n') : text
+}
+
+/**
  * Streaming variant: frames are accumulated and a ```tool block may be only
- * half-emitted (open fence, partial "tool" prefix). Hides the unfinished tail
- * so raw fence syntax never flashes in the live bubble.
+ * half-emitted (open fence, partial "tool" prefix). Hides the unfinished tool
+ * tail so raw fence syntax never flashes in the live bubble, while leaving
+ * ordinary Markdown code fences visible.
  */
 export function stripToolFencesLive(text: string): string {
   const closed = stripToolFences(text)
-  // Collaboration turns only use fences for tool calls, so an unclosed fence
-  // is always a half-emitted ```tool block.
-  return closed.replace(/```[\s\S]*$/i, '').trim()
+  return stripUnclosedToolFenceLive(closed).trim()
 }
 
 /**
@@ -312,11 +344,21 @@ export function buildCollaborationTranscript(
           if (visible) {
             activeSpeech.text = visible
             activeSpeech.streaming = false
+            settledSpeech.add(lastKey)
           } else {
             // Tool-only turn: the delegation card / system line replaces it.
-            activeSpeech.hidden = true
+            // Only hide the prior bubble when we can tie it to THIS turn — via
+            // a shared operation id or a still-streaming bubble. If the last
+            // bubble belongs to an earlier, already-answered turn, leave it
+            // visible and just clear the typing row instead.
+            const belongsToCurrentTurn =
+              (event.operationId !== undefined && speechByOperation.get(event.operationId) === lastKey)
+              || activeSpeech.streaming === true
+            if (belongsToCurrentTurn) {
+              activeSpeech.hidden = true
+              settledSpeech.add(lastKey)
+            }
           }
-          settledSpeech.add(lastKey)
           settleTyping(agentId)
           break
         }

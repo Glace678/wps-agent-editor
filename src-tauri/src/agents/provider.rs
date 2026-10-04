@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{models::AgentCacheUsage, store::AgentConfig};
 
-const MAX_PROVIDER_BODY_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_PROVIDER_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESPONSE_TEXT_BYTES: usize = 1024 * 1024;
 const MAX_SSE_EVENTS: usize = 16_384;
 
@@ -616,6 +616,44 @@ async fn read_limited_body(
         body.extend_from_slice(&chunk);
     }
     Ok(body)
+}
+
+/// Reads a JSON response body with a hard byte cap for the provider
+/// discovery / custom-test / catalog paths that have no agent-run cancellation
+/// token. It rejects an over-large declared `Content-Length` up front, then
+/// accumulates the streamed body chunk by chunk and hard-rejects once the
+/// cumulative bytes exceed the cap, before any deserialization happens.
+pub(crate) async fn read_bounded_json(response: Response) -> AppResult<Value> {
+    if response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length > MAX_PROVIDER_BODY_BYTES)
+    {
+        return Err(AppError::new(
+            "response-too-large",
+            "Provider response exceeded the 2 MiB limit",
+        ));
+    }
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if body.len().saturating_add(chunk.len()) > MAX_PROVIDER_BODY_BYTES {
+            return Err(AppError::new(
+                "response-too-large",
+                "Provider response exceeded the 2 MiB limit",
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).map_err(|error| {
+        AppError::new(
+            "invalid-provider-response",
+            format!("Provider returned invalid JSON: {error}"),
+        )
+    })
 }
 
 fn parse_openai_events(events: Vec<(String, Value)>) -> AppResult<(String, AgentCacheUsage)> {

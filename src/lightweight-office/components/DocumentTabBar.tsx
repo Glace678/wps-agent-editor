@@ -218,6 +218,21 @@ export function DocumentTabBar({
       onSelect(tabId)
       return
     }
+    // Ctrl+Shift+Arrow: move tab in the strip (keyboard reorder). This must be
+    // checked before the plain arrow-key branches, which would otherwise intercept
+    // the same keys and switch tabs instead of reordering.
+    if (event.ctrlKey && event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault()
+      const targetIndex = event.key === 'ArrowLeft' ? index - 1 : index + 1
+      if (targetIndex < 0 || targetIndex >= tabs.length) return
+      commitReorder(tabId, tabs[targetIndex].id)
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>(`[data-document-tab-id="${CSS.escape(tabId)}"]`)
+          ?.focus()
+      })
+      return
+    }
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
       event.preventDefault()
       focusTabAt((index + 1) % tabs.length)
@@ -237,18 +252,6 @@ export function DocumentTabBar({
       event.preventDefault()
       focusTabAt(tabs.length - 1)
       return
-    }
-    // Ctrl+Shift+Arrow: move tab in the strip (keyboard reorder)
-    if (event.ctrlKey && event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-      event.preventDefault()
-      const targetIndex = event.key === 'ArrowLeft' ? index - 1 : index + 1
-      if (targetIndex < 0 || targetIndex >= tabs.length) return
-      commitReorder(tabId, tabs[targetIndex].id)
-      requestAnimationFrame(() => {
-        document
-          .querySelector<HTMLElement>(`[data-document-tab-id="${CSS.escape(tabId)}"]`)
-          ?.focus()
-      })
     }
   }
 

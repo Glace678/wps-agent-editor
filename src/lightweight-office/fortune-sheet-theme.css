@@ -6,8 +6,10 @@
   min-height: 0;
   overflow: hidden;
   background: #fff;
-  /* Containment to limit repaint scope during animations */
-  contain: layout paint size;
+  /* Containment to limit repaint scope during animations. `paint` is deliberately
+     omitted: a paint-contained ancestor clips position:fixed descendants such as
+     the modal overlay/dialog, cutting off its mask and buttons. */
+  contain: layout size;
   /* IMPORTANT: no transform / will-change in the steady state. A permanently
      promoted layer skips Chromium's device-pixel snapping, so at fractional
      DPR the worksheet canvas lands on sub-pixel offsets and every glyph is
@@ -28,8 +30,6 @@
   /* 禁止任何可能触发重排的样式变化 */
   width: auto !important;
   height: 100% !important;
-  /* 禁用鼠标事件，避免悬停触发重绘 */
-  pointer-events: none !important;
 }
 
 /* 动画期间冻结 Canvas 渲染 */
@@ -49,7 +49,6 @@
   contain: strict !important;
   will-change: transform !important;
   transform: translateZ(0) !important;
-  pointer-events: none !important;
 }
 
 /* Text 编辑器动画优化 */
@@ -58,7 +57,6 @@
   contain: strict !important;
   will-change: transform !important;
   transform: translateZ(0) !important;
-  pointer-events: none !important;
 }
 
 /* PDF 查看器动画优化 */
@@ -67,7 +65,6 @@
   contain: strict !important;
   will-change: transform !important;
   transform: translateZ(0) !important;
-  pointer-events: none !important;
 }
 
 .excel-editor-shell > .fortune-container,
@@ -1650,9 +1647,9 @@
    ========================================================================== */
 .excel-editor-shell #fortune-custom-color,
 .excel-editor-shell #fortune-change-color {
-  min-width: 356px;
-  width: 356px;
-  max-width: 356px;
+  min-width: 360px;
+  width: 360px;
+  max-width: 360px;
   padding: 12px;
   background: #252526 !important;
   border-radius: var(--excel-dropdown-radius, 8px);

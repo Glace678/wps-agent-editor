@@ -163,19 +163,22 @@ async function installSampler(page: Page): Promise<void> {
     requestAnimationFrame(sample)
 
     const topState = () => {
-      const viewport = document.querySelector('.presentation-editor__viewport')
-      const vpRect = viewport?.getBoundingClientRect()
-      if (!viewport || !vpRect) return null
+      // The real scroller (.super-editor-container.contained) has a bounded
+      // height; .presentation-editor__viewport does not clip, so measuring
+      // against it always reports page 0. Use the scroller's rect + scrollTop.
+      const sc = document.querySelector('.super-editor-container.contained')
+      const scRect = sc?.getBoundingClientRect()
+      if (!sc || !scRect) return null
       const pages = Array.from(
         document.querySelectorAll<HTMLElement>('.superdoc-page[data-page-index]'),
       )
       for (const p of pages) {
         const rect = p.getBoundingClientRect()
-        if (rect.bottom <= vpRect.top + 8) continue
-        if (rect.top >= vpRect.bottom) break
+        if (rect.bottom <= scRect.top + 8) continue
+        if (rect.top >= scRect.bottom) break
         return {
           topPage: Number.parseInt(p.dataset.pageIndex ?? '0', 10),
-          scrollTop: Math.round(viewport.scrollTop),
+          scrollTop: Math.round(sc.scrollTop),
         }
       }
       return null
@@ -356,16 +359,31 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
     'data-word-layout-mode',
     'book',
   )
-  const firstSpreadPages = await page
+  // book mode disables virtualization, so every spread/page renders. Iterate ALL
+  // spreads: each must pair exactly two consecutive pages, the union must cover
+  // pages 0..7 with no gaps and no duplicates.
+  const spreads = await page
     .locator('.presentation-editor__pages > .superdoc-spread')
-    .first()
-    .locator('.superdoc-page')
     .evaluateAll((els) =>
-      els.slice(0, 2).map((el) => (el as HTMLElement).dataset.pageIndex),
+      els.map((spread) =>
+        Array.from(spread.querySelectorAll('.superdoc-page')).map(
+          (p) => Number.parseInt((p as HTMLElement).dataset.pageIndex ?? '-1', 10),
+        ),
+      ),
     )
-  expect(firstSpreadPages, 'first spread must pair page 0 and page 1 (Word style)').toEqual([
-    '0',
-    '1',
+  expect(
+    spreads.length,
+    `8 pages in book mode should render 4 spreads, got ${JSON.stringify(spreads)}`,
+  ).toBe(4)
+  for (let i = 0; i < spreads.length; i += 1) {
+    expect(
+      spreads[i],
+      `spread ${i} must pair pages ${i * 2} and ${i * 2 + 1}, got ${JSON.stringify(spreads[i])}`,
+    ).toEqual([i * 2, i * 2 + 1])
+  }
+  const allPageIndices = spreads.flat()
+  expect(allPageIndices, 'page indices must be contiguous 0..7 with no duplicates').toEqual([
+    0, 1, 2, 3, 4, 5, 6, 7,
   ])
 
   // 双页模式下滚到底：最后一页视觉底边应贴近容器底边，
@@ -376,6 +394,16 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
     `book mode must not leave blank scroll area below the last page (blank=${bookBlank}px)`,
   ).toBeLessThan(60)
   expect(bookBlank, 'blank measurement must be finite').toBeGreaterThan(-60)
+
+  // Scroll to a deep, non-zero page before anchoring: otherwise the anchor test
+  // trivially compares page 0 (top) to page 0. We need to prove a real scroll
+  // position is preserved across the book→vertical mode switch. The real
+  // scroller is .super-editor-container.contained (same one measureBlank uses).
+  await page.evaluate(() => {
+    const sc = document.querySelector('.super-editor-container.contained') as HTMLElement | null
+    if (sc) sc.scrollTop = sc.scrollHeight
+  })
+  await page.waitForTimeout(900)
 
   await page.evaluate(() =>
     (
@@ -443,12 +471,18 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
     `expected exactly 2 page-rebuild episodes (mode switches), got ${JSON.stringify(rebuildEpisodes)}`,
   ).toBe(2)
 
-  // 覆盖层：两次切换期间都应有克隆覆盖帧，且结束时已撤收
+  // 覆盖层：每次模式切换（两次 rebuild 事件）期间都必须有克隆覆盖帧，
+  // 且结束时已撤收。不能只看"全程出现过若干帧"——要逐次切换各自覆盖。
+  for (const [i, ep] of rebuildEpisodes.entries()) {
+    const coversInWindow = summary.frames.filter(
+      (f) => f.t >= ep.t0 - 200 && f.t <= ep.t1 + 500 && f.cover > 0,
+    )
+    expect(
+      coversInWindow.length,
+      `mode switch #${i + 1} at t=[${Math.round(ep.t0)},${Math.round(ep.t1)}] must show a clone cover`,
+    ).toBeGreaterThan(0)
+  }
   const coverFrames = summary.frames.filter((f) => f.cover > 0)
-  expect(
-    coverFrames.length,
-    'mode-swap clone cover must be visible during switches',
-  ).toBeGreaterThan(3)
   const lastCover = Math.max(...coverFrames.map((f) => f.t))
   const lastFrame = summary.frames[summary.frames.length - 1]
   expect(
@@ -460,6 +494,16 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
   const before = summary.anchor.beforeZoomIn
   const after = summary.anchor.afterZoomIn
   expect(before && after, 'anchor samples must exist').toBeTruthy()
+  // We actually scrolled down in book mode (non-zero scroll position), and the
+  // book→vertical switch must NOT snap the scroll back to the very top.
+  expect(
+    before?.scrollTop ?? -1,
+    `anchor must be measured at a non-zero scroll position, got ${JSON.stringify(before)}`,
+  ).toBeGreaterThan(0)
+  expect(
+    after?.scrollTop ?? -1,
+    `mode switch must preserve the scroll position (not snap to top), got ${JSON.stringify(after)}`,
+  ).toBeGreaterThan(0)
   expect(
     Math.abs((after?.topPage ?? 0) - (before?.topPage ?? 0)),
     `anchor page drifted: before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,

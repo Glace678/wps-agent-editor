@@ -40,6 +40,9 @@ export class MuPdfWorkerClient {
   // 避免「响应被某一任调用方丢弃后不再重试」的竞态
   private readonly textLayerCache = new Map<number, Promise<PdfTextLayer>>()
   private disposed = false
+  // Crash gate: once the worker errors it cannot service further requests, so any
+  // later postMessage would hang forever. Fail closed instead of pending.
+  private workerFailed = false
 
   constructor(readonly documentId: string) {
     this.worker = new Worker(new URL('./mupdf.worker.ts', import.meta.url), {
@@ -60,6 +63,7 @@ export class MuPdfWorkerClient {
   }
 
   private readonly handleWorkerError = (event: ErrorEvent) => {
+    this.workerFailed = true
     const error = new MuPdfClientError(
       'pdf-worker-crashed',
       event.message || 'The PDF worker stopped unexpectedly',
@@ -74,6 +78,9 @@ export class MuPdfWorkerClient {
   ): Promise<TResult> {
     if (this.disposed) {
       return Promise.reject(new MuPdfClientError('pdf-worker-closed', 'The PDF worker is closed'))
+    }
+    if (this.workerFailed) {
+      return Promise.reject(new MuPdfClientError('pdf-worker-crashed', 'The PDF worker stopped unexpectedly'))
     }
     const requestId = crypto.randomUUID()
     const payload = { ...request, requestId, documentId: this.documentId } as PdfWorkerRequest

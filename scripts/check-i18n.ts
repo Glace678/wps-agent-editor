@@ -56,6 +56,32 @@ const localeEntries = Object.entries(translations) as [LanguageCode, Translation
 const expectedCodes = languages.map(({ code }) => code)
 const reviewedLocaleCodes = ['ja', 'es', 'pt', 'de', 'fr', 'ru', 'ar'] as const
 type ReviewedLocaleCode = (typeof reviewedLocaleCodes)[number]
+// Locales that legitimately bypass the deep reviewed-section checks: `en` is the
+// English baseline and `zh-CN` is the source-of-truth locale (not translated from
+// English, so "copied from English" has no meaning there) -- both already get the
+// generic key-parity, non-empty-value, placeholder, <30%-identical-to-English and
+// script-family checks in the loop over `localeEntries` below.
+//
+// Hard consistency guard: every locale that is NOT explicitly exempted above MUST
+// be listed in `reviewedLocaleCodes` (with its copiedEnglishAllowlist and
+// reviewedTranslationExpectations). When a new locale is added to `languages` it
+// lands in expectedCodes; unless it is added to this exempt list the assertion
+// below fails, so a new language can never silently skip the reviewed-section
+// checks just because the generic <30%-English threshold still passes.
+const exemptReviewedCodes = ['en', 'zh-CN'] as const
+const expectedReviewedCodes = expectedCodes
+  .filter((code) => !(exemptReviewedCodes as readonly string[]).includes(code))
+  .slice()
+  .sort()
+assert(
+  JSON.stringify([...reviewedLocaleCodes].slice().sort()) === JSON.stringify(expectedReviewedCodes),
+  'reviewedLocaleCodes must cover every non-exempt locale: expected ['
+    + `${expectedReviewedCodes.join(', ')}], reviewed [`
+    + `${[...reviewedLocaleCodes].slice().sort().join(', ')}]. `
+    + 'Add the new locale to reviewedLocaleCodes (with its copiedEnglishAllowlist '
+    + 'and reviewedTranslationExpectations) or, if it is a source/baseline locale, '
+    + 'list it in exemptReviewedCodes.',
+)
 const reviewedSections = ['codeEditor.', 'bottomPanel.'] as const
 const copiedEnglishAllowlist = {
   ja: [],

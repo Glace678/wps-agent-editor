@@ -6,11 +6,45 @@ function sourceUrl(relativePath: string): string {
   return `/@fs/${path.resolve(relativePath).replaceAll('\\', '/')}`
 }
 
+/**
+ * Invoke commands the word desktop session is expected to issue. Anything
+ * outside this allowlist is recorded and tagged as unhandled so the test can
+ * fail closed on an unexpected bridge call instead of silently accepting a
+ * fabricated { success: true }.
+ */
+const MODELED_COMMANDS = new Set([
+  'plugin:event|listen',
+  'plugin:event|unlisten',
+  'files_get_home',
+  'files_session_load',
+  'files_session_save',
+  'documents_save_binary',
+  'files_list',
+  'files_search',
+  'files_get_recent',
+  'agents_list',
+  'providers_list',
+  'documents_list_fonts',
+  'providers_auth_status',
+  'documents_prepare_word',
+  'app_take_startup_files',
+  // Startup / lifecycle bridge calls the app issues on boot; these are routine
+  // and unrelated to the color-picker flow, so model them rather than failing.
+  'app_i18n_set_language',
+  'app_theme_set',
+  'app_startup_healthy',
+  'app_take_recovery_notices',
+  'documents_set_current_file',
+  'agents_conversations_list',
+  'agents_conversations_import_codex',
+])
+
 async function installWordDesktopMock(page: Page): Promise<void> {
   const bytes = await createMinimalPagedDocx(3)
-  await page.addInitScript((fixtureBytes) => {
+  await page.addInitScript(({ fixtureBytes, modeled }) => {
     const callbacks = new Map<number, (payload: unknown) => void>()
     let callbackId = 0
+    const invocations: Array<{ command: string; args?: unknown; handled: boolean }> = []
     const encodeWae1 = (metadata: unknown, payload: Uint8Array) => {
       const meta = new TextEncoder().encode(JSON.stringify(metadata))
       const out = new Uint8Array(8 + meta.length + payload.length)
@@ -20,37 +54,55 @@ async function installWordDesktopMock(page: Page): Promise<void> {
       out.set(payload, 8 + meta.length)
       return out
     }
-    const invoke = async (command: string): Promise<unknown> => {
-      if (command === 'plugin:event|listen') return 1
-      if (command === 'plugin:event|unlisten') return null
-      if (command === 'files_get_home') return { path: '/mock/home', grantId: 'home-grant' }
-      if (command === 'files_session_load') {
-        return {
-          mainDirectory: null,
-          currentDirectory: null,
-          recentDirectories: [],
-          openFiles: [{ path: '/mock/test.docx', grantId: 'word-grant' }],
-          activeFile: '/mock/test.docx',
-        }
+    const modeledSet = new Set<string>(modeled)
+    const invoke = async (command: string, args?: unknown): Promise<unknown> => {
+      const handled = modeledSet.has(command)
+      invocations.push({ command, args, handled })
+      switch (command) {
+        case 'plugin:event|listen': return ++callbackId
+        case 'plugin:event|unlisten': return null
+        case 'files_get_home': return { path: '/mock/home', grantId: 'home-grant' }
+        case 'files_session_load':
+          return {
+            mainDirectory: null,
+            currentDirectory: null,
+            recentDirectories: [],
+            openFiles: [{ path: '/mock/test.docx', grantId: 'word-grant' }],
+            activeFile: '/mock/test.docx',
+          }
+        case 'files_session_save':
+        case 'documents_save_binary': return null
+        case 'files_list':
+        case 'files_search':
+        case 'files_get_recent': return []
+        case 'agents_list':
+        case 'providers_list':
+        case 'documents_list_fonts': return []
+        case 'providers_auth_status': return {}
+        case 'documents_prepare_word':
+          return encodeWae1({
+            convertedFromLegacy: false,
+            converter: null,
+            nativeConversionFailed: false,
+            normalizedLegacyImageCount: 0,
+            normalizedTableCount: 0,
+            removedUnderlineRunCount: 0,
+          }, Uint8Array.from(fixtureBytes))
+        case 'app_take_startup_files': return []
+        case 'app_take_recovery_notices': return []
+        case 'agents_conversations_list':
+        case 'agents_conversations_import_codex': return []
+        case 'app_i18n_set_language':
+        case 'app_theme_set':
+        case 'app_startup_healthy':
+        case 'documents_set_current_file': return { success: true }
+        default:
+          // Fail closed: do not pretend an unmodeled command succeeded.
+          return { success: false, error: `unhandled test command: ${command}` }
       }
-      if (command === 'files_session_save' || command === 'documents_save_binary') return null
-      if (command === 'files_list' || command === 'files_search' || command === 'files_get_recent') return []
-      if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
-      if (command === 'providers_auth_status') return {}
-      if (command === 'documents_prepare_word') {
-        return encodeWae1({
-          convertedFromLegacy: false,
-          converter: null,
-          nativeConversionFailed: false,
-          normalizedLegacyImageCount: 0,
-          normalizedTableCount: 0,
-          removedUnderlineRunCount: 0,
-        }, Uint8Array.from(fixtureBytes))
-      }
-      if (command === 'app_take_startup_files') return []
-      return { success: true }
     }
     Object.assign(window, {
+      __WAE_INVOKED_COMMANDS__: invocations,
       __TAURI_INTERNALS__: {
         invoke,
         transformCallback(callback: (payload: unknown) => void) {
@@ -64,7 +116,7 @@ async function installWordDesktopMock(page: Page): Promise<void> {
       },
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
     })
-  }, Array.from(bytes))
+  }, { fixtureBytes: Array.from(bytes), modeled: [...MODELED_COMMANDS] })
 }
 
 test('Excel circular picker reconnects to rerendered Fortune controls', async ({ page }) => {
@@ -82,8 +134,17 @@ test('Excel circular picker reconnects to rerendered Fortune controls', async ({
       <div class="fortune-toolbar-color-picker"></div>`
     document.body.appendChild(container)
 
+    const waitFor = async (fn: () => boolean, timeout = 2000) => {
+      const start = Date.now()
+      while (Date.now() - start < timeout) {
+        if (fn()) return
+        await new Promise((r) => setTimeout(r, 10))
+      }
+      throw new Error('waitFor timed out')
+    }
+
     mountExcelCircularColorPicker(container)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await waitFor(() => Boolean(container.querySelector('.excel-circular-color-picker')))
     container.querySelector('.excel-circular-color-picker-mount')?.remove()
     container.querySelector('.color-reset')?.replaceWith(Object.assign(
       document.createElement('div'),
@@ -107,14 +168,17 @@ test('Excel circular picker reconnects to rerendered Fortune controls', async ({
     container.addEventListener('change', () => { changeEvents += 1 })
 
     mountExcelCircularColorPicker(container)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await waitFor(() => Boolean(container.querySelector('.excel-circular-color-picker')))
     resetClicks = 0
     confirmClicks = 0
     inputEvents = 0
     changeEvents = 0
     container.querySelector<HTMLElement>('.excel-color-reset-btn')?.click()
     container.querySelector<HTMLElement>('.excel-color-confirm-btn')?.click()
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await waitFor(() => {
+      const input = container.querySelector<HTMLInputElement>('input[type="color"]')
+      return input !== null && input.value.toUpperCase() === '#654321'
+    })
 
     const input = container.querySelector<HTMLInputElement>('input[type="color"]')
     const picker = container.querySelector<HTMLElement>('.excel-circular-color-picker')
@@ -167,6 +231,14 @@ test('Word color picker installs palette, custom wheel, and reset behavior', asy
       emitCommand: ({ argument }: { argument: string | null }) => calls.push(argument),
     }
     const cleanup = installWordFontColorPicker({ toolbar, root: owner, language: 'zh-CN' })
+    const waitFor = async (fn: () => boolean, timeout = 2000) => {
+      const start = Date.now()
+      while (Date.now() - start < timeout) {
+        if (fn()) return
+        await new Promise((r) => setTimeout(r, 10))
+      }
+      throw new Error('waitFor timed out')
+    }
     const openMenu = () => {
       item.expand.value = true
       const menu = document.createElement('div')
@@ -179,31 +251,37 @@ test('Word color picker installs palette, custom wheel, and reset behavior', asy
 
     trigger.click()
     const palette = openMenu()
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await waitFor(() => palette.querySelectorAll('[data-word-color-swatch]').length === 64)
     const swatchCount = palette.querySelectorAll('[data-word-color-swatch]').length
-    palette.querySelector<HTMLElement>('[data-word-color-swatch="#F00F00"]')?.click()
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    // The swatch we click must exist and carry the exact color we expect.
+    const swatch = palette.querySelector<HTMLElement>('[data-word-color-swatch="#F00F00"]')
+    if (!swatch) throw new Error('expected #F00F00 swatch to be rendered')
+    swatch.click()
+    await waitFor(() => item.iconColor.value === '#F00F00')
     palette.remove()
 
     const custom = openMenu()
     trigger.click()
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await waitFor(() => custom.querySelector('[data-word-color-custom]') !== null)
     custom.querySelector<HTMLElement>('[data-word-color-custom]')?.click()
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await waitFor(() => Boolean(custom.querySelector('.excel-circular-color-picker')))
     const hasCircularPicker = Boolean(custom.querySelector('.excel-circular-color-picker'))
+    // The wheel must seed its hex field from the color just applied to the
+    // toolbar icon (#F00F00), proving selection propagated into the editor state.
+    const seededHex = custom.querySelector<HTMLInputElement>('.excel-color-hex-input')?.value.toUpperCase()
     custom.querySelector<HTMLElement>('.excel-color-confirm-btn')?.click()
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    await waitFor(() => item.iconColor.value === '#F00F00')
     custom.remove()
 
     const reset = openMenu()
     trigger.click()
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await waitFor(() => reset.querySelector('[data-word-color-reset]') !== null)
     reset.querySelector<HTMLElement>('[data-word-color-reset]')?.click()
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    await waitFor(() => item.iconColor.value === '#000000')
     cleanup()
     owner.remove()
     reset.remove()
-    return { swatchCount, calls, itemColor: item.iconColor.value, itemExpanded: item.expand.value, hasCircularPicker }
+    return { swatchCount, calls, itemColor: item.iconColor.value, itemExpanded: item.expand.value, hasCircularPicker, seededHex }
   }, sourceUrl('src/lightweight-office/word-color-picker.tsx'))
 
   expect(result).toEqual({
@@ -212,6 +290,7 @@ test('Word color picker installs palette, custom wheel, and reset behavior', asy
     itemColor: '#000000',
     itemExpanded: false,
     hasCircularPicker: true,
+    seededHex: '#F00F00',
   })
 })
 
@@ -224,20 +303,71 @@ test('Word color picker works inside the editor', async ({ page }, testInfo) => 
 
   const trigger = page.locator(".word-editor-panel [data-item='btn-color']").first()
   await expect(trigger).toBeVisible({ timeout: 30_000 })
+
+  // --- Palette swatch applies the color to the toolbar/editor state. ---
   await trigger.click()
   const picker = page.locator('body [data-word-font-color-picker="true"]')
   await expect(picker).toBeVisible()
   await expect(picker.locator('[data-word-color-swatch]')).toHaveCount(64)
-  await picker.locator('[data-word-color-swatch="#F00F00"]').click()
+  // The chosen swatch must carry the exact color and be visible before clicking.
+  const chosenSwatch = picker.locator('[data-word-color-swatch="#F00F00"]')
+  await expect(chosenSwatch).toBeVisible()
+  await chosenSwatch.click()
+  // Applying closes the menu...
+  await expect(picker).toBeHidden()
 
+  // ...and propagates to editor state: reopening the custom wheel seeds its hex
+  // field from the applied color rather than the default black.
+  await trigger.click()
+  await expect(picker).toBeVisible()
+  await picker.locator('[data-word-color-custom]').click()
+  const wheel = picker.locator('.excel-circular-color-picker')
+  await expect(wheel).toBeVisible()
+  const hexInput = picker.locator('.excel-color-hex-input')
+  await expect(hexInput).toHaveValue('#F00F00')
+
+  // --- Wheel geometry: the wheel keeps v (brightness) from the seeded color.
+  // Seeding #F00F00 -> v = 240/255. Clicking the wheel center sets saturation
+  // to 0, i.e. pure gray at that brightness: rgb(240,240,240) = #F0F0F0.
+  // The pointer handler lives on .excel-color-wheel-wrap (not the canvas), so we
+  // drive raw pointer coordinates rather than element.click() interception. ---
+  const canvas = picker.locator('.excel-color-wheel-canvas')
+  const wheelBox = await canvas.boundingBox()
+  expect(wheelBox).not.toBeNull()
+  await page.mouse.click(wheelBox!.x + wheelBox!.width / 2, wheelBox!.y + wheelBox!.height / 2)
+  await expect(hexInput).toHaveValue('#F0F0F0')
+
+  // Clicking the right horizontal midline at 60% radius selects hue 0 (red
+  // family) at saturation 0.6 with the same v: hsvToRgb(0, 0.6, 240/255) =
+  // rgb(240, 96, 96) = #F06060. This ties the click geometry to an exact color.
+  await page.mouse.click(wheelBox!.x + 116, wheelBox!.y + 74)
+  await expect(hexInput).toHaveValue('#F06060')
+
+  await page.screenshot({ path: testInfo.outputPath('word-font-color-picker.png') })
+  await picker.locator('.excel-color-confirm-btn').click()
+  await expect(picker).toBeHidden()
+
+  // Confirm must apply #F06060 to the editor state: reopening the wheel now
+  // seeds its hex field with the confirmed color.
   await trigger.click()
   await expect(picker).toBeVisible()
   await picker.locator('[data-word-color-custom]').click()
   await expect(picker.locator('.excel-circular-color-picker')).toBeVisible()
-  await picker.locator('.excel-color-wheel-wrap').click({ position: { x: 110, y: 70 } })
-  await expect(picker.locator('.excel-color-hex-input')).toHaveValue(/^#[0-9A-F]{6}$/i)
-  await page.screenshot({ path: testInfo.outputPath('word-font-color-picker.png') })
-  await picker.locator('.excel-color-confirm-btn').click()
-  await expect(picker).toBeHidden()
+  await expect(picker.locator('.excel-color-hex-input')).toHaveValue('#F06060')
+
+  // --- Fail-closed bridge: the document must have loaded via the modeled
+  // prepare/session commands, and no unmodeled Tauri command may have been
+  // invoked (those return { success: false } and would surface as errors). ---
+  const invocations = await page.evaluate(() => (
+    window as unknown as {
+      __WAE_INVOKED_COMMANDS__: Array<{ command: string; handled: boolean }>
+    }
+  ).__WAE_INVOKED_COMMANDS__)
+  const commands = invocations.map((entry) => entry.command)
+  expect(commands).toContain('files_session_load')
+  expect(commands).toContain('documents_prepare_word')
+  const unhandled = invocations.filter((entry) => !entry.handled).map((entry) => entry.command)
+  expect(unhandled).toEqual([])
+
   expect(errors).toEqual([])
 })

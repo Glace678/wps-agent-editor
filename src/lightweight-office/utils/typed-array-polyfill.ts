@@ -23,8 +23,13 @@ function polyfillUint8ArrayHex(): void {
   }
   if (typeof U8.fromHex !== 'function') {
     U8.fromHex = function fromHex(hex: string): Uint8Array {
+      if (typeof hex !== 'string') throw new TypeError('Uint8Array.fromHex requires a string')
       const clean = hex.replace(/^0x/i, '').replace(/\s+/g, '')
       if (clean.length % 2 !== 0) throw new TypeError('Invalid hex string length')
+      // Reject any non-hex character instead of silently coercing it to a byte.
+      if (clean.length > 0 && !/^[0-9a-f]+$/i.test(clean)) {
+        throw new TypeError('Invalid hex string: unexpected character')
+      }
       const out = new Uint8Array(clean.length / 2)
       for (let i = 0; i < out.length; i++) {
         out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16)
@@ -63,10 +68,20 @@ function polyfillMathSumPrecise(): void {
     sumPrecise?: (items: Iterable<number>) => number
   }
   if (typeof math.sumPrecise !== 'function') {
-    // 精度足够支撑 PDF 路径/变换运算；完整 Shewchuk 算法对这里过重
+    // Kahan compensated summation: far more accurate than naive accumulation for
+    // PDF path/transform sums that mix magnitudes or cancel out. NaN propagates
+    // (matching the spec) instead of being silently coerced to 0.
     math.sumPrecise = function sumPrecise(items: Iterable<number>): number {
       let sum = 0
-      for (const n of items) sum += Number(n) || 0
+      let compensation = 0
+      for (const value of items) {
+        const x = Number(value)
+        if (Number.isNaN(x)) return NaN
+        const y = x - compensation
+        const t = sum + y
+        compensation = t - sum - y
+        sum = t
+      }
       return sum
     }
   }
@@ -98,8 +113,10 @@ export function getPdfWorkerPolyfillSource(): string {
   }
   if (typeof Uint8Array !== 'undefined' && typeof Uint8Array.fromHex !== 'function') {
     Uint8Array.fromHex = function fromHex(hex) {
+      if (typeof hex !== 'string') throw new TypeError('Uint8Array.fromHex requires a string');
       var clean = String(hex).replace(/^0x/i, '').replace(/\\s+/g, '');
       if (clean.length % 2 !== 0) throw new TypeError('Invalid hex string length');
+      if (clean.length > 0 && !/^[0-9a-f]+$/i.test(clean)) throw new TypeError('Invalid hex string: unexpected character');
       var out = new Uint8Array(clean.length / 2);
       for (var i = 0; i < out.length; i++) {
         out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
@@ -124,8 +141,15 @@ export function getPdfWorkerPolyfillSource(): string {
   }
   if (typeof Math !== 'undefined' && typeof Math.sumPrecise !== 'function') {
     Math.sumPrecise = function sumPrecise(items) {
-      var sum = 0;
-      for (var n of items) sum += Number(n) || 0;
+      var sum = 0, compensation = 0;
+      for (var n of items) {
+        var x = Number(n);
+        if (Number.isNaN(x)) return NaN;
+        var y = x - compensation;
+        var t = sum + y;
+        compensation = t - sum - y;
+        sum = t;
+      }
       return sum;
     };
   }

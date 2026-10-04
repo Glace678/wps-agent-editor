@@ -20,6 +20,7 @@ import {
   Minus,
   Plus,
 } from 'lucide-react'
+import DOMPurify from 'dompurify'
 import { useDocumentZoom } from '@/components/layout/modules/DocumentZoom'
 import {
   Tooltip,
@@ -157,6 +158,23 @@ export function WordAlternateView({ mode, snapshot, zoom }: WordAlternateViewPro
   const { t } = useTranslation()
   const style = { '--word-alternate-zoom': String(zoom) } as CSSProperties
 
+  // snapshot.html may originate from imports, collaboration, or other untrusted
+  // sources. Sanitize here in the component that renders it, rather than relying
+  // on every upstream caller to sanitize. The safe-HTML profile keeps document
+  // structure/styling while stripping scripts, event handlers and javascript:
+  // URLs.
+  const sanitizedHtml = useMemo(
+    () =>
+      mode === 'outline'
+        ? ''
+        : DOMPurify.sanitize(snapshot.html, {
+            USE_PROFILES: { html: true },
+            FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base'],
+            FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
+          }),
+    [mode, snapshot.html],
+  )
+
   return (
     <div
       className={`word-alternate-view word-alternate-view--${mode}`}
@@ -193,7 +211,7 @@ export function WordAlternateView({ mode, snapshot, zoom }: WordAlternateViewPro
         <div className="word-alternate-surface">
           <div
             className="word-alternate-content"
-            dangerouslySetInnerHTML={{ __html: snapshot.html }}
+            dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
           />
         </div>
       )}
@@ -287,6 +305,15 @@ export function WordViewStatusBar({
       if (frame !== null) cancelAnimationFrame(frame)
     }
   }, [editorRootRef, zoomChoice])
+
+  // Cancel a pending slider rAF on unmount so it cannot write to shared zoom
+  // state after the component (or its document) has been torn down.
+  useEffect(
+    () => () => {
+      if (sliderFrameRef.current !== null) cancelAnimationFrame(sliderFrameRef.current)
+    },
+    [],
+  )
 
   const commitCustomPercent = () => {
     const next = Number(customPercent)

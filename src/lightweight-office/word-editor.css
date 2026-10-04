@@ -977,11 +977,13 @@ body .link-input-ctn .go-to-anchor a:hover {
  * 缩放完全由引擎在当前帧同步应用，不加 CSS transition 避免与视口外盒尺寸产生时间差导致抖动抽动。
  */
 
-/* Black editing fallback for legacy tables that do not serialize cell borders. */
+/* Black editing fallback for legacy tables that do not serialize cell borders.
+   Only apply when the cell has neither inline nor class-based borders; otherwise
+   a class-bordered table would get an extra spurious black frame. */
 @media screen {
   .word-editor-panel[data-word-view-mode='page']
     .superdoc-table-fragment
-    > div:not([style*='border-'])::after {
+    > div:not([style*='border-']):not([class*='border'])::after {
     content: '';
     position: absolute;
     inset: 0;
@@ -1139,12 +1141,18 @@ body .link-input-ctn .go-to-anchor a:hover {
 }
 
 .word-status-icon-button:focus,
-.word-status-icon-button:focus-visible,
-.word-zoom-trigger:focus,
-.word-zoom-trigger:focus-visible,
-.word-zoom-slider:focus-visible {
+.word-zoom-trigger:focus {
   outline: none !important;
   box-shadow: none !important;
+}
+
+/* Keep a high-contrast keyboard focus indicator so users can tell which
+   control is focused; only mouse/click focus is de-emphasized above. */
+.word-status-icon-button:focus-visible,
+.word-zoom-trigger:focus-visible,
+.word-zoom-slider:focus-visible {
+  outline: 2px solid #60a5fa !important;
+  outline-offset: 1px !important;
 }
 
 .word-status-icon-button:disabled {
@@ -1519,22 +1527,28 @@ body .link-input-ctn .go-to-anchor a:hover {
   box-shadow: none !important;
 }
 
+/* Mouse/click focus stays de-emphasized, but keyboard focus-visible keeps a
+   high-contrast ring so the focused control is discoverable. */
 .dark body .sd-button-icon:focus,
-.dark body .sd-button-icon:focus-visible,
 .dark body .sd-toolbar-button:focus,
-.dark body .sd-toolbar-button:focus-visible,
 .dark body .toolbar-dropdown-option:focus,
-.dark body .toolbar-dropdown-option:focus-visible,
 .dark body .sd-font-combobox__option:focus,
-.dark body .sd-font-combobox__option:focus-visible,
 .dark body .sd-option-item:focus,
-.dark body .sd-option-item:focus-visible,
 .dark body .context-menu-item:focus,
-.dark body .context-menu-item:focus-visible,
-.dark body .toolbar-table-actions__item:focus,
-.dark body .toolbar-table-actions__item:focus-visible {
+.dark body .toolbar-table-actions__item:focus {
   outline: none !important;
   box-shadow: none !important;
+}
+
+.dark body .sd-button-icon:focus-visible,
+.dark body .sd-toolbar-button:focus-visible,
+.dark body .toolbar-dropdown-option:focus-visible,
+.dark body .sd-font-combobox__option:focus-visible,
+.dark body .sd-option-item:focus-visible,
+.dark body .context-menu-item:focus-visible,
+.dark body .toolbar-table-actions__item:focus-visible {
+  outline: 2px solid #60a5fa !important;
+  outline-offset: 1px !important;
 }
 
 /* 2. 文本对齐方式弹层 (.alignment-buttons) 高对比度样式 */

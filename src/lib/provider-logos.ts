@@ -16,16 +16,32 @@ function providerIdFromPath(path: string): string {
   return path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? path
 }
 
-const providerLogoAssets: Readonly<Record<string, ProviderLogoAsset>> = Object.freeze({
-  ...Object.fromEntries(Object.entries(svgModules).map(([path, url]) => [
-    providerIdFromPath(path),
-    { kind: 'image' as const, url },
-  ])),
-  ...Object.fromEntries(Object.entries(imageModules).map(([path, url]) => [
-    providerIdFromPath(path),
-    { kind: 'image' as const, url },
-  ])),
-})
+// Build the lookup table on a null-prototype object so lookups by ids like
+// "constructor" / "toString" never resolve to inherited Object.prototype props.
+const providerLogoAssets: Readonly<Record<string, ProviderLogoAsset>> = (() => {
+  const map: Record<string, ProviderLogoAsset> = Object.create(null)
+  for (const [path, url] of Object.entries(svgModules)) {
+    map[providerIdFromPath(path)] = { kind: 'image', url }
+  }
+  for (const [path, url] of Object.entries(imageModules)) {
+    map[providerIdFromPath(path)] = { kind: 'image', url }
+  }
+  return Object.freeze(map)
+})()
+
+function isLogoAsset(value: unknown): value is ProviderLogoAsset {
+  return typeof value === 'object'
+    && value !== null
+    && (value as ProviderLogoAsset).kind === 'image'
+    && typeof (value as ProviderLogoAsset).url === 'string'
+}
+
+function lookupLogoAsset(providerId: string): ProviderLogoAsset | undefined {
+  if (typeof providerId !== 'string' || providerId.length === 0) return undefined
+  if (!Object.prototype.hasOwnProperty.call(providerLogoAssets, providerId)) return undefined
+  const asset = providerLogoAssets[providerId]
+  return isLogoAsset(asset) ? asset : undefined
+}
 
 export const BUILTIN_PROVIDER_LOGO_IDS = Object.freeze(Object.keys(providerLogoAssets).sort())
 
@@ -40,7 +56,7 @@ const PROVIDER_NAME_ALIASES: ReadonlyArray<{ pattern: RegExp; assetId: string }>
 ]
 
 export function getProviderLogoAsset(providerId: string): ProviderLogoAsset | undefined {
-  return providerLogoAssets[providerId]
+  return lookupLogoAsset(providerId)
 }
 
 /** Direct id lookup first, then brand-name alias matching for custom providers. */
@@ -48,14 +64,14 @@ export function resolveProviderLogoAsset(
   providerId: string,
   providerName?: string,
 ): ProviderLogoAsset | undefined {
-  const direct = providerLogoAssets[providerId]
+  const direct = lookupLogoAsset(providerId)
   if (direct) return direct
   if (!providerName) return undefined
   const haystack = `${providerId} ${providerName}`
   const alias = PROVIDER_NAME_ALIASES.find((entry) => entry.pattern.test(haystack))
-  return alias ? providerLogoAssets[alias.assetId] : undefined
+  return alias ? lookupLogoAsset(alias.assetId) : undefined
 }
 
 export function hasProviderLogo(providerId: string): boolean {
-  return providerId in providerLogoAssets
+  return lookupLogoAsset(providerId) !== undefined
 }

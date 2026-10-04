@@ -144,6 +144,10 @@ export function ExcelCircularColorPicker({
   const sliderRef = useRef<HTMLDivElement>(null)
   const isDraggingWheel = useRef(false)
   const isDraggingSlider = useRef(false)
+  // Pointers attached to window during a drag; removed on pointerup and on
+  // unmount so a torn-down component never receives stale pointer updates.
+  const wheelDetachRef = useRef<(() => void) | null>(null)
+  const sliderDetachRef = useRef<(() => void) | null>(null)
 
   const redInputId = useId()
   const greenInputId = useId()
@@ -167,21 +171,24 @@ export function ExcelCircularColorPicker({
     if (!ctx) return
 
     const dpr = window.devicePixelRatio || 1
-    canvas.width = WHEEL_SIZE * dpr
-    canvas.height = WHEEL_SIZE * dpr
+    // Round to an integer backing size: a fractional dpr would otherwise make
+    // canvas.width / createImageData / loop bounds / pixel index disagree.
+    const pixelSize = Math.round(WHEEL_SIZE * dpr)
+    canvas.width = pixelSize
+    canvas.height = pixelSize
 
-    const imgData = ctx.createImageData(WHEEL_SIZE * dpr, WHEEL_SIZE * dpr)
+    const imgData = ctx.createImageData(pixelSize, pixelSize)
     const data = imgData.data
-    const cx = (WHEEL_SIZE * dpr) / 2
-    const cy = (WHEEL_SIZE * dpr) / 2
+    const cx = pixelSize / 2
+    const cy = pixelSize / 2
     const rMax = WHEEL_RADIUS * dpr
 
-    for (let y = 0; y < WHEEL_SIZE * dpr; y++) {
-      for (let x = 0; x < WHEEL_SIZE * dpr; x++) {
+    for (let y = 0; y < pixelSize; y++) {
+      for (let x = 0; x < pixelSize; x++) {
         const dx = x - cx
         const dy = y - cy
         const dist = Math.sqrt(dx * dx + dy * dy)
-        const index = (y * WHEEL_SIZE * dpr + x) * 4
+        const index = (y * pixelSize + x) * 4
 
         if (dist <= rMax) {
           let angle = Math.atan2(dy, dx) * (180 / Math.PI)
@@ -205,6 +212,14 @@ export function ExcelCircularColorPicker({
     }
 
     ctx.putImageData(imgData, 0, 0)
+  }, [])
+
+  // Detach any in-flight window pointer listeners on unmount.
+  useEffect(() => () => {
+    wheelDetachRef.current?.()
+    sliderDetachRef.current?.()
+    wheelDetachRef.current = null
+    sliderDetachRef.current = null
   }, [])
 
   // Handle color selection on the wheel
@@ -266,12 +281,18 @@ export function ExcelCircularColorPicker({
       isDraggingWheel.current = false
       e.preventDefault()
       e.stopPropagation()
-      window.removeEventListener('pointermove', onPointerMove, true)
-      window.removeEventListener('pointerup', onPointerUp, true)
+      wheelDetachRef.current?.()
+      wheelDetachRef.current = null
     }
 
     window.addEventListener('pointermove', onPointerMove, true)
     window.addEventListener('pointerup', onPointerUp, true)
+    window.addEventListener('pointercancel', onPointerUp, true)
+    wheelDetachRef.current = () => {
+      window.removeEventListener('pointermove', onPointerMove, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+      window.removeEventListener('pointercancel', onPointerUp, true)
+    }
   }
 
   // Slider pointer events
@@ -293,12 +314,18 @@ export function ExcelCircularColorPicker({
       isDraggingSlider.current = false
       e.preventDefault()
       e.stopPropagation()
-      window.removeEventListener('pointermove', onPointerMove, true)
-      window.removeEventListener('pointerup', onPointerUp, true)
+      sliderDetachRef.current?.()
+      sliderDetachRef.current = null
     }
 
     window.addEventListener('pointermove', onPointerMove, true)
     window.addEventListener('pointerup', onPointerUp, true)
+    window.addEventListener('pointercancel', onPointerUp, true)
+    sliderDetachRef.current = () => {
+      window.removeEventListener('pointermove', onPointerMove, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+      window.removeEventListener('pointercancel', onPointerUp, true)
+    }
   }
 
   // Handle Hex input change

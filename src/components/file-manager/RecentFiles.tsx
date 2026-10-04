@@ -27,7 +27,7 @@ interface RecentFilesProps {
 type DialogState =
   | { kind: 'info'; file: RecentFile; stat: FileStatInfo }
   | { kind: 'rename'; file: RecentFile }
-  | { kind: 'share'; files: RecentFile[] }
+  | { kind: 'share'; files: RecentFile[]; warning?: string }
   | { kind: 'history'; file: RecentFile }
   | { kind: 'delete'; file: RecentFile }
   | { kind: 'message'; title: string; message: string }
@@ -67,76 +67,102 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
     }
   }, [t])
 
+  // 将桌面 API 的 rejection 映射为可见错误文案。
+  const mapActionError = useCallback((error: unknown): string => {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : ''
+    if (code === 'not-found') return t('recentFiles.errorNotFound')
+    if (code === 'access-denied' || code === 'permission-denied') return t('recentFiles.errorOperationFailed')
+    return t('recentFiles.errorOperationFailed')
+  }, [t])
+
   const handleAction = useCallback(async (file: RecentFile, action: RecentFileMenuAction) => {
     setMenu(null)
-    switch (action) {
-      case 'open':
-        onOpen(file.path)
-        break
-      case 'show-in-folder': {
-        const result = await desktopApi.files.showInFolder(file.path)
-        if (!result.success) showError(t('recentFiles.errorNotFound'))
-        break
-      }
-      case 'remove-record':
-        setRecentFiles(await desktopApi.files.removeRecent(file.path))
-        break
-      case 'info': {
-        const stat = await desktopApi.files.stat(file.path)
-        if (!stat.exists) {
-          showError(t('recentFiles.errorNotFound'))
-        } else {
-          setDialog({ kind: 'info', file, stat })
-        }
-        break
-      }
-      case 'share': {
-        const candidates = files.filter((candidate) => selectedPaths.has(candidate.path))
-        const filesToShare = candidates.length > 0 ? candidates : [file]
-        const shareable = await Promise.all(
-          filesToShare.map(async (candidate) => ({
-            file: candidate,
-            stat: await desktopApi.files.stat(candidate.path),
-          })),
-        )
-        const existingFiles = shareable
-          .filter(({ stat }) => stat.exists)
-          .map(({ file: candidate }) => candidate)
-
-        if (existingFiles.length === 0) {
-          showError(t('recentFiles.errorNotFound'))
-        } else {
-          setDialog({ kind: 'share', files: existingFiles })
-        }
-        break
-      }
-      case 'rename': {
-        // 正在编辑的文件重命名会让已打开的标签页指向失效路径（可能丢失未保存内容），按 Office 惯例阻止
-        if (useEditorStore.getState().currentFile === file.path) {
-          showError(t('recentFiles.errorFileOpen'))
+    try {
+      switch (action) {
+        case 'open':
+          onOpen(file.path)
+          break
+        case 'show-in-folder': {
+          const result = await desktopApi.files.showInFolder(file.path)
+          if (!result.success) showError(t('recentFiles.errorNotFound'))
           break
         }
-        const stat = await desktopApi.files.stat(file.path)
-        if (!stat.exists) {
-          showError(t('recentFiles.errorNotFound'))
-        } else {
-          setDialog({ kind: 'rename', file })
-
-        }
-        break
-      }
-      case 'history':
-        setDialog({ kind: 'history', file })
-        break
-      case 'delete':
-        if (useEditorStore.getState().currentFile === file.path) {
-          showError(t('recentFiles.errorFileOpen'))
+        case 'remove-record':
+          setRecentFiles(await desktopApi.files.removeRecent(file.path))
+          break
+        case 'info': {
+          const stat = await desktopApi.files.stat(file.path)
+          if (!stat.exists) {
+            showError(t('recentFiles.errorNotFound'))
+          } else {
+            setDialog({ kind: 'info', file, stat })
+          }
           break
         }
-        setDialog({ kind: 'delete', file })
-        break
+        case 'share': {
+          const candidates = files.filter((candidate) => selectedPaths.has(candidate.path))
+          const filesToShare = candidates.length > 0 ? candidates : [file]
+          // 逐个 stat，单个失败不拖垮整批；部分失败单独提示。
+          const settled = await Promise.allSettled(
+            filesToShare.map(async (candidate) => ({
+              file: candidate,
+              stat: await desktopApi.files.stat(candidate.path),
+            })),
+          )
+          const shareable: Array<{ file: RecentFile; stat: FileStatInfo }> = []
+          let failedCount = 0
+          for (const result of settled) {
+            if (result.status === 'fulfilled' && result.value.stat.exists) {
+              shareable.push(result.value)
+            } else {
+              failedCount += 1
+            }
+          }
+          const existingFiles = shareable.map(({ file: candidate }) => candidate)
+
+          if (existingFiles.length === 0) {
+            showError(t('recentFiles.errorNotFound'))
+          } else {
+            setDialog({
+              kind: 'share',
+              files: existingFiles,
+              warning: failedCount > 0 ? t('recentFiles.errorOperationFailed') : undefined,
+            })
+          }
+          break
+        }
+        case 'rename': {
+          // 正在编辑的文件重命名会让已打开的标签页指向失效路径（可能丢失未保存内容），按 Office 惯例阻止
+          if (useEditorStore.getState().currentFile === file.path) {
+            showError(t('recentFiles.errorFileOpen'))
+            break
+          }
+          const stat = await desktopApi.files.stat(file.path)
+          if (!stat.exists) {
+            showError(t('recentFiles.errorNotFound'))
+          } else {
+            setDialog({ kind: 'rename', file })
+
+          }
+          break
+        }
+        case 'history':
+          setDialog({ kind: 'history', file })
+          break
+        case 'delete':
+          if (useEditorStore.getState().currentFile === file.path) {
+            showError(t('recentFiles.errorFileOpen'))
+            break
+          }
+          setDialog({ kind: 'delete', file })
+          break
+      }
+    } catch (error) {
+      showError(mapActionError(error))
     }
-  }, [files, onOpen, selectedPaths, setRecentFiles, showError, t])
+  }, [files, onOpen, selectedPaths, setRecentFiles, showError, t, mapActionError])
 
   const submitRename = useCallback(async (file: RecentFile, newName: string) => {
     const result = await desktopApi.files.rename(file.path, newName)
@@ -273,7 +299,7 @@ export function RecentFiles({ files, onOpen }: RecentFilesProps) {
         />
       )}
       {dialog?.kind === 'share' && (
-        <ShareDialog files={dialog.files} onClose={() => setDialog(null)} />
+        <ShareDialog files={dialog.files} warning={dialog.warning} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'history' && (
         <HistoryDialog file={dialog.file} onClose={() => setDialog(null)} />

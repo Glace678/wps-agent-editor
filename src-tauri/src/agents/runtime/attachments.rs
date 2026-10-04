@@ -466,13 +466,18 @@ pub(super) fn looks_like_text(bytes: &[u8]) -> bool {
     !sample.contains(&0) && controls.saturating_mul(100) < sample.len().saturating_mul(3)
 }
 
-pub(super) fn attachment_signature(owner: &str, message: &ChatMessage) -> String {
+pub(super) fn attachment_signature(owner: &str, message: &ChatMessage, maximum_chars: usize) -> String {
     let mut digest = Sha256::new();
     digest.update(owner.as_bytes());
     digest.update([0]);
     digest.update(message.role.as_str().as_bytes());
     digest.update([0]);
     digest.update(message.content.as_bytes());
+    // The render budget affects which attachments are included and how much of
+    // each is extracted, so it is part of the cache key: a small-budget render
+    // must not be served to a later larger-budget request.
+    digest.update([0]);
+    digest.update(maximum_chars.to_le_bytes());
     for attachment in &message.attachments {
         digest.update([0]);
         digest.update(attachment.path.as_bytes());

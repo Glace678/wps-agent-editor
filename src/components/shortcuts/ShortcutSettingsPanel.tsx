@@ -9,6 +9,7 @@ import {
   getLocalizedShortcutCommandLabel,
   getOfficeShortcutCatalog,
   getShortcutSettingsRows,
+  parseChord,
   saveChordOverrides,
   type ShortcutBinding,
   type ShortcutCategory,
@@ -17,6 +18,34 @@ import {
 import { useTranslation, type TranslationApi } from '@/lib/i18n/runtime'
 
 export { getShortcutSettingsRows }
+
+/**
+ * 边界校验：持久化的覆盖值必须是已知 binding 对应的非空、可解析 chord 字符串。
+ * 畸形 localStorage（如 `{"file.save":123}`）在进入面板/渲染前即被丢弃，
+ * 避免对非字符串调用 toLowerCase/trim 抛 TypeError。
+ */
+function sanitizeOverrides(raw: Record<string, unknown>): Record<string, string> {
+  const knownIds = new Set(getOfficeShortcutCatalog().map((binding) => binding.id))
+  const clean: Record<string, string> = {}
+  for (const [id, value] of Object.entries(raw)) {
+    if (!knownIds.has(id)) continue
+    if (typeof value !== 'string') continue
+    if (!value.trim()) continue
+    try {
+      if (!parseChord(value).key) continue
+    } catch {
+      continue
+    }
+    clean[id] = value
+  }
+  return clean
+}
+
+/** 读取某个 binding 的有效覆盖值，非法/缺失时回退默认 chord。 */
+function resolveChord(overrides: Record<string, string>, binding: ShortcutBinding): string {
+  const value = overrides[binding.id]
+  return typeof value === 'string' && value.trim() ? value : binding.defaultChord
+}
 
 const CATEGORY_KEY = {
   file: 'shortcutSettings.categoryFile',
@@ -41,7 +70,9 @@ function contextLabel(binding: ShortcutBinding, t: TranslationApi['t']): string 
 export function ShortcutSettingsPanel({ onClose }: { onClose?: () => void }) {
   const { language, t } = useTranslation()
   const catalog = useMemo(() => getOfficeShortcutCatalog(), [])
-  const [overrides, setOverrides] = useState<Record<string, string>>(() => getChordOverrides())
+  const [overrides, setOverrides] = useState<Record<string, string>>(() =>
+    sanitizeOverrides(getChordOverrides() as Record<string, unknown>),
+  )
   const [filter, setFilter] = useState('')
   const [savedFlash, setSavedFlash] = useState(false)
   const [recordingId, setRecordingId] = useState<string | null>(null)
@@ -56,7 +87,7 @@ export function ShortcutSettingsPanel({ onClose }: { onClose?: () => void }) {
     const q = filter.trim().toLowerCase()
     return catalog.filter((b) => {
       if (!q) return true
-      const chord = (overrides[b.id] ?? b.defaultChord).toLowerCase()
+      const chord = resolveChord(overrides, b).toLowerCase()
       const localizedLabel = getLocalizedShortcutCommandLabel(b, t).toLowerCase()
       return (
         localizedLabel.includes(q)
@@ -191,8 +222,8 @@ export function ShortcutSettingsPanel({ onClose }: { onClose?: () => void }) {
                   </td>
                 </tr>
                 {bindings.map((b) => {
-                  const chord = overrides[b.id] ?? b.defaultChord
-                  const customized = Boolean(overrides[b.id])
+                  const chord = resolveChord(overrides, b)
+                  const customized = typeof overrides[b.id] === 'string' && Boolean(overrides[b.id])
                   const localizedLabel = getLocalizedShortcutCommandLabel(b, t)
                   const isRecording = recordingId === b.id
                   const rowConflicts = conflicts?.bindingId === b.id ? conflicts.bindings : []

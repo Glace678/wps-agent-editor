@@ -65,6 +65,7 @@ function decorateFontPicker(
   popup: HTMLElement,
   options: WordFontPickerSearchOptions,
   termsByFamily: Map<string, string[]>,
+  decorated: Set<HTMLElement>,
 ): void {
   if (popup.dataset.wordFontSearchReady === 'true') return
   const fontCombobox = document.querySelector<HTMLElement>(
@@ -82,6 +83,7 @@ function decorateFontPicker(
     )
   }
 
+  decorated.add(popup)
   popup.dataset.wordFontSearchReady = 'true'
   popup.classList.add('word-font-picker-listbox')
   sizePickerForSearch(popup, options.placeholder)
@@ -193,20 +195,31 @@ export function installWordFontPickerSearch(
   if (typeof document === 'undefined' || typeof window === 'undefined') return () => {}
 
   const termsByFamily = buildFontSearchTerms(options.fontFaces)
+  // Only popups THIS instance decorated, so disposing one install does not wipe
+  // another instance's search UI.
+  const decorated = new Set<HTMLElement>()
   const scan = () => {
     document.querySelectorAll<HTMLElement>('.sd-font-combobox__listbox').forEach((popup) => {
-      decorateFontPicker(popup, options, termsByFamily)
+      decorateFontPicker(popup, options, termsByFamily, decorated)
     })
   }
 
   const disposeObserver = observeDocumentMutations(scan)
   return () => {
     disposeObserver()
-    document.querySelectorAll<HTMLElement>('.word-font-picker-search').forEach((header) => header.remove())
-    document.querySelectorAll<HTMLElement>('.word-font-picker-empty').forEach((empty) => empty.remove())
-    document.querySelectorAll<HTMLElement>('.word-font-picker-listbox').forEach((popup) => {
+    for (const popup of decorated) {
+      // Restore every filter/state we applied so a reused popup shows all fonts.
+      for (const option of getFontOptions(popup)) {
+        option.hidden = false
+        option.removeAttribute('aria-hidden')
+        option.classList.remove('word-font-picker-option-active', 'word-font-picker-symbol-label')
+      }
+      popup.querySelector<HTMLElement>(':scope > .word-font-picker-search')?.remove()
+      popup.querySelector<HTMLElement>(':scope > .word-font-picker-empty')?.remove()
+      popup.style.minWidth = ''
       popup.classList.remove('word-font-picker-listbox')
       delete popup.dataset.wordFontSearchReady
-    })
+    }
+    decorated.clear()
   }
 }

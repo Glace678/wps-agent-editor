@@ -51,11 +51,54 @@ struct UpdateProgress {
     total: Option<u64>,
 }
 
+#[cfg(target_os = "windows")]
+#[link(name = "shell32")]
+extern "system" {
+    fn ShellExecuteW(
+        hwnd: isize,
+        operation: *const u16,
+        file: *const u16,
+        parameters: *const u16,
+        directory: *const u16,
+        show_cmd: i32,
+    ) -> isize;
+}
+
+/// Opens an http(s) URL through the Windows shell directly, without routing it
+/// through `cmd.exe`. The URL is passed structurally as `lpFile` (never spliced
+/// into a command line), so shell metacharacters in the URL cannot be
+/// interpreted by a command interpreter. A return value greater than 32 is the
+/// documented success range; anything else is mapped to a stable error code.
+#[cfg(target_os = "windows")]
+fn open_url_with_windows_shell(url: &str) -> AppResult<()> {
+    const SW_SHOWNORMAL: i32 = 1;
+    let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    let file: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
+    let result = unsafe {
+        ShellExecuteW(
+            0,
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result <= 32 {
+        return Err(AppError::new(
+            "open-failed",
+            format!("The system shell could not open the URL (code {result})"),
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn app_open_url(url: String) -> AppResult<SuccessResult> {
     let parsed = url::Url::parse(&url).map_err(|error| {
         AppError::new("invalid-argument", format!("Invalid URL: {error}"))
     })?;
+    // The scheme allowlist is defense in depth, not the only injection barrier.
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err(AppError::new(
             "invalid-argument",
@@ -63,20 +106,35 @@ pub fn app_open_url(url: String) -> AppResult<SuccessResult> {
         ));
     }
 
-    let status = if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd.exe")
-            .args(["/C", "start", "", parsed.as_str()])
-            .status()
-    } else if cfg!(target_os = "macos") {
-        std::process::Command::new("open").arg(parsed.as_str()).status()
-    } else {
-        std::process::Command::new("xdg-open")
-            .arg(parsed.as_str())
-            .status()
-    };
-    status.map_err(|error| {
-        AppError::new("open-failed", format!("Failed to open URL: {error}"))
-    })?;
+    #[cfg(target_os = "windows")]
+    {
+        open_url_with_windows_shell(parsed.as_str())?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let status = if cfg!(target_os = "macos") {
+            std::process::Command::new("open").arg(parsed.as_str()).status()
+        } else {
+            std::process::Command::new("xdg-open")
+                .arg(parsed.as_str())
+                .status()
+        };
+        let status = status.map_err(|error| {
+            AppError::new("open-failed", format!("Failed to open URL: {error}"))
+        })?;
+        if !status.success() {
+            let code = status.code().unwrap_or(-1);
+            log::warn!(
+                "External opener exited unsuccessfully for {} with exit code {code}",
+                parsed.as_str()
+            );
+            return Err(AppError::new(
+                "open-failed",
+                format!("External opener exited with status {code}"),
+            ));
+        }
+    }
     Ok(SuccessResult { success: true })
 }
 

@@ -506,6 +506,9 @@ export function PresentationViewer({
   const presentationBufferRef = useRef<ArrayBuffer | null>(null)
   const presentationSlideXmlRef = useRef<string[]>([])
   const presentationBufferFileRef = useRef('')
+  // Serializes edits and saves so a save always snapshots the buffer after any
+  // in-flight edit, and an edit can't overwrite a buffer being saved.
+  const mutationChainRef = useRef<Promise<unknown>>(Promise.resolve())
   const desiredSlideIndexRef = useRef(0)
   const savePathRef = useRef(resolvePresentationSavePath(filePath))
   const isPresentingRef = useRef(false)
@@ -564,8 +567,11 @@ export function PresentationViewer({
 
   useEffect(() => {
     onRegisterSave?.(async () => {
+      // Wait for any in-flight edit to settle so we never save a stale buffer.
+      await mutationChainRef.current.catch(() => {})
       const buffer = presentationBufferRef.current
       if (!buffer) return
+      const targetFile = presentationBufferFileRef.current
       let target = savePathRef.current
       if (!desktopApi.files.getGrantId(target)) {
         const defaultName = target.split(/[/\\]/).pop() || 'presentation.pptx'
@@ -575,6 +581,8 @@ export function PresentationViewer({
         savePathRef.current = target
       }
       await saveFileBuffer(target, buffer)
+      // Ignore the save if the user switched presentations while it was in flight.
+      if (presentationBufferFileRef.current !== targetFile) return
       if (target !== filePath) setCurrentFile(target)
       onSaveSuccess?.()
     })
@@ -984,13 +992,17 @@ export function PresentationViewer({
   ): Promise<PresentationEditResult | null> => {
     const buffer = presentationBufferRef.current
     if (!buffer) return null
+    const targetFile = presentationBufferFileRef.current
     setEditBusy(true)
     setEditError('')
-    try {
+    const run = (async () => {
       const result = await desktopApi.documents.editPresentation({
         data: new Uint8Array(buffer),
         operation,
       })
+      // Drop the result if the user switched to another presentation mid-edit,
+      // so it can't overwrite the newly loaded document's buffer.
+      if (presentationBufferFileRef.current !== targetFile) return null
       if (result.data) {
         presentationBufferRef.current = copyBinaryData(result.data)
         desiredSlideIndexRef.current = result.currentSlideIndex
@@ -1000,7 +1012,12 @@ export function PresentationViewer({
         onDirty?.()
       }
       return result
+    })()
+    mutationChainRef.current = run.catch(() => {})
+    try {
+      return await run
     } catch (error) {
+      if (presentationBufferFileRef.current !== targetFile) return null
       console.error('[PresentationViewer] Presentation edit failed:', error)
       setEditError(describeEditError(error))
       return null
@@ -1043,8 +1060,10 @@ export function PresentationViewer({
     setInlineEdit(null)
     setInlineEditText('')
     if (!edit || editBusy || loading) return
-    const text = pendingText.trim()
-    if (text === edit.entry.text.trim()) return
+    // Use the raw text the user typed; trimming would silently drop meaningful
+    // leading/trailing spaces.
+    const text = pendingText
+    if (text === edit.entry.text) return
     void executeEditOperation({
       type: 'updateNodeText',
       slideIndex: edit.slideIndex,

@@ -157,7 +157,23 @@ export function findTextMatches(
 ): TextMatch[] {
   if (!query) return []
 
-  const haystack = options.matchCase ? text : text.toLocaleLowerCase()
+  // When case-folding, toLocaleLowerCase can change the string length
+  // (e.g. U+0130 -> two code units), so an index into the folded string does not
+  // correspond to the original UTF-16 offset. Build the folded text alongside a
+  // per-unit map back to the original offsets.
+  let haystack = ''
+  const foldedToOriginal: number[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    const codePointLength = text.codePointAt(cursor)! > 0xffff ? 2 : 1
+    const codePoint = text.slice(cursor, cursor + codePointLength)
+    const folded = options.matchCase ? codePoint : codePoint.toLocaleLowerCase()
+    for (let unit = 0; unit < folded.length; unit += 1) {
+      foldedToOriginal.push(cursor)
+      haystack += folded[unit]
+    }
+    cursor += codePointLength
+  }
   const needle = options.matchCase ? query : query.toLocaleLowerCase()
   const matches: TextMatch[] = []
   let from = 0
@@ -165,9 +181,11 @@ export function findTextMatches(
   while (from <= haystack.length - needle.length) {
     const start = haystack.indexOf(needle, from)
     if (start < 0) break
-    const end = start + needle.length
-    matches.push({ start, end })
-    from = Math.max(end, start + 1)
+    const origStart = foldedToOriginal[start]
+    const origLast = foldedToOriginal[start + needle.length - 1]
+    const lastLen = text.codePointAt(origLast)! > 0xffff ? 2 : 1
+    matches.push({ start: origStart, end: origLast + lastLen })
+    from = Math.max(start + needle.length, start + 1)
   }
 
   return matches

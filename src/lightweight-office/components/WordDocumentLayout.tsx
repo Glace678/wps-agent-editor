@@ -224,7 +224,12 @@ export function WordDocumentLayout({ children, superdoc, totalPages }: WordDocum
     return () => {
       observer.disconnect()
       panelResizeObserver?.disconnect()
-      if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
+      if (settleTimerRef.current) {
+        clearTimeout(settleTimerRef.current)
+        // Must null the ref, otherwise the next scheduleMeasure sees a stale
+        // non-null handle and early-returns, leaving fitsTwoPages stuck.
+        settleTimerRef.current = null
+      }
       if (measureFrame != null) cancelAnimationFrame(measureFrame)
       pendingMeasureRef.current = null
       scheduleTwoPageMeasureRef.current = () => {}

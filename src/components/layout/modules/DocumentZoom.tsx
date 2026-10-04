@@ -209,9 +209,9 @@ export function DocumentZoom({ children }: DocumentZoomProps) {
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return
       if (hasManagedDocumentZoom(rootRef.current, e.target)) return
-      // Tauri disables whole-page zoom hotkeys in the webview configuration.
-      // Keeping this listener passive lets ordinary document scrolling stay on
-      // the compositor thread instead of waiting for the renderer main thread.
+      // 浏览器宿主（非 Tauri）下 Ctrl/Cmd+wheel 会同时触发整页缩放，必须接管并
+      // preventDefault；为此监听器以非 passive 注册，否则无法阻止默认行为。
+      e.preventDefault()
       e.stopPropagation()
       const delta = normalizeWheelZoomDelta(e.deltaY, e.deltaMode)
       if (delta === 0) return
@@ -234,7 +234,8 @@ export function DocumentZoom({ children }: DocumentZoomProps) {
       scheduleWheelZoom()
     }
 
-    el.addEventListener('wheel', onWheel, { passive: true })
+    // 非 passive：仅在确认 Ctrl/Cmd+wheel 时 preventDefault，普通滚动不受影响。
+    el.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       el.removeEventListener('wheel', onWheel)
       const gesture = wheelGestureRef.current

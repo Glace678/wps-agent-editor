@@ -11,20 +11,27 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
+// Resolve the repo root and dependencies relative to this script file, not the
+// caller's cwd, so the verifier works regardless of where it is invoked from.
+const root = fileURLToPath(new URL('..', import.meta.url))
 const dir = mkdtempSync(join(tmpdir(), 'collab-transcript-'))
 const entry = join(dir, 'entry.ts')
+const sourcePath = join(root, 'src/lib/collaboration-transcript.ts')
+// JSON.stringify emits a safe quoted module path (escapes backslashes/spaces on
+// Windows without manual replacing), so esbuild can resolve it from a temp dir.
 writeFileSync(entry, `
-export { buildCollaborationTranscript, stripToolFences, stripToolFencesLive, isSystemLineKey } from '${process.cwd().replace(/\\/g, '\\\\')}/src/lib/collaboration-transcript'
+export { buildCollaborationTranscript, stripToolFences, stripToolFencesLive, isSystemLineKey } from ${JSON.stringify(sourcePath)}
 `)
-execFileSync('node', ['node_modules/esbuild/bin/esbuild',
+const esbuildBin = join(root, 'node_modules/esbuild/bin/esbuild')
+execFileSync('node', [esbuildBin,
   entry,
   '--bundle',
   '--format=esm',
   '--platform=node',
   `--outfile=${join(dir, 'out.mjs')}`,
-], { stdio: 'inherit' })
+], { cwd: root, stdio: 'inherit' })
 const mod = await import(pathToFileURL(join(dir, 'out.mjs')).href)
 const { buildCollaborationTranscript, stripToolFences, stripToolFencesLive, isSystemLineKey } = mod
 

@@ -286,33 +286,55 @@ export function installWordFontColorPicker({
   const applyColor = (menu: HTMLElement, value: string) => {
     const color = normalizeWordColor(value)
     const item = findColorItem(toolbar)
-    if (item?.iconColor) item.iconColor.value = color
-
+    // Only flip the toolbar icon AFTER the command actually applies, so a failed
+    // command does not leave the icon out of sync with the document.
+    const previousIconColor = item?.iconColor ? readRef(item.iconColor) : undefined
+    let applied = false
     try {
       if (item && toolbar.emitCommand) {
         toolbar.emitCommand({ item, argument: color })
-      } else if (!invokeEditorCommand(getActiveEditor(), 'setColor', color)) {
-        return
+        applied = true
+      } else {
+        applied = invokeEditorCommand(getActiveEditor(), 'setColor', color)
       }
     } catch (error) {
       console.warn('[WordEditor] setColor failed:', error)
-      invokeEditorCommand(getActiveEditor(), 'setColor', color)
+      applied = invokeEditorCommand(getActiveEditor(), 'setColor', color)
     }
+    if (!applied) {
+      if (item?.iconColor && previousIconColor !== undefined) {
+        item.iconColor.value = previousIconColor
+      }
+      return
+    }
+    if (item?.iconColor) item.iconColor.value = color
     closeMenu(menu, item)
   }
 
   const resetColor = (menu: HTMLElement) => {
     const item = findColorItem(toolbar)
-    if (item?.iconColor) item.iconColor.value = '#000000'
+    const previousIconColor = item?.iconColor ? readRef(item.iconColor) : undefined
+    let applied = false
     try {
       // Passing null through emitCommand follows the same pending-mark path as
       // a normal color selection and maps to SuperDoc's unsetColor behavior.
-      if (item && toolbar.emitCommand) toolbar.emitCommand({ item, argument: null })
-      else if (!invokeEditorCommand(getActiveEditor(), 'unsetColor')) return
+      if (item && toolbar.emitCommand) {
+        toolbar.emitCommand({ item, argument: null })
+        applied = true
+      } else {
+        applied = invokeEditorCommand(getActiveEditor(), 'unsetColor')
+      }
     } catch (error) {
       console.warn('[WordEditor] unsetColor failed:', error)
-      invokeEditorCommand(getActiveEditor(), 'unsetColor')
+      applied = invokeEditorCommand(getActiveEditor(), 'unsetColor')
     }
+    if (!applied) {
+      if (item?.iconColor && previousIconColor !== undefined) {
+        item.iconColor.value = previousIconColor
+      }
+      return
+    }
+    if (item?.iconColor) item.iconColor.value = '#000000'
     closeMenu(menu, item)
   }
 
@@ -383,7 +405,13 @@ export function installWordFontColorPicker({
   }
 
   const findColorMenu = (): HTMLElement | null => {
-    const candidates = menuCandidates()
+    let candidates = menuCandidates()
+    // When multiple editor panels/toolbars exist, only consider menus that belong
+    // to THIS toolbar, so the picker is never mounted onto another panel's menu.
+    if (toolbarRoot) {
+      const owned = candidates.filter((candidate) => toolbarRoot.contains(candidate))
+      if (owned.length > 0) candidates = owned
+    }
     if (candidates.length === 0) return null
     const trigger = pendingTrigger?.isConnected
       ? pendingTrigger

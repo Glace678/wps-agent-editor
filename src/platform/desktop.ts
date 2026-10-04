@@ -1,4 +1,4 @@
-import type { AgentCollaborationEvent, AgentTaskResult } from '@/types/agent'
+﻿import type { AgentCollaborationEvent, AgentTaskResult } from '@/types/agent'
 import type {
   AgentsApi,
   AppApi,
@@ -715,6 +715,30 @@ async function appVoid(
   await desktopTransport.invoke(command, args)
 }
 
+// Defense-in-depth for opening external URLs. The Rust `app_open_url` command
+// already restricts the scheme to http/https (src-tauri/src/commands/app.rs),
+// but we re-validate on the frontend wrapper so a malformed / non-web URL never
+// reaches the system opener. This hardening negates the original openUrl finding
+// (the backend check made the candidate non-triggerable).
+function assertSafeExternalUrl(url: string): void {
+  if (typeof url !== 'string' || url.length === 0) {
+    throw new Error('openUrl requires a non-empty URL')
+  }
+  // Reject embedded control characters before any URL parsing.
+  if (/[\u0000-\u001f\u007f]/.test(url)) {
+    throw new Error('openUrl rejected: URL contains control characters')
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error('openUrl rejected: malformed URL')
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`openUrl rejected: unsupported scheme "${parsed.protocol}"`)
+  }
+}
+
 const app: AppApi = {
   platform,
   async setLanguage(language) {
@@ -745,6 +769,7 @@ const app: AppApi = {
     filePath ? accessArgs(filePath) : undefined,
   ),
   async openUrl(url) {
+    assertSafeExternalUrl(url)
     await invokeDesktop(
       DESKTOP_COMMANDS.app.openUrl,
       { url },

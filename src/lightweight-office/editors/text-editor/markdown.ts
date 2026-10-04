@@ -84,10 +84,19 @@ export function serializeBodyRegionAtCaret(
   const caret = range.cloneRange()
   caret.collapse(true)
   caret.insertNode(marker)
-  const serialized = documentType === 'markdown'
-    ? serializeMarkdownBodyRegion(region).trim()
-    : serializePlainTextBodyRegion(region)
-  marker.remove()
+
+  let serialized: string
+  try {
+    // Do NOT trim here: trimming trailing newlines/whitespace would drop content
+    // after the caret and shift the computed insertion offset.
+    serialized = documentType === 'markdown'
+      ? serializeMarkdownBodyRegion(region)
+      : serializePlainTextBodyRegion(region)
+  } finally {
+    // Always remove the marker, even if serialization throws, so it never leaks
+    // into (and gets saved into) the document.
+    marker.remove()
+  }
 
   const offset = serialized.indexOf(markerText)
   if (offset < 0) return null

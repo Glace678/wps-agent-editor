@@ -4,6 +4,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
+    io::Read,
     path::Path,
     sync::OnceLock,
 };
@@ -244,24 +245,35 @@ pub fn read_font(font_id: &str) -> AppResult<Vec<u8>> {
         ));
     }
     let data = match &face.source {
-        Source::Binary(data) => data.as_ref().as_ref().to_vec(),
-        Source::File(path) | Source::SharedFile(path, _) => {
-            let metadata = std::fs::metadata(path)?;
-            if metadata.len() > MAX_FONT_BYTES {
+        Source::Binary(data) => {
+            // Check the underlying slice length before copying so an over-large
+            // embedded font is rejected before a full allocation.
+            let slice: &[u8] = data.as_ref().as_ref();
+            if slice.len() as u64 > MAX_FONT_BYTES {
                 return Err(AppError::new(
                     "font-too-large",
                     "Font exceeds the 32 MiB read limit",
                 ));
             }
-            std::fs::read(path)?
+            slice.to_vec()
+        }
+        Source::File(path) | Source::SharedFile(path, _) => {
+            // Open once and read at most MAX_FONT_BYTES + 1 bytes from the handle,
+            // so a file that grew after metadata probing is aborted immediately
+            // instead of fully read into memory.
+            let mut file = std::fs::File::open(path)?;
+            let mut reader = (&mut file).take(MAX_FONT_BYTES.saturating_add(1));
+            let mut data = Vec::new();
+            reader.read_to_end(&mut data)?;
+            if data.len() as u64 > MAX_FONT_BYTES {
+                return Err(AppError::new(
+                    "font-too-large",
+                    "Font exceeds the 32 MiB read limit",
+                ));
+            }
+            data
         }
     };
-    if data.len() as u64 > MAX_FONT_BYTES {
-        return Err(AppError::new(
-            "font-too-large",
-            "Font exceeds the 32 MiB read limit",
-        ));
-    }
     Ok(data)
 }
 

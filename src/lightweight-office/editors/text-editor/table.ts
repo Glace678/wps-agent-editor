@@ -1,3 +1,18 @@
+/**
+ * Rows that belong directly to this table's own sections, excluding rows inside
+ * nested tables, so outer-table selection/cleanup never reaches inner rows.
+ */
+function getDirectRows(table: HTMLTableElement): HTMLTableRowElement[] {
+  const rows: HTMLTableRowElement[] = []
+  for (const child of Array.from(table.children)) {
+    if (child.tagName !== 'TBODY' && child.tagName !== 'THEAD' && child.tagName !== 'TFOOT') continue
+    for (const row of Array.from(child.children)) {
+      if (row instanceof HTMLTableRowElement) rows.push(row)
+    }
+  }
+  return rows
+}
+
 export function markTableRowInsertTarget(
   previous: HTMLTableRowElement | null,
   next: HTMLTableRowElement | null,
@@ -23,8 +38,11 @@ export function markTableSelected(
 }
 
 export function clearTableRowSelection(table: HTMLTableElement | null): void {
-  table?.querySelectorAll<HTMLTableRowElement>('tr[data-notepad-row-selected="true"]')
-    .forEach((row) => row.removeAttribute('data-notepad-row-selected'))
+  if (!table) return
+  // Only clear selection on rows owned by this table, never nested-table rows.
+  for (const row of getDirectRows(table)) {
+    row.removeAttribute('data-notepad-row-selected')
+  }
 }
 
 export function markTableRowRangeSelected(
@@ -32,7 +50,7 @@ export function markTableRowRangeSelected(
   start: HTMLTableRowElement | null,
   end: HTMLTableRowElement | null,
 ): void {
-  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'))
+  const rows = getDirectRows(table)
   const startIndex = start ? rows.indexOf(start) : -1
   const endIndex = end ? rows.indexOf(end) : -1
   if (startIndex < 0 || endIndex < 0) return
@@ -51,7 +69,7 @@ export function tableRowAtPoint(
   table: HTMLTableElement,
   clientY: number,
 ): HTMLTableRowElement | null {
-  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'))
+  const rows = getDirectRows(table)
   return rows.find((row) => {
     const rect = row.getBoundingClientRect()
     return clientY >= rect.top && clientY <= rect.bottom
@@ -62,10 +80,28 @@ export function insertTableRowAfter(row: HTMLTableRowElement): HTMLTableRowEleme
   const table = row.closest('table') as HTMLTableElement | null
   if (!table) return null
 
-  const columnCount = Math.max(
-    1,
-    Array.from(row.cells).reduce((count, cell) => count + Math.max(1, cell.colSpan), 0),
-  )
+  const allRows = getDirectRows(table)
+  const insertAt = allRows.indexOf(row)
+
+  // Columns in the new row that are already occupied by cells above carrying a
+  // rowspan extending into this row; we must not add a cell there.
+  const occupied = new Set<number>()
+  for (let r = 0; r < insertAt; r += 1) {
+    let cursor = 0
+    for (const cell of Array.from(allRows[r].cells)) {
+      const span = Math.max(1, cell.colSpan)
+      if (cell.rowSpan > 1 && r + cell.rowSpan > insertAt) {
+        for (let c = 0; c < span; c += 1) occupied.add(cursor + c)
+      }
+      cursor += span
+    }
+  }
+
+  // Total grid width implied by the reference row's own column spans.
+  let gridWidth = 0
+  for (const cell of Array.from(row.cells)) gridWidth += Math.max(1, cell.colSpan)
+  const newCellCount = Math.max(1, gridWidth - occupied.size)
+
   const parentSection = row.parentElement as HTMLTableSectionElement | null
   const body = table.tBodies[0] ?? table.createTBody()
   const inserted = parentSection?.tagName === 'THEAD'
@@ -73,7 +109,7 @@ export function insertTableRowAfter(row: HTMLTableRowElement): HTMLTableRowEleme
     : parentSection instanceof HTMLTableSectionElement
       ? parentSection.insertRow(row.sectionRowIndex + 1)
       : table.insertRow(row.rowIndex + 1)
-  for (let index = 0; index < columnCount; index += 1) {
+  for (let index = 0; index < newCellCount; index += 1) {
     const cell = inserted.insertCell()
     cell.append(document.createElement('br'))
   }

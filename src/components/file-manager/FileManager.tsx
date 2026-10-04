@@ -48,45 +48,76 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   const setSessionMainDirectory = useFileSessionStore((state) => state.setMainDirectory)
   const visitSessionDirectory = useFileSessionStore((state) => state.visitDirectory)
   const loadRequestRef = useRef(0)
+  const openFileRequestRef = useRef(0)
+  const searchRequestRef = useRef(0)
   const [activeTab, setActiveTab] = useState<'browse' | 'recent'>('browse')
   const [systemHome, setSystemHome] = useState<string | null>(null)
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
+  const [operationError, setOperationError] = useState<string | null>(null)
+
+  // 将桌面 API 的 rejection 映射为用户可见的本地化错误。
+  const describeFileError = useCallback((error: unknown): string => {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : ''
+    if (code === 'not-found') return t('recentFiles.errorNotFound')
+    return t('recentFiles.errorOperationFailed')
+  }, [t])
 
   useEffect(() => {
     let cancelled = false
     void desktopApi.files.getHome().then((home) => {
       if (!cancelled) setSystemHome(home.path)
+    }).catch(() => {
+      if (!cancelled) setOperationError(t('recentFiles.errorOperationFailed'))
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const loadDir = useCallback(async (dir: string) => {
     const requestId = ++loadRequestRef.current
-    const list = await desktopApi.files.list(dir)
-    if (requestId !== loadRequestRef.current) return
-    setEntries(list)
-    setCurrentDir(dir)
-    visitSessionDirectory(dir)
-  }, [setCurrentDir, setEntries, visitSessionDirectory])
+    try {
+      const list = await desktopApi.files.list(dir)
+      if (requestId !== loadRequestRef.current) return
+      setEntries(list)
+      setCurrentDir(dir)
+      visitSessionDirectory(dir)
+      setOperationError(null)
+    } catch (error) {
+      // 授权失效/目录不存在/传输错误：保留旧目录，仅提示，不推进状态。
+      if (requestId !== loadRequestRef.current) return
+      setOperationError(describeFileError(error))
+    }
+  }, [setCurrentDir, setEntries, visitSessionDirectory, describeFileError])
 
   const openFile = useCallback(async (filePath: string) => {
-    console.log('[FileManager] 打开文件:', filePath)
-    // 图片等文件交给系统默认应用打开（如系统“照片”或“画图”），
-    // 不在内置编辑器中渲染。
-    if (isImageFile(filePath)) {
-      void desktopApi.files.openExternal(filePath)
+    const requestId = ++openFileRequestRef.current
+    try {
+      // 图片等文件交给系统默认应用打开（如系统“照片”或“画图”），
+      // 不在内置编辑器中渲染。
+      if (isImageFile(filePath)) {
+        await desktopApi.files.openExternal(filePath)
+        if (requestId !== openFileRequestRef.current) return
+        const recent = await desktopApi.files.getRecent()
+        if (requestId !== openFileRequestRef.current) return
+        setRecentFiles(recent)
+        return
+      }
+      // 立即切换文件渲染编辑器，最近文件/快照在后台记录
+      await desktopApi.files.open(filePath)
+      if (requestId !== openFileRequestRef.current) return
+      setCurrentFile(filePath)
       const recent = await desktopApi.files.getRecent()
+      if (requestId !== openFileRequestRef.current) return
       setRecentFiles(recent)
-      return
+    } catch (error) {
+      // 打开失败：不推进编辑器/最近文件状态，仅提示；旧响应不再覆盖新结果。
+      if (requestId !== openFileRequestRef.current) return
+      setOperationError(describeFileError(error))
     }
-    // 立即切换文件渲染编辑器，最近文件/快照在后台记录
-    await desktopApi.files.open(filePath)
-    setCurrentFile(filePath)
-    const recent = await desktopApi.files.getRecent()
-    setRecentFiles(recent)
-  }, [setCurrentFile, setRecentFiles])
+  }, [setCurrentFile, setRecentFiles, describeFileError])
 
   useEffect(() => {
     if (!sessionHydrated) return
@@ -94,43 +125,56 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     const initialRequestId = loadRequestRef.current
 
     async function init() {
-      const home = await desktopApi.files.getHome()
-      const recent = await desktopApi.files.getRecent()
-      if (cancelled) return
-      setRecentFiles(recent)
-      if (
-        loadRequestRef.current !== initialRequestId
-        || useFileStore.getState().currentDir
-      ) return
-      const session = useFileSessionStore.getState()
-      const targetDir = [session.currentDirectory, session.mainDirectory, home.path]
-        .find((directory): directory is string => (
-          Boolean(directory && desktopApi.files.getGrantId(directory))
-        )) ?? home.path
-      await loadDir(targetDir)
+      try {
+        const home = await desktopApi.files.getHome()
+        const recent = await desktopApi.files.getRecent()
+        if (cancelled) return
+        setRecentFiles(recent)
+        if (
+          loadRequestRef.current !== initialRequestId
+          || useFileStore.getState().currentDir
+        ) return
+        const session = useFileSessionStore.getState()
+        const targetDir = [session.currentDirectory, session.mainDirectory, home.path]
+          .find((directory): directory is string => (
+            Boolean(directory && desktopApi.files.getGrantId(directory))
+          )) ?? home.path
+        await loadDir(targetDir)
+      } catch (error) {
+        if (!cancelled) setOperationError(describeFileError(error))
+      }
     }
     void init()
     return () => {
       cancelled = true
     }
-  }, [loadDir, sessionHydrated, setRecentFiles])
+  }, [loadDir, sessionHydrated, setRecentFiles, describeFileError])
 
   useEffect(() => {
+    // 每次进入 effect 都使上一次进行中的搜索失效（含空查询分支）。
+    const requestId = ++searchRequestRef.current
     if (!searchQuery.trim()) {
       setSearchResults([])
+      setIsSearching(false)
       return
     }
+    setIsSearching(true)
     const timer = setTimeout(async () => {
-      setIsSearching(true)
       try {
         const results = await desktopApi.files.search(currentDir, searchQuery)
+        if (requestId !== searchRequestRef.current) return
         setSearchResults(results)
+        setOperationError(null)
+      } catch (error) {
+        if (requestId !== searchRequestRef.current) return
+        setSearchResults([])
+        setOperationError(describeFileError(error))
       } finally {
-        setIsSearching(false)
+        if (requestId === searchRequestRef.current) setIsSearching(false)
       }
     }, 300)
     return () => clearTimeout(timer)
-  }, [searchQuery, currentDir, setSearchResults, setIsSearching])
+  }, [searchQuery, currentDir, setSearchResults, setIsSearching, describeFileError])
 
   const goUp = useCallback(() => {
     const dir = useFileStore.getState().currentDir
@@ -180,9 +224,13 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   }, [])
 
   const chooseHomeFolder = useCallback(async () => {
-    const folder = await desktopApi.files.selectFolder()
-    if (folder) applyMainDirectory(folder.path)
-  }, [applyMainDirectory])
+    try {
+      const folder = await desktopApi.files.selectFolder()
+      if (folder) applyMainDirectory(folder.path)
+    } catch (error) {
+      setOperationError(describeFileError(error))
+    }
+  }, [applyMainDirectory, describeFileError])
 
   return (
     <TooltipProvider delayDuration={450}>
@@ -312,8 +360,12 @@ export function FileManager({ onCollapse }: FileManagerProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={async () => {
-                  const folder = await desktopApi.files.selectFolder()
-                  if (folder) loadDir(folder.path)
+                  try {
+                    const folder = await desktopApi.files.selectFolder()
+                    if (folder) await loadDir(folder.path)
+                  } catch (error) {
+                    setOperationError(describeFileError(error))
+                  }
                 }} aria-label={t('appShell.openFolder')}>
                   <FolderOpen className="h-3.5 w-3.5" />
                 </Button>
@@ -367,6 +419,23 @@ export function FileManager({ onCollapse }: FileManagerProps) {
               </TooltipContent>
             </Tooltip>
           </div>
+          {operationError && (
+            <div
+              role="alert"
+              data-testid="file-manager-error"
+              className="mx-1.5 mb-1 flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-600 dark:text-red-400"
+            >
+              <span className="min-w-0 flex-1">{operationError}</span>
+              <button
+                type="button"
+                className="shrink-0 opacity-60 hover:opacity-100"
+                aria-label={t('recentFiles.cancel')}
+                onClick={() => setOperationError(null)}
+              >
+                ×
+              </button>
+            </div>
+          )}
           {/*
             浏览列表用原生滚动；悬停完整名称由 FileHoverCard portal 到 body，
             避免 ScrollArea overflow 裁切弹层。

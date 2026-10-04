@@ -12,8 +12,14 @@ function syncNativeTheme(preference: ThemePreference): void {
 }
 
 export function getThemePreference(): ThemePreference {
-  const value = localStorage.getItem(APP_THEME_KEY)
-  return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
+  try {
+    const value = localStorage.getItem(APP_THEME_KEY)
+    return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
+  } catch {
+    // Storage can be unavailable (private mode / sandboxed renderer). Fall back
+    // to the system preference rather than throwing during startup.
+    return 'system'
+  }
 }
 
 export function resolveDarkTheme(preference: ThemePreference): boolean {
@@ -22,7 +28,11 @@ export function resolveDarkTheme(preference: ThemePreference): boolean {
 }
 
 export function setThemePreference(preference: ThemePreference): void {
-  localStorage.setItem(APP_THEME_KEY, preference)
+  try {
+    localStorage.setItem(APP_THEME_KEY, preference)
+  } catch {
+    // Keep the in-memory preference and native sync even if persistence fails.
+  }
   syncNativeTheme(preference)
   window.dispatchEvent(new CustomEvent<ThemePreference>(APP_THEME_EVENT, { detail: preference }))
 }

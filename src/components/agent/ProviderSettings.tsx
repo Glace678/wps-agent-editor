@@ -103,6 +103,10 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   const [customTestError, setCustomTestError] = useState('')
   const [isTestingCustomConnection, setIsTestingCustomConnection] = useState(false)
   const [isCustomModelMenuOpen, setIsCustomModelMenuOpen] = useState(false)
+  const [isSavingKey, setIsSavingKey] = useState(false)
+  const [apiKeyError, setApiKeyError] = useState('')
+  const [isResettingBaseURL, setIsResettingBaseURL] = useState(false)
+  const [isCreatingCustom, setIsCreatingCustom] = useState(false)
   const listPanelRef = useRef<HTMLDivElement>(null)
   const listContentRef = useRef<HTMLDivElement>(null)
   const listWidthRef = useRef(DEFAULT_LIST_WIDTH)
@@ -257,26 +261,44 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   }
 
   const handleResetBaseURL = async () => {
+    if (isResettingBaseURL) return
     const providerId = selectedId
     const restoredBaseURL = defaultBaseURL
+    const previousValue = baseURL
 
-    setBaseURL(restoredBaseURL)
+    setIsResettingBaseURL(true)
     setBaseURLError('')
-    setBaseURLSaved(false)
-
-    await desktopApi.providers.setBaseURL(providerId, '')
-    setProviders((current) => current.map((provider) => (
-      provider.id === providerId
-        ? { ...provider, api: restoredBaseURL, isApiOverridden: false }
-        : provider
-    )))
+    try {
+      // 先持久化成功，再更新本地 UI；失败时恢复旧值。
+      await desktopApi.providers.setBaseURL(providerId, '')
+      setBaseURL(restoredBaseURL)
+      setBaseURLSaved(false)
+      setProviders((current) => current.map((provider) => (
+        provider.id === providerId
+          ? { ...provider, api: restoredBaseURL, isApiOverridden: false }
+          : provider
+      )))
+    } catch {
+      setBaseURL(previousValue)
+      setBaseURLError(t('recentFiles.errorOperationFailed'))
+    } finally {
+      setIsResettingBaseURL(false)
+    }
   }
 
   const handleSaveKey = async () => {
-    if (!apiKey.trim()) return
-    await desktopApi.providers.auth.set(selectedId, apiKey.trim())
-    setApiKey('')
-    await load()
+    if (!apiKey.trim() || isSavingKey) return
+    setIsSavingKey(true)
+    setApiKeyError('')
+    try {
+      await desktopApi.providers.auth.set(selectedId, apiKey.trim())
+      await load()
+      setApiKey('')
+    } catch {
+      setApiKeyError(t('providerSettings.testConnectionFailed'))
+    } finally {
+      setIsSavingKey(false)
+    }
   }
 
   const handleToggleProvider = (providerId: string) => {
@@ -351,6 +373,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
   }
 
   const handleSaveCustom = async () => {
+    if (isCreatingCustom) return
     const provider: CustomProviderConfig = {
       id: `custom-${crypto.randomUUID()}`,
       name: customForm.name || t('providerSettings.customProvider'),
@@ -360,13 +383,23 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
       protocol: customForm.protocol || 'openai-compatible',
       createdAt: Date.now(),
     }
-    await desktopApi.providers.custom.save(provider)
-    if (customApiKey.trim()) {
-      await desktopApi.providers.auth.set(provider.id, customApiKey.trim())
+    setIsCreatingCustom(true)
+    setCustomTestError('')
+    try {
+      await desktopApi.providers.custom.save(provider)
+      if (customApiKey.trim()) {
+        await desktopApi.providers.auth.set(provider.id, customApiKey.trim())
+      }
+      await load()
+      // 全部成功后才关闭弹窗并切到新 provider。
+      closeCustomForm()
+      setSelectedId(provider.id)
+    } catch {
+      // 失败时保留弹窗与已填内容，仅展示错误。
+      setCustomTestError(t('providerSettings.testConnectionFailed'))
+    } finally {
+      setIsCreatingCustom(false)
     }
-    closeCustomForm()
-    await load()
-    setSelectedId(provider.id)
   }
 
   return (
@@ -598,7 +631,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                 )}
                 {!isCustomModelMenuOpen && (
                   <div className="flex gap-2">
-                    <Button data-testid="custom-provider-create" onClick={() => void handleSaveCustom()} disabled={!customForm.baseURL?.trim() || !customForm.defaultModel?.trim()}>{t('providerSettings.create')}</Button>
+                    <Button data-testid="custom-provider-create" onClick={() => void handleSaveCustom()} disabled={!customForm.baseURL?.trim() || !customForm.defaultModel?.trim() || isCreatingCustom}>{isCreatingCustom ? <WaitingText text={t('providerSettings.testingConnection')} /> : t('providerSettings.create')}</Button>
                     <Button variant="outline" onClick={closeCustomForm}>{t('providerSettings.cancel')}</Button>
                   </div>
                 )}
@@ -689,7 +722,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                       data-testid="provider-reset-base-url"
                       variant="outline"
                       onClick={() => void handleResetBaseURL()}
-                      disabled={!hasCustomBaseURL}
+                      disabled={!hasCustomBaseURL || isResettingBaseURL}
                     >
                       <svg
                         data-testid="provider-reset-base-url-icon"
@@ -744,9 +777,10 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                       <Button
                         size="sm"
                         data-testid="provider-save-key"
-                        onClick={handleSaveKey}
+                        onClick={() => void handleSaveKey()}
+                        disabled={isSavingKey}
                       >
-                        {t('providerSettings.saveKey')}
+                        {isSavingKey ? <WaitingText text={t('providerSettings.testingConnection')} /> : t('providerSettings.saveKey')}
                       </Button>
                       {authStatus[selectedId]?.configured && (
                         <Button
@@ -762,6 +796,7 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                         </Button>
                       )}
                     </div>
+                    {apiKeyError && <p data-testid="provider-save-key-error" className="text-xs text-destructive">{apiKeyError}</p>}
                     {selected.env.length > 0 && (
                       <p className="text-xs text-muted-foreground">
                         {t('providerSettings.environmentVariables', {

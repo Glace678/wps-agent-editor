@@ -198,7 +198,9 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
 
     const visible = orderedItems.slice(0, cut)
     const overflowed = orderedItems.slice(cut)
-    if (overflowControl) visible.push(overflowControl)
+    // Only add the overflow ("...") control when there is actually something to
+    // overflow; otherwise an empty three-dot button shows and inflates the budget.
+    if (overflowControl && overflowed.length > 0) visible.push(overflowControl)
 
     if (
       !force

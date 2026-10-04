@@ -7,7 +7,7 @@ import { observeDocumentMutations } from './dom-observer'
 
 export interface WordTablePickerProps {
   language: LanguageCode
-  onInsertTable: (rows: number, cols: number) => void
+  onInsertTable: (rows: number, cols: number) => boolean
   onOpenCustomDialog: () => void
   onCloseDropdown: () => void
 }
@@ -79,8 +79,9 @@ export function WordTablePickerMenu({
   const texts = TABLE_PICKER_TEXTS[language] ?? TABLE_PICKER_TEXTS.en
 
   const handleSelect = (r: number, c: number) => {
-    onInsertTable(r, c)
-    onCloseDropdown()
+    // Only close the dropdown when the insert actually succeeded; on failure keep
+    // it open so the user can retry.
+    if (onInsertTable(r, c)) onCloseDropdown()
   }
 
   const handleOpenDialog = (e: React.MouseEvent) => {
@@ -201,19 +202,20 @@ export function installWordTablePicker(options: InstallWordTablePickerOptions): 
     const root = createRoot(wrapper)
     activeRoots.set(wrapper, root)
 
-    const handleInsert = (rows: number, cols: number) => {
+    const handleInsert = (rows: number, cols: number): boolean => {
       const editor = options.getEditor()
-      if (editor) {
-        try {
-          if (typeof (editor.commands as Record<string, unknown>)?.insertTable === 'function') {
-            ;(editor.commands as Record<string, (args: { rows: number; cols: number }) => boolean>).insertTable({ rows, cols })
-          } else if (typeof (editor as unknown as { chain?: () => { insertTable?: (args: { rows: number; cols: number }) => { run: () => boolean } } }).chain === 'function') {
-            ;(editor as unknown as { chain: () => { insertTable: (args: { rows: number; cols: number }) => { run: () => boolean } } }).chain().insertTable({ rows, cols }).run()
-          }
-        } catch (err) {
-          console.warn('[WordTablePicker] insertTable failed:', err)
+      if (!editor) return false
+      try {
+        if (typeof (editor.commands as Record<string, unknown>)?.insertTable === 'function') {
+          return Boolean((editor.commands as Record<string, (args: { rows: number; cols: number }) => boolean>).insertTable({ rows, cols }))
         }
+        if (typeof (editor as unknown as { chain?: () => { insertTable?: (args: { rows: number; cols: number }) => { run: () => boolean } } }).chain === 'function') {
+          return Boolean((editor as unknown as { chain: () => { insertTable: (args: { rows: number; cols: number }) => { run: () => boolean } } }).chain().insertTable({ rows, cols }).run())
+        }
+      } catch (err) {
+        console.warn('[WordTablePicker] insertTable failed:', err)
       }
+      return false
     }
 
     root.render(
@@ -229,6 +231,18 @@ export function installWordTablePicker(options: InstallWordTablePickerOptions): 
   // The grid wrapper only exists inside an open table dropdown. Coalescing the
   // document-wide query avoids a querySelectorAll per ProseMirror mutation.
   const scan = () => {
+    // Release React roots whose wrapper was removed from the DOM so memory and
+    // stale state do not linger until full dispose.
+    for (const [wrapper, root] of [...activeRoots]) {
+      if (!wrapper.isConnected) {
+        try {
+          root.unmount()
+        } catch {
+          // ignore unmount races
+        }
+        activeRoots.delete(wrapper)
+      }
+    }
     document.querySelectorAll<HTMLElement>('.toolbar-table-grid-wrapper').forEach(decorate)
   }
 

@@ -5,6 +5,10 @@ export interface LiveOperationContext {
 
 /** Serializes visible edits and lets the user stop a run between operations. */
 export class LiveOperationQueue {
+  // Bound the cancelled-run markers so an unbounded stream of external runIds
+  // cannot grow the set (and process memory) without limit.
+  private static readonly MAX_CANCELLED_RUNS = 1000
+
   private tail: Promise<void> = Promise.resolve()
   private readonly cancelledRuns = new Set<string>()
 
@@ -22,6 +26,11 @@ export class LiveOperationQueue {
 
   cancelRun(runId: string): void {
     this.cancelledRuns.add(runId)
+    // Evict the oldest markers (Set preserves insertion order) once over cap.
+    if (this.cancelledRuns.size > LiveOperationQueue.MAX_CANCELLED_RUNS) {
+      const oldest = this.cancelledRuns.values().next().value
+      if (oldest !== undefined) this.cancelledRuns.delete(oldest)
+    }
   }
 
   clearRun(runId: string): void {

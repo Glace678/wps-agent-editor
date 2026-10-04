@@ -44,23 +44,35 @@ function getActiveAlignment(editor: unknown): AlignmentKey {
 export function installWordAlignmentPolicy(options: InstallWordAlignmentPolicyOptions): () => void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return () => {}
 
+  // Track every button we bound so cleanup can remove the listeners and reset the
+  // state we applied (otherwise old closures survive on reused DOM nodes).
+  const boundButtons = new Map<HTMLElement, () => void>()
+
   const updateAlignmentButtons = (container: HTMLElement) => {
-    const editor = options.getEditor()
+    let editor: Editor | null = null
+    try {
+      editor = options.getEditor()
+    } catch {
+      editor = null
+    }
     const activeAlignment = getActiveAlignment(editor)
     const buttons = Array.from(container.querySelectorAll<HTMLElement>('.sd-button-icon'))
 
-    buttons.forEach((btn, index) => {
+    buttons.forEach((btn) => {
       // Remove any initial browser focus box on mount
       if (document.activeElement === btn) {
         btn.blur()
       }
 
       const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase()
-      const isMatch =
-        (activeAlignment === 'left' && (index === 0 || ariaLabel.includes('left'))) ||
-        (activeAlignment === 'center' && (index === 1 || ariaLabel.includes('center'))) ||
-        (activeAlignment === 'right' && (index === 2 || ariaLabel.includes('right'))) ||
-        (activeAlignment === 'justify' && (index === 3 || ariaLabel.includes('justify')))
+      // Only select when we can recognize the button by its (stable) command
+      // label. Without a usable label, do NOT guess by position — order can shift.
+      const isMatch = !!ariaLabel && (
+        (activeAlignment === 'left' && ariaLabel.includes('left')) ||
+        (activeAlignment === 'center' && ariaLabel.includes('center')) ||
+        (activeAlignment === 'right' && ariaLabel.includes('right')) ||
+        (activeAlignment === 'justify' && ariaLabel.includes('justify'))
+      )
 
       if (isMatch) {
         btn.classList.add('sd-selected')
@@ -74,7 +86,7 @@ export function installWordAlignmentPolicy(options: InstallWordAlignmentPolicyOp
 
       if (!btn.dataset.wordAlignBound) {
         btn.dataset.wordAlignBound = 'true'
-        btn.addEventListener('click', () => {
+        const handler = () => {
           buttons.forEach((b) => {
             b.classList.remove('sd-selected')
             b.removeAttribute('data-active')
@@ -83,7 +95,9 @@ export function installWordAlignmentPolicy(options: InstallWordAlignmentPolicyOp
           btn.classList.add('sd-selected')
           btn.setAttribute('data-active', 'true')
           btn.setAttribute('aria-selected', 'true')
-        })
+        }
+        btn.addEventListener('click', handler)
+        boundButtons.set(btn, handler)
       }
     })
   }
@@ -91,8 +105,25 @@ export function installWordAlignmentPolicy(options: InstallWordAlignmentPolicyOp
   // Alignment state only changes on selection moves, not on every DOM mutation
   // ProseMirror emits while typing. Coalescing keeps one query per frame.
   const scan = () => {
-    document.querySelectorAll<HTMLElement>('.alignment-buttons').forEach(updateAlignmentButtons)
+    document.querySelectorAll<HTMLElement>('.alignment-buttons').forEach((container) => {
+      try {
+        updateAlignmentButtons(container)
+      } catch {
+        // A single bad container must not stop the rest of the scan.
+      }
+    })
   }
 
-  return observeDocumentMutations(scan)
+  const stop = observeDocumentMutations(scan)
+  return () => {
+    stop()
+    for (const [btn, handler] of boundButtons) {
+      btn.removeEventListener('click', handler)
+      delete btn.dataset.wordAlignBound
+      btn.classList.remove('sd-selected')
+      btn.removeAttribute('data-active')
+      btn.removeAttribute('aria-selected')
+    }
+    boundButtons.clear()
+  }
 }

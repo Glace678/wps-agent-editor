@@ -154,7 +154,7 @@ try {
     'icons/icon.ico',
   ])
   const linuxDesktopRelativePath = tauriConfig.bundle.linux?.deb?.desktopTemplate
-  assert.equal(linuxDesktopRelativePath, 'linux/Office-Agentic.desktop')
+  assert.equal(linuxDesktopRelativePath, 'linux/office-agentic.desktop')
   const linuxDesktop = await readFile(join(root, 'src-tauri', linuxDesktopRelativePath), 'utf8')
   assert.match(linuxDesktop, /^Exec=\{\{exec\}\} %F$/m)
   assert.match(linuxDesktop, /^StartupWMClass=\{\{exec\}\}$/m)

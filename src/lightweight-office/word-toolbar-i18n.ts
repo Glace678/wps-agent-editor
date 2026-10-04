@@ -1037,6 +1037,38 @@ const GO_TO_PREFIX_MAP: Record<LanguageCode, string> = {
   ar: 'الانتقال إلى ',
 }
 
+/**
+ * Resolve the stable (original English) lookup key for an element we already
+ * localized once. Re-running with a new language must look up the stored English
+ * source, not the currently-shown (already translated) text, otherwise switching
+ * en->fr->de leaves the menu mixed.
+ */
+function resolveLocalizedKey(el: Element, fallback: string): string {
+  const stored = (el as HTMLElement).dataset?.waeI18nKey
+  return stored?.trim() || fallback
+}
+
+function rememberLocalizedKey(el: Element, english: string): void {
+  const dataset = (el as HTMLElement).dataset
+  if (dataset && !dataset.waeI18nKey && english.trim()) {
+    dataset.waeI18nKey = english.trim()
+  }
+}
+
+function localizeElementText(
+  el: HTMLElement,
+  map: Record<string, Record<string, string>>,
+  language: LanguageCode,
+): void {
+  const current = el.textContent?.trim() ?? ''
+  const key = resolveLocalizedKey(el, current)
+  const match = map[key]?.[language]
+  if (match) {
+    rememberLocalizedKey(el, current)
+    el.textContent = match
+  }
+}
+
 function localizeSuperdocElements(root: ParentNode, language: LanguageCode): void {
   // 1. Tooltips
   const tooltipContents: Element[] = []
@@ -1057,12 +1089,10 @@ function localizeSuperdocElements(root: ParentNode, language: LanguageCode): voi
   // 2. Context Menu & Popovers
   if (language === 'en') return
   const searchHeaderLabels = root instanceof Element && root.matches('.context-menu-search-header-label')
-    ? [root]
-    : [...root.querySelectorAll('.context-menu-search-header-label')]
+    ? [root as HTMLElement]
+    : [...root.querySelectorAll<HTMLElement>('.context-menu-search-header-label')]
   for (const el of searchHeaderLabels) {
-    const raw = el.textContent?.trim() ?? ''
-    const match = SUPERDOC_CONTEXT_MENU_MAP[raw]?.[language]
-    if (match) el.textContent = match
+    localizeElementText(el, SUPERDOC_CONTEXT_MENU_MAP, language)
   }
 
   const items = root instanceof Element && root.matches('.context-menu-item, .toolbar-table-actions__item, .context-menu-default-content, .toolbar-table-actions__label')
@@ -1075,8 +1105,11 @@ function localizeSuperdocElements(root: ParentNode, language: LanguageCode): voi
     let node: Node | null = walker.nextNode()
     while (node) {
       const text = node.textContent?.trim() ?? ''
-      const match = SUPERDOC_CONTEXT_MENU_MAP[text]?.[language]
+      const host = node.parentElement ?? item
+      const key = resolveLocalizedKey(host, text)
+      const match = SUPERDOC_CONTEXT_MENU_MAP[key]?.[language]
       if (match) {
+        rememberLocalizedKey(host, text)
         node.textContent = node.textContent?.replace(text, match) ?? match
       }
       node = walker.nextNode()
@@ -1088,12 +1121,8 @@ function localizeSuperdocElements(root: ParentNode, language: LanguageCode): voi
     ? [root]
     : [...root.querySelectorAll('.link-input-ctn')]
   for (const popover of linkPopovers) {
-    const title = popover.querySelector('.link-title')
-    if (title) {
-      const text = title.textContent?.trim() ?? ''
-      const match = SUPERDOC_CONTEXT_MENU_MAP[text]?.[language]
-      if (match) title.textContent = match
-    }
+    const title = popover.querySelector<HTMLElement>('.link-title')
+    if (title) localizeElementText(title, SUPERDOC_CONTEXT_MENU_MAP, language)
 
     const textInput = popover.querySelector<HTMLInputElement>('input[name="text"]')
     if (textInput) {
@@ -1110,19 +1139,19 @@ function localizeSuperdocElements(root: ParentNode, language: LanguageCode): voi
     }
 
     const submitBtn = popover.querySelector<HTMLButtonElement>('.sd-submit-btn')
-    if (submitBtn) {
-      const text = submitBtn.textContent?.trim() ?? ''
-      const match = SUPERDOC_CONTEXT_MENU_MAP[text]?.[language]
-      if (match) submitBtn.textContent = match
-    }
+    if (submitBtn) localizeElementText(submitBtn, SUPERDOC_CONTEXT_MENU_MAP, language)
 
     const removeBtn = popover.querySelector<HTMLButtonElement>('.remove-btn')
     if (removeBtn) {
       for (const child of Array.from(removeBtn.childNodes)) {
         if (child.nodeType === 3 /* Node.TEXT_NODE */) {
           const text = child.textContent?.trim() ?? ''
-          const match = SUPERDOC_CONTEXT_MENU_MAP[text]?.[language]
-          if (match) child.textContent = ` ${match} `
+          const key = resolveLocalizedKey(removeBtn, text)
+          const match = SUPERDOC_CONTEXT_MENU_MAP[key]?.[language]
+          if (match) {
+            rememberLocalizedKey(removeBtn, text)
+            child.textContent = ` ${match} `
+          }
         }
       }
     }
@@ -1141,17 +1170,34 @@ function localizeSuperdocElements(root: ParentNode, language: LanguageCode): voi
  * configured tooltip. Its tooltip and context menu are teleported to document.body,
  * so localize those unsupported fragments as they are mounted.
  */
+let activeI18nObserver: MutationObserver | null = null
+
 export function installWordToolbarTooltipLocalization(language: LanguageCode): () => void {
   if (typeof document === 'undefined' || !document.body) return () => undefined
 
   localizeSuperdocElements(document.body, language)
+  // Singleton observer: disconnect any previous install's observer so repeated
+  // installs do not stack overlapping observers re-localizing the same nodes.
+  activeI18nObserver?.disconnect()
   const observer = new MutationObserver((records) => {
     for (const record of records) {
+      if (record.type === 'characterData' && record.target instanceof HTMLElement) {
+        localizeSuperdocElements(record.target, language)
+        continue
+      }
       for (const node of record.addedNodes) {
         if (node instanceof Element) localizeSuperdocElements(node, language)
       }
     }
   })
-  observer.observe(document.body, { childList: true, subtree: true })
-  return () => observer.disconnect()
+  activeI18nObserver = observer
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  })
+  return () => {
+    observer.disconnect()
+    if (activeI18nObserver === observer) activeI18nObserver = null
+  }
 }

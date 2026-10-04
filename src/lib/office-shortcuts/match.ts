@@ -35,6 +35,10 @@ export function normalizeEventKey(event: KeyEventLike): string {
  * Note: naive split('+') breaks on "Ctrl++" (trailing Plus) — peel modifiers instead.
  */
 export function parseChord(chord: string): ParsedChord {
+  // Entry type guard: storage may feed in non-string / empty values.
+  if (typeof chord !== 'string' || chord.trim().length === 0) {
+    throw new TypeError('parseChord requires a non-empty chord string')
+  }
   let rest = chord
     .trim()
     .replace(/CmdOrCtrl/gi, 'Ctrl')

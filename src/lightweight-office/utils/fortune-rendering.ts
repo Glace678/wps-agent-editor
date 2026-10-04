@@ -438,46 +438,93 @@ function getSharedSpreadsheetFontFamilies(
  */
 function installSharedSpreadsheetFontLibrary(fontFaces: readonly SystemFontFace[]) {
   const fontFamilies = getSharedSpreadsheetFontFamilies(fontFaces)
-  const fontIndexes = new Map<string, number>()
-  for (const [index, font] of fontFamilies.entries()) {
-    fontIndexes.set(normalizeSystemFontFamilyName(font.familyName), index)
-    fontIndexes.set(normalizeSystemFontFamilyName(font.menuName), index)
-  }
 
   for (const lang of FORTUNE_LANGUAGES) {
     const localeData = locale({ lang } as unknown as Context)
     const previousFamilies = [...localeData.fontarray]
     const fontMap = localeData.fontjson as unknown as Record<string, number>
-    const aliases = new Map<string, number>()
-    for (const [alias, index] of Object.entries(fontMap)) {
-      const previousFamily = previousFamilies[index]
-      const nextIndex = previousFamily
-        ? fontIndexes.get(normalizeSystemFontFamilyName(previousFamily))
-        : undefined
-      const aliasKey = normalizeSystemFontFamilyName(alias)
-      if (nextIndex !== undefined && aliasKey) aliases.set(aliasKey, nextIndex)
+
+    // Cells store a *numeric* font index (format.ff) that resolves directly to
+    // `fontarray[ff]`. A plain splice-replacement reorders the array, so a cell
+    // written against the previous (fallback) catalog would silently start
+    // rendering in a different font. Preserve the previous positional mapping:
+    // every index that already existed keeps pointing at the SAME family, and
+    // genuinely new families are appended afterwards. This makes index drift
+    // impossible for pre-existing workbooks instead of silently corrupting them.
+    const desiredByFamilyKey = new Map<string, typeof fontFamilies[number]>()
+    const desiredByMenuKey = new Map<string, typeof fontFamilies[number]>()
+    for (const entry of fontFamilies) {
+      desiredByFamilyKey.set(normalizeSystemFontFamilyName(entry.familyName), entry)
+      desiredByMenuKey.set(normalizeSystemFontFamilyName(entry.menuName), entry)
     }
 
+    const nextFamilies: string[] = new Array(previousFamilies.length)
+    const placedKeys = new Set<string>()
+    for (let index = 0; index < previousFamilies.length; index += 1) {
+      const oldName = previousFamilies[index]
+      const oldKey = normalizeSystemFontFamilyName(oldName)
+      const match = oldKey
+        ? (desiredByFamilyKey.get(oldKey) ?? desiredByMenuKey.get(oldKey))
+        : undefined
+      if (match) {
+        nextFamilies[index] = match.menuName
+        placedKeys.add(normalizeSystemFontFamilyName(match.menuName))
+        placedKeys.add(normalizeSystemFontFamilyName(match.familyName))
+      } else {
+        // The previous font is no longer in the catalog. Keep the original name
+        // at this index so stored numeric indices still resolve to the same (now
+        // possibly missing) family rather than shifting onto an unrelated one.
+        nextFamilies[index] = oldName
+        placedKeys.add(oldKey)
+      }
+    }
+    for (const entry of fontFamilies) {
+      const menuKey = normalizeSystemFontFamilyName(entry.menuName)
+      const familyKey = normalizeSystemFontFamilyName(entry.familyName)
+      if (!placedKeys.has(menuKey) && !placedKeys.has(familyKey)) {
+        nextFamilies.push(entry.menuName)
+        placedKeys.add(menuKey)
+        placedKeys.add(familyKey)
+      }
+    }
+
+    // Rebuild the alias table against the final (position-preserved) array so
+    // name lookups resolve to the correct stable index.
+    const aliases = new Map<string, number>()
+    nextFamilies.forEach((menuName, index) => {
+      const key = normalizeSystemFontFamilyName(menuName)
+      if (key) aliases.set(key, index)
+    })
+    const familyIndex = new Map<string, number>()
+    nextFamilies.forEach((menuName, index) => {
+      familyIndex.set(menuName, index)
+    })
+    for (const entry of fontFamilies) {
+      const familyKey = normalizeSystemFontFamilyName(entry.familyName)
+      const index = familyIndex.get(entry.menuName)
+      if (familyKey && index !== undefined && !aliases.has(familyKey)) {
+        aliases.set(familyKey, index)
+      }
+    }
     // Accept both canonical and localized family names from imported HTML,
     // existing workbooks, and the localized menu labels.
     for (const face of fontFaces) {
-      const index = fontIndexes.get(normalizeSystemFontFamilyName(face.familyName))
+      const entry = fontFamilies.find((f) => f.familyName === face.familyName)
+      const index = entry ? familyIndex.get(entry.menuName) : undefined
       const displayName = normalizeSystemFontFamilyName(face.displayName)
-      if (index !== undefined && displayName) aliases.set(displayName, index)
+      if (index !== undefined && displayName && !aliases.has(displayName)) {
+        aliases.set(displayName, index)
+      }
     }
 
     localeData.fontarray.splice(
       0,
       localeData.fontarray.length,
-      ...fontFamilies.map((font) => font.menuName),
+      ...nextFamilies,
     )
     for (const key of Object.keys(fontMap)) delete fontMap[key]
-    fontFamilies.forEach(({ familyName, menuName }, index) => {
-      fontMap[normalizeSystemFontFamilyName(familyName)] = index
-      fontMap[normalizeSystemFontFamilyName(menuName)] = index
-    })
     for (const [alias, index] of aliases) {
-      if (fontMap[alias] === undefined) fontMap[alias] = index
+      fontMap[alias] = index
     }
   }
 }
@@ -530,6 +577,9 @@ export function configureFortuneRendering(fontFaces?: readonly SystemFontFace[])
   // supply its fallback/full shared catalog before replacing Fortune's locale
   // data, so the original localized aliases can be migrated as well.
   polyfillFortuneLocaleGaps()
-  if (fontFaces) installSharedSpreadsheetFontLibrary(fontFaces)
+  // An empty catalog must never wipe Fortune's default/already-installed font
+  // array (that would blank the font menu and break every cell's font). Keep the
+  // existing directory and only install a non-empty, resolved catalog.
+  if (fontFaces && fontFaces.length > 0) installSharedSpreadsheetFontLibrary(fontFaces)
   installNativeDarkCanvasRendering()
 }

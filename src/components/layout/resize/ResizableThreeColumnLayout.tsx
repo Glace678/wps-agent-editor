@@ -33,21 +33,29 @@ interface CollapseState {
   right: boolean
 }
 
+/** 面板宽度的合理上限：避免畸形 localStorage 值把布局撑到不可用。 */
+const MAX_PANEL_WIDTH = 1200
+
+/**
+ * 校验持久化的面板宽度：必须是 number 且 finite，按最小值夹到最大值，
+ * 任何非法/非数值（如 `{"right":{}}`）都回退到默认值。
+ */
+function sanitizePanelWidth(value: unknown, min: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(Math.max(value, min), MAX_PANEL_WIDTH)
+}
+
 function loadSizes(): PanelSizes {
   try {
     const raw = localStorage.getItem(PANEL_STORAGE_KEY)
     if (!raw) return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH }
     const parsed = JSON.parse(raw) as Partial<PanelSizes>
     // Migrate the previous default without overwriting a user-selected width.
-    const storedLeft = typeof parsed.left === 'number' ? parsed.left : null
-    const left = storedLeft === 260
-      ? DEFAULT_LEFT_WIDTH
-      : storedLeft && storedLeft >= MIN_LEFT_WIDTH
-        ? storedLeft
-        : DEFAULT_LEFT_WIDTH
+    let storedLeft: unknown = parsed.left
+    if (typeof storedLeft === 'number' && storedLeft === 260) storedLeft = DEFAULT_LEFT_WIDTH
     return {
-      left: Math.max(MIN_LEFT_WIDTH, left),
-      right: Math.max(MIN_RIGHT_WIDTH, parsed.right ?? DEFAULT_RIGHT_WIDTH),
+      left: sanitizePanelWidth(storedLeft, MIN_LEFT_WIDTH, DEFAULT_LEFT_WIDTH),
+      right: sanitizePanelWidth(parsed.right, MIN_RIGHT_WIDTH, DEFAULT_RIGHT_WIDTH),
     }
   } catch {
     return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH }
@@ -170,6 +178,8 @@ export function ResizableThreeColumnLayout({ left, center, right }: ResizableThr
   const activeResizeCleanupRef = useRef<(() => void) | null>(null)
   const leftAnimationTimerRef = useRef<number | null>(null)
   const rightAnimationTimerRef = useRef<number | null>(null)
+  // 活动动画计数：左右面板可能并行动画，只有全部结束才解除 isAnimating/冻结。
+  const activeAnimationsRef = useRef(0)
   const [sizes, setSizes] = useState<PanelSizes>(loadSizes)
   const [collapsed, setCollapsed] = useState<CollapseState>(loadCollapse)
   const [isAnimating, setIsAnimating] = useState(false)
@@ -183,11 +193,19 @@ export function ResizableThreeColumnLayout({ left, center, right }: ResizableThr
   collapsedRef.current = collapsed
 
   const persistSizes = useCallback((next: PanelSizes) => {
-    localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(next))
+    try {
+      localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      // 存储不可用（隐私模式/配额）时仍保持本次会话的布局。
+    }
   }, [])
 
   const persistCollapse = useCallback((next: CollapseState) => {
-    localStorage.setItem(PANEL_COLLAPSE_STORAGE_KEY, JSON.stringify(next))
+    try {
+      localStorage.setItem(PANEL_COLLAPSE_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      // 同上：写入失败不影响本次会话。
+    }
   }, [])
 
   const freezeCenterPanel = useCallback(() => {
@@ -214,90 +232,112 @@ export function ResizableThreeColumnLayout({ left, center, right }: ResizableThr
     centerPanelRef.current.style.transition = ''
   }, [])
 
-  const collapseLeft = useCallback(() => {
-    if (leftAnimationTimerRef.current !== null) {
-      window.clearTimeout(leftAnimationTimerRef.current)
-    }
+  // 开始一个动画：冻结中心面板并累加活动计数。
+  const beginAnimation = useCallback(() => {
+    activeAnimationsRef.current += 1
     freezeCenterPanel()
     setIsAnimating(true)
-    setIsLeftRestoring(false)
-    setIsLeftCollapsing(true)
-    setCollapsed((prev) => {
-      const next = { ...prev, left: true }
-      persistCollapse(next)
-      return next
-    })
-    // 动画结束后解冻
-    leftAnimationTimerRef.current = window.setTimeout(() => {
-      leftAnimationTimerRef.current = null
-      setIsLeftCollapsing(false)
+  }, [freezeCenterPanel])
+
+  // 结束一个动画：递减计数，仅当没有任何活动动画时才解冻中心面板。
+  const endAnimation = useCallback(() => {
+    activeAnimationsRef.current = Math.max(0, activeAnimationsRef.current - 1)
+    if (activeAnimationsRef.current === 0) {
       setIsAnimating(false)
       requestAnimationFrame(() => unfreezeCenterPanel())
-    }, LEFT_COLLAPSE_ANIMATION_MS + 10)
-  }, [freezeCenterPanel, unfreezeCenterPanel, persistCollapse])
+    }
+  }, [unfreezeCenterPanel])
+
+  // 调度某一侧的动画：若该侧已有未完成的定时器，先结束它（避免计数泄漏），
+  // 再启动新动画并在结束时递减计数。
+  const runPanelAnimation = useCallback((
+    side: 'left' | 'right',
+    durationMs: number,
+    onStart: () => void,
+    onFinish: () => void,
+  ) => {
+    const timerRef = side === 'left' ? leftAnimationTimerRef : rightAnimationTimerRef
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+      endAnimation()
+    }
+    onStart()
+    beginAnimation()
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null
+      onFinish()
+      endAnimation()
+    }, durationMs + 10)
+  }, [beginAnimation, endAnimation])
+
+  const collapseLeft = useCallback(() => {
+    runPanelAnimation(
+      'left',
+      LEFT_COLLAPSE_ANIMATION_MS,
+      () => {
+        setIsLeftRestoring(false)
+        setIsLeftCollapsing(true)
+        setCollapsed((prev) => {
+          const next = { ...prev, left: true }
+          persistCollapse(next)
+          return next
+        })
+      },
+      () => setIsLeftCollapsing(false),
+    )
+  }, [runPanelAnimation, persistCollapse])
 
   const collapseRight = useCallback(() => {
-    if (rightAnimationTimerRef.current !== null) {
-      window.clearTimeout(rightAnimationTimerRef.current)
-    }
-    freezeCenterPanel()
-    setIsAnimating(true)
-    setIsRightRestoring(false)
-    setIsRightCollapsing(true)
-    setCollapsed((prev) => {
-      const next = { ...prev, right: true }
-      persistCollapse(next)
-      return next
-    })
-    rightAnimationTimerRef.current = window.setTimeout(() => {
-      rightAnimationTimerRef.current = null
-      setIsRightCollapsing(false)
-      setIsAnimating(false)
-      requestAnimationFrame(() => unfreezeCenterPanel())
-    }, RIGHT_COLLAPSE_ANIMATION_MS + 10)
-  }, [freezeCenterPanel, unfreezeCenterPanel, persistCollapse])
+    runPanelAnimation(
+      'right',
+      RIGHT_COLLAPSE_ANIMATION_MS,
+      () => {
+        setIsRightRestoring(false)
+        setIsRightCollapsing(true)
+        setCollapsed((prev) => {
+          const next = { ...prev, right: true }
+          persistCollapse(next)
+          return next
+        })
+      },
+      () => setIsRightCollapsing(false),
+    )
+  }, [runPanelAnimation, persistCollapse])
 
   const expandLeft = useCallback(() => {
-    if (leftAnimationTimerRef.current !== null) {
-      window.clearTimeout(leftAnimationTimerRef.current)
-    }
-    freezeCenterPanel()
-    setIsAnimating(true)
-    setIsLeftCollapsing(false)
-    setIsLeftRestoring(true)
-    setCollapsed((prev) => {
-      const next = { ...prev, left: false }
-      persistCollapse(next)
-      return next
-    })
-    leftAnimationTimerRef.current = window.setTimeout(() => {
-      leftAnimationTimerRef.current = null
-      setIsLeftRestoring(false)
-      setIsAnimating(false)
-      requestAnimationFrame(() => unfreezeCenterPanel())
-    }, LEFT_RESTORE_ANIMATION_MS + 10)
-  }, [freezeCenterPanel, unfreezeCenterPanel, persistCollapse])
+    runPanelAnimation(
+      'left',
+      LEFT_RESTORE_ANIMATION_MS,
+      () => {
+        setIsLeftCollapsing(false)
+        setIsLeftRestoring(true)
+        setCollapsed((prev) => {
+          const next = { ...prev, left: false }
+          persistCollapse(next)
+          return next
+        })
+      },
+      () => setIsLeftRestoring(false),
+    )
+  }, [runPanelAnimation, persistCollapse])
 
   const expandRight = useCallback(() => {
-    if (rightAnimationTimerRef.current !== null) {
-      window.clearTimeout(rightAnimationTimerRef.current)
-    }
-    freezeCenterPanel()
-    setIsAnimating(true)
-    setIsRightCollapsing(false)
-    setIsRightRestoring(true)
-    setCollapsed((prev) => {
-      const next = { ...prev, right: false }
-      persistCollapse(next)
-      return next
-    })
-    rightAnimationTimerRef.current = window.setTimeout(() => {
-      rightAnimationTimerRef.current = null
-      setIsRightRestoring(false)
-      setIsAnimating(false)
-      requestAnimationFrame(() => unfreezeCenterPanel())
-    }, RIGHT_RESTORE_ANIMATION_MS + 10)
-  }, [freezeCenterPanel, unfreezeCenterPanel, persistCollapse])
+    runPanelAnimation(
+      'right',
+      RIGHT_RESTORE_ANIMATION_MS,
+      () => {
+        setIsRightCollapsing(false)
+        setIsRightRestoring(true)
+        setCollapsed((prev) => {
+          const next = { ...prev, right: false }
+          persistCollapse(next)
+          return next
+        })
+      },
+      () => setIsRightRestoring(false),
+    )
+  }, [runPanelAnimation, persistCollapse])
 
   useEffect(() => {
     const handleOpenAgentAssistant = () => {
@@ -556,6 +596,56 @@ export function ResizableThreeColumnLayout({ left, center, right }: ResizableThr
     expandRight()
   }, [expandRight, setRightCompactSize])
 
+  /** 键盘微调面板宽度：delta 为像素增量（Home/End 传 ±Infinity 夹到边界）。 */
+  const nudgePanelWidth = useCallback((side: 'left' | 'right', delta: number) => {
+    const { maxLeft, maxRight } = getLimits()
+    const minWidth = side === 'left' ? MIN_LEFT_WIDTH : MIN_RIGHT_WIDTH
+    const maxWidth = side === 'left' ? maxLeft : maxRight
+    // 折叠状态下，键盘操作先展开到最小可用宽度。
+    const base = collapsedRef.current[side] ? minWidth : sizesRef.current[side]
+    const nextWidth = clamp(base + delta, minWidth, maxWidth)
+    const nextSizes = { ...sizesRef.current, [side]: nextWidth }
+    sizesRef.current = nextSizes
+    setSizes(nextSizes)
+    persistSizes(nextSizes)
+    if (collapsedRef.current[side]) {
+      setCollapsed((prev) => {
+        const next = { ...prev, [side]: false }
+        persistCollapse(next)
+        return next
+      })
+    }
+  }, [getLimits, persistCollapse, persistSizes])
+
+  /** 分隔条的键盘调整：Arrow 微调，Home/End 收/放到边界。 */
+  const makeHandleKeyDown = useCallback((side: 'left' | 'right') => (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) => {
+    const step = 16
+    switch (event.key) {
+      case 'ArrowLeft':
+      case 'ArrowRight': {
+        event.preventDefault()
+        // 左栏：右键加宽、左键收窄；右栏相反。
+        const direction = side === 'left'
+          ? (event.key === 'ArrowRight' ? 1 : -1)
+          : (event.key === 'ArrowLeft' ? 1 : -1)
+        nudgePanelWidth(side, direction * step)
+        break
+      }
+      case 'Home':
+        event.preventDefault()
+        nudgePanelWidth(side, Number.NEGATIVE_INFINITY)
+        break
+      case 'End':
+        event.preventDefault()
+        nudgePanelWidth(side, Number.POSITIVE_INFINITY)
+        break
+      default:
+        break
+    }
+  }, [nudgePanelWidth])
+
   useEffect(() => () => {
     activeResizeCleanupRef.current?.()
     if (leftAnimationTimerRef.current !== null) {
@@ -649,6 +739,10 @@ export function ResizableThreeColumnLayout({ left, center, right }: ResizableThr
           if (collapsedRef.current.left) expandLeftCompact()
           else collapseLeft()
         }}
+        onKeyDown={makeHandleKeyDown('left')}
+        value={collapsed.left ? COLLAPSED_PANEL_WIDTH : sizes.left}
+        min={MIN_LEFT_WIDTH}
+        max={getLimits().maxLeft}
       />
 
       <section
@@ -680,6 +774,10 @@ export function ResizableThreeColumnLayout({ left, center, right }: ResizableThr
           if (collapsedRef.current.right) expandRightCompact()
           else collapseRight()
         }}
+        onKeyDown={makeHandleKeyDown('right')}
+        value={collapsed.right ? COLLAPSED_PANEL_WIDTH : sizes.right}
+        min={MIN_RIGHT_WIDTH}
+        max={getLimits().maxRight}
       />
 
       <section

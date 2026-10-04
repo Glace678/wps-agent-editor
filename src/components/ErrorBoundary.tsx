@@ -29,7 +29,26 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
     const { error } = this.state
     if (!error) return this.props.children
 
-    const dark = document.documentElement.classList.contains('dark')
+    // 错误界面自身也要健壮：受限环境下 document/i18n 读取可能抛错，
+    // 不能在渲染错误页时二次崩溃导致白屏。
+    let dark = false
+    try {
+      dark = document.documentElement.classList.contains('dark')
+    } catch {
+      dark = false
+    }
+    const safeT = (key: 'errorBoundary.title' | 'errorBoundary.description' | 'errorBoundary.reload'): string => {
+      try {
+        return t(key)
+      } catch {
+        const fallbacks: Record<typeof key, string> = {
+          'errorBoundary.title': 'Something went wrong',
+          'errorBoundary.description': 'The application hit an unexpected error.',
+          'errorBoundary.reload': 'Reload',
+        }
+        return fallbacks[key]
+      }
+    }
     const detail = error.stack || String(error)
     return (
       <div
@@ -47,8 +66,8 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
           fontFamily: 'system-ui, "Segoe UI", sans-serif',
         }}
       >
-        <h1 style={{ fontSize: 18, fontWeight: 600 }}>{t('errorBoundary.title')}</h1>
-        <p style={{ fontSize: 13, opacity: 0.75 }}>{t('errorBoundary.description')}</p>
+        <h1 style={{ fontSize: 18, fontWeight: 600 }}>{safeT('errorBoundary.title')}</h1>
+        <p style={{ fontSize: 13, opacity: 0.75 }}>{safeT('errorBoundary.description')}</p>
         <pre
           style={{
             maxHeight: '40vh',
@@ -80,7 +99,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
             border: 'none',
           }}
         >
-          {t('errorBoundary.reload')}
+          {safeT('errorBoundary.reload')}
         </button>
       </div>
     )

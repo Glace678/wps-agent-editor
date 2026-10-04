@@ -1327,6 +1327,10 @@ fn filtered_relaunch_args() -> Vec<OsString> {
             index += 1;
             continue;
         }
+        if arguments[index] == crate::updater_smoke::HEALTH_FAILURE_FLAG {
+            index += 1;
+            continue;
+        }
         if arguments[index] == GUARDIAN_STATE_FLAG
             || arguments[index] == GUARDIAN_TOKEN_FLAG
             || arguments[index] == GUARDIAN_SEAL_FLAG

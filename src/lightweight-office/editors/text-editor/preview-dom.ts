@@ -13,7 +13,7 @@ export function rangeInsideRoot(root: HTMLElement, range: Range): boolean {
  * the text regions.
  */
 export function locatePreviewRangeByOffsets(root: HTMLElement, start: number, end: number): Range | null {
-  if (end <= start) return null
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) return null
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   let consumed = 0
   let startBound: { node: Node; offset: number } | null = null

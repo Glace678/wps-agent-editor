@@ -137,6 +137,10 @@ const SPECIAL_FILE_NAMES: &[&str] = &[
     "podfile",
 ];
 
+/// Hard cap on entries returned (and granted) from a single directory listing,
+/// so enumerating an enormous directory cannot mint unbounded child grants.
+const MAX_LIST_DIRECTORY_ENTRIES: usize = 2000;
+
 pub fn list_directory(
     owner: &str,
     parent_grant_id: &str,
@@ -146,6 +150,9 @@ pub fn list_directory(
     let mut output = Vec::new();
     let entries = std::fs::read_dir(path)?;
     for entry in entries.flatten() {
+        if output.len() >= MAX_LIST_DIRECTORY_ENTRIES {
+            break;
+        }
         if entry
             .file_type()
             .map(|kind| kind.is_symlink())

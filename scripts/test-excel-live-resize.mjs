@@ -13,8 +13,9 @@
  *    queue with a skipped one);
  *  - the preview lags PREVIEW_LAG px behind the cursor so the commit's
  *    residual delta clears Fortune's 3px no-op threshold;
- *  - preview applies are flushSync'd and mousemove is exclusively captured
- *    during a session (no pending low-priority updates at commit time);
+ *  - preview applies are dispatched per animation frame (op merged with the
+ *    browser frame, no flushSync) and mousemove is exclusively captured during a
+ *    session (no pending low-priority updates at commit time);
  *  - a canceled drag (window blur) restores the original size map;
  *  - frozen sheets fall back to native behavior.
  */
@@ -54,7 +55,7 @@ test('preview uses the history-free applyOp channel only', () => {
 test('each frame advances Fortune drag-start marker with the size patch', () => {
   assert.match(util, /luckysheet_cols_change_size_start/)
   assert.match(util, /luckysheet_rows_change_size_start/)
-  assert.match(util, /session!\.startNative \+ \(len - session!\.originalLen\) \* session!\.zoom/)
+  assert.match(util, /session\.startNative \+ \(len - session\.originalLen\) \* session\.zoom/)
 })
 
 test('normal mouseup dispatches nothing; blur cancel restores the snapshot', () => {
@@ -69,8 +70,12 @@ test('preview lags the cursor to clear the 3px commit threshold', () => {
   assert.match(util, /- PREVIEW_LAG,?\s*\n?\s*\)\)/)
 })
 
-test('preview applies are synchronous and mousemove is exclusively captured', () => {
-  assert.match(util, /flushSync\(\(\) => \{/)
+test('preview frames are dispatched per animation frame; mousemove is exclusively captured', () => {
+  // flushSync was deliberately removed (it forced a full-canvas relayout on every
+  // pointermove and caused jank); the preview op is now merged with the browser
+  // frame and flushed once at frame end via requestAnimationFrame. The design
+  // invariant is that a frame is scheduled from the move handler.
+  assert.match(util, /frame = requestAnimationFrame\(\(\) =>/)
   assert.match(util, /event\.stopPropagation\(\)/)
   assert.match(util, /moveGuideLine\(event\)/)
 })

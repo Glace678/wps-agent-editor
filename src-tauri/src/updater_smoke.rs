@@ -22,11 +22,27 @@ const REPORT_PREFIX: &str = "--wae-updater-report=";
 const REPOSITORY_PREFIX: &str = "--wae-updater-repository=";
 const TAG_PREFIX: &str = "--wae-updater-tag=";
 const EXPECTED_PREFIX: &str = "--wae-updater-version=";
-const HEALTH_FAILURE_FLAG: &str = "--wae-updater-health-failure";
+pub(crate) const HEALTH_FAILURE_FLAG: &str = "--wae-updater-health-failure";
 const REPORT_DIRECTORY: &str = "wae-updater-smoke";
 
+/// The health-failure injection is armed only inside the explicit,
+/// environment-gated smoke test context: the smoke flag AND the
+/// `WAE_UPDATER_SMOKE=1` environment variable must both be present alongside the
+/// failure flag. A bare `--wae-updater-health-failure` reaching argv in a normal
+/// production launch must never silently skip startup health confirmation.
 pub(crate) fn health_failure_injection_active() -> bool {
-    std::env::args_os().any(|argument| argument == HEALTH_FAILURE_FLAG)
+    let mut saw_health_failure = false;
+    let mut saw_smoke = false;
+    for argument in std::env::args_os() {
+        if argument == HEALTH_FAILURE_FLAG {
+            saw_health_failure = true;
+        }
+        if argument == SMOKE_FLAG {
+            saw_smoke = true;
+        }
+    }
+    let environment_armed = std::env::var("WAE_UPDATER_SMOKE").as_deref() == Ok("1");
+    saw_health_failure && saw_smoke && environment_armed
 }
 
 #[derive(Clone, Debug)]

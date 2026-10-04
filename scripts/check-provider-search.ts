@@ -38,8 +38,9 @@ function resultIds(
 }
 
 assert.equal(BUNDLED_PROVIDER_CATALOG.length, 179, 'all bundled providers must be indexed')
+const bundledModelCount = BUNDLED_PROVIDER_CATALOG.reduce((count, provider) => count + provider.models.length, 0)
 assert.equal(
-  BUNDLED_PROVIDER_CATALOG.reduce((count, provider) => count + provider.models.length, 0),
+  bundledModelCount,
   5_485,
   'all bundled model metadata must remain searchable',
 )
@@ -154,26 +155,47 @@ for (const language of PROVIDER_SEARCH_LOCALES) {
   )
 }
 
-const familyChecks: ReadonlyArray<{ query: string; providers: readonly string[] }> = [
-  { query: '腾讯', providers: ['tencent-tokenhub', 'tencent-token-plan', 'tencent-coding-plan'] },
-  { query: '腾讯元宝', providers: ['tencent-tokenhub', 'tencent-token-plan', 'tencent-coding-plan'] },
-  { query: '深度求索', providers: ['deepseek'] },
-  { query: '月之暗面', providers: ['moonshotai-cn', 'moonshotai', 'kimi-for-coding'] },
-  { query: '智谱', providers: ['zhipuai', 'zai', 'zhipuai-coding-plan', 'zai-coding-plan'] },
-  { query: '阶跃星辰', providers: ['stepfun', 'stepfun-ai-step-plan', 'stepfun-step-plan', 'stepfun-ai'] },
-  { query: '跃问', providers: ['stepfun', 'stepfun-ai-step-plan', 'stepfun-step-plan', 'stepfun-ai'] },
-  { query: '硅基流动', providers: ['siliconflow', 'siliconflow-cn'] },
-  { query: 'SiliconCloud', providers: ['siliconflow', 'siliconflow-cn'] },
-  { query: '魔搭', providers: ['modelscope'] },
-  { query: '小爱同学', providers: XIAOMI_PROVIDER_IDS },
-  { query: 'OpenAI', providers: ['openai'] },
-  { query: 'Claude', providers: ['anthropic'] },
-  { query: 'Gemini', providers: ['google', 'google-vertex'] },
+// Family aliases.
+// - mode 'exact': the query must return EXACTLY these providers, in this order.
+// - mode 'leading': the canonical brand must rank first and be present; hosted
+//   gateways may follow, but cross-brand noise listed in `deny` must not leak in.
+// A bare "contains the expected ids" check previously let unrelated providers slip
+// into results (or be ranked above the expected ones) undetected.
+const familyChecks: ReadonlyArray<
+  | { query: string; mode: 'exact'; expected: readonly string[] }
+  | { query: string; mode: 'leading'; expected: readonly string[]; deny: readonly string[] }
+> = [
+  { query: '腾讯', mode: 'exact', expected: ['tencent-tokenhub', 'tencent-coding-plan', 'tencent-token-plan'] },
+  { query: '腾讯元宝', mode: 'exact', expected: ['tencent-tokenhub', 'tencent-coding-plan', 'tencent-token-plan'] },
+  { query: '深度求索', mode: 'exact', expected: ['deepseek'] },
+  { query: '月之暗面', mode: 'exact', expected: ['moonshotai-cn', 'moonshotai', 'kimi-for-coding'] },
+  { query: '智谱', mode: 'exact', expected: ['zhipuai', 'zai', 'zhipuai-coding-plan', 'zai-coding-plan'] },
+  { query: '阶跃星辰', mode: 'exact', expected: ['stepfun', 'stepfun-ai', 'stepfun-step-plan', 'stepfun-ai-step-plan'] },
+  { query: '跃问', mode: 'exact', expected: ['stepfun', 'stepfun-ai', 'stepfun-step-plan', 'stepfun-ai-step-plan'] },
+  { query: '硅基流动', mode: 'exact', expected: ['siliconflow', 'siliconflow-cn'] },
+  { query: 'SiliconCloud', mode: 'exact', expected: ['siliconflow', 'siliconflow-cn'] },
+  { query: '魔搭', mode: 'exact', expected: ['modelscope'] },
+  { query: '小爱同学', mode: 'exact', expected: XIAOMI_PROVIDER_IDS },
+  { query: 'OpenAI', mode: 'leading', expected: ['openai'], deny: ['anthropic', 'google', 'deepseek', 'zhipuai'] },
+  { query: 'Claude', mode: 'leading', expected: ['anthropic'], deny: ['openai', 'google', 'deepseek'] },
+  { query: 'Gemini', mode: 'leading', expected: ['google'], deny: ['openai', 'anthropic', 'deepseek'] },
 ]
-for (const { query, providers } of familyChecks) {
-  const ids = resultIds(query)
-  for (const providerId of providers) {
-    assert.ok(ids.includes(providerId), `${query} must suggest ${providerId}`)
+for (const check of familyChecks) {
+  const ids = resultIds(check.query)
+  if (check.mode === 'exact') {
+    assert.deepEqual(
+      ids,
+      check.expected,
+      `family query ${check.query} must return exactly the expected providers in order`,
+    )
+  } else {
+    assert.equal(ids[0], check.expected[0], `family query ${check.query} must rank ${check.expected[0]} first`)
+    for (const providerId of check.expected) {
+      assert.ok(ids.includes(providerId), `${check.query} must suggest ${providerId}`)
+    }
+    for (const providerId of check.deny) {
+      assert.ok(!ids.includes(providerId), `${check.query} must not leak unrelated provider ${providerId}`)
+    }
   }
 }
 // Dedicated brand entries (e.g. Volcengine Doubao) now surface under their
@@ -261,6 +283,6 @@ assert.deepEqual(
 )
 
 console.log(
-  `PASS provider search covers ${BUNDLED_PROVIDER_CATALOG.length} providers, 5,482 models, `
+  `PASS provider search covers ${BUNDLED_PROVIDER_CATALOG.length} providers, ${bundledModelCount} models, `
     + `${PROVIDER_SEARCH_LOCALES.length} locales, and ${qwenResults.length} Qwen hosts`,
 )

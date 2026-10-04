@@ -124,7 +124,10 @@ export function AppMenuBar({ className }: { className?: string }) {
       usePanelStore.getState().openTab('terminal')
       return
     }
-    void desktopApi.app.performMenuAction(action)
+    // 消费桌面处理的 rejection：权限/IO/后端失败时不再产生未处理 rejection。
+    void desktopApi.app.performMenuAction(action).catch((error) => {
+      console.error('[app-menu] performMenuAction failed:', action, error)
+    })
   }
 
   return (

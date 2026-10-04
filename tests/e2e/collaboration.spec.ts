@@ -11,6 +11,9 @@ interface ScriptedEvent {
   toAgentId?: string
   toAgentName?: string
   error?: string
+  /** When true, the mock holds the event loop after dispatching this frame so
+   *  the test can observe an intermediate render before releasing the next frame. */
+  pauseAfter?: boolean
   cacheUsage?: {
     measured: boolean
     requests: number
@@ -94,7 +97,15 @@ async function installStreamingCollaborationMock(
                 : Number(channel)
               const callback = channelCallbacks.get(channelId)
               for (const event of scripted as ScriptedEvent[]) {
-                callback?.({ index: messageIndex++, message: { ...event, runId: request?.runId } })
+                const { pauseAfter, ...wire } = event
+                callback?.({ index: messageIndex++, message: { ...wire, runId: request?.runId } })
+                if (pauseAfter) {
+                  // Hold the stream until the test releases it, so incremental
+                  // render states are observable deterministically.
+                  await new Promise<void>((resolve) => {
+                    ;(window as unknown as { __WAE_STREAM_RELEASE__: () => void }).__WAE_STREAM_RELEASE__ = resolve
+                  })
+                }
               }
               return agents.map((agent) => ({
                 agentId: agent.id,
@@ -145,6 +156,7 @@ test('renders the collaboration transcript and the aggregated cache readout', as
       agentName: 'Director',
       operationId: 'stream-director-1',
       content: 'Planning the split ',
+      pauseAfter: true,
     },
     {
       type: 'agent-stream',
@@ -153,6 +165,7 @@ test('renders the collaboration transcript and the aggregated cache readout', as
       agentName: 'Director',
       operationId: 'stream-director-1',
       content: 'of work.',
+      pauseAfter: true,
     },
     {
       type: 'agent-delegated',
@@ -163,12 +176,25 @@ test('renders the collaboration transcript and the aggregated cache readout', as
       toAgentName: 'Peer',
       content: 'Draft the risks section',
     },
-    { type: 'agent-message', timestamp: 7, agentId: 'director', agentName: 'Director', content: 'Planning the split of work.' },
-    { type: 'handoff', timestamp: 8, agentId: 'peer', agentName: 'Peer', toAgentId: 'director', toAgentName: 'Director', content: 'Contribution delivered' },
-    // A provider that reports a 94% prefix hit on the director turn and a
-    // second turn that is fully cached: the aggregate must stay above 90%.
-    { type: 'agent-complete', timestamp: 9, agentId: 'peer', agentName: 'Peer', cacheUsage: cacheUsage(4_600, 300, 4_900) },
-    { type: 'run-complete', timestamp: 10 },
+    { type: 'handoff', timestamp: 7, agentId: 'peer', agentName: 'Peer', toAgentId: 'director', toAgentName: 'Director', content: 'Contribution delivered' },
+    // Two measured turns with different cache hit ratios across agents: the
+    // aggregate must be token-weighted, not a mean of the two per-turn rates.
+    { type: 'agent-complete', timestamp: 8, agentId: 'director', agentName: 'Director', cacheUsage: cacheUsage(4_600, 300, 4_900) },
+    { type: 'agent-complete', timestamp: 9, agentId: 'peer', agentName: 'Peer', cacheUsage: cacheUsage(5_400, 600, 6_000) },
+    // An anomalous sample the provider did not actually measure: it must be
+    // excluded from the summed readout entirely.
+    {
+      type: 'agent-complete',
+      timestamp: 10,
+      agentId: 'rogue',
+      agentName: 'Rogue',
+      cacheUsage: {
+        measured: false, requests: 0, promptTokens: 999_999, cacheReadTokens: 999_999,
+        cacheMissTokens: 0, cacheWriteTokens: 0, completionTokens: 0,
+        totalTokens: 999_999, hitRate: 1,
+      },
+    },
+    { type: 'run-complete', timestamp: 11 },
   ])
 
   await page.goto('/')
@@ -178,13 +204,34 @@ test('renders the collaboration transcript and the aggregated cache readout', as
 
   await expect(page.getByTestId('collaboration-chat')).toBeVisible()
   await expect(page.getByTestId('collaboration-task')).toHaveText('Summarize the contract')
-  await expect(page.getByTestId('collaboration-speech').first()).toContainText('Planning the split of work.')
+
+  const releaseStream = () => page.evaluate(() => (
+    window as unknown as { __WAE_STREAM_RELEASE__: () => void }
+  ).__WAE_STREAM_RELEASE__())
+  const speechBody = page.getByTestId('collaboration-speech').locator('p')
+
+  // Incremental update: the first delta renders alone while the stream is held.
+  await expect(speechBody).toHaveText('Planning the split')
+
+  // Releasing the second delta must concatenate onto the same bubble (by
+  // operationId) rather than appending a second bubble or dropping the prefix.
+  await releaseStream()
+  await expect(speechBody).toHaveText('Planning the split of work.')
+
+  // Release the remaining events (delegation, cache reports, run complete).
+  await releaseStream()
+
+  // Exactly one speech bubble: the two stream frames merged, not rendered twice.
+  await expect(page.getByTestId('collaboration-speech')).toHaveCount(1)
   await expect(page.getByTestId('collaboration-delegation')).toContainText('Draft the risks section')
   await expect(page.getByTestId('collaboration-delegation')).toContainText('Peer')
 
   const badge = page.getByTestId('collaboration-cache-rate')
   await expect(badge).toBeVisible()
-  await expect(badge).toHaveText('93.9%')
+  // Token-weighted aggregate: (4600+5400)/(4600+300+5400+600) = 10000/10900 = 91.7%.
+  // A per-turn mean would give ~91.9%; including the unmeasured rogue sample
+  // would skew far higher. This asserts the summed, measured-only weighting.
+  await expect(badge).toHaveText('91.7%')
   expect(pageErrors).toEqual([])
 })
 

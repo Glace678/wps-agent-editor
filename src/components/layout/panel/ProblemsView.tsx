@@ -37,8 +37,13 @@ export function ProblemsView({ onCountChange }: { onCountChange: (count: number)
         const monacoModule = await import('monaco-editor')
         if (cancelled) return
         const all = monacoModule.editor.getModelMarkers({})
-        const markers = currentFile
-          ? all.filter((marker) => marker.resource.path === `/${currentFile.replace(/\\/g, '/')}`)
+        // 与 CodeEditor 创建模型时保持一致：用 monaco.Uri.file 归一化路径，
+        // 统一 Windows（C:\...）与 Unix（/...）规则，避免双斜杠导致全部过滤。
+        const currentPath = currentFile
+          ? monacoModule.Uri.file(currentFile).path
+          : null
+        const markers = currentPath
+          ? all.filter((marker) => marker.resource.path === currentPath)
           : all
         const sorted = [...markers].sort(
           (a, b) => b.severity - a.severity || a.startLineNumber - b.startLineNumber,

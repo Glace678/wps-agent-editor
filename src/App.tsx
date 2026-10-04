@@ -69,7 +69,7 @@ function recoverySummary(language: string, count: number): string {
 
 export default function App() {
   const { setRecentFiles } = useFileStore()
-  const { language } = useTranslation()
+  const { language, t } = useTranslation()
   const [recoveryNotices, setRecoveryNotices] = useState<RecoveryNotice[]>([])
   useAgentBridge()
 
@@ -145,7 +145,15 @@ export default function App() {
     const drainStartupFiles = async (): Promise<number> => {
       const startupFiles = await desktopApi.app.takeStartupFiles()
       for (const startupFile of startupFiles) {
-        await openGrantedFile(startupFile.path)
+        // Isolate each file: one open()/openExternal() failure must not abort
+        // the rest of the batch. The native one-shot queue is already drained
+        // here, so a failed path is logged (and retried on the next explicit
+        // open) rather than silently dropping the remaining files.
+        try {
+          await openGrantedFile(startupFile.path)
+        } catch (error) {
+          console.error('[startup-files] Failed to open startup file', startupFile.path, error)
+        }
       }
       return startupFiles.length
     }
@@ -345,7 +353,7 @@ export default function App() {
             type="button"
             className="grid h-6 w-6 shrink-0 place-items-center hover:bg-accent"
             onClick={() => setRecoveryNotices([])}
-            aria-label="Close"
+            aria-label={t('appShell.close')}
           >
             <X className="h-3.5 w-3.5" />
           </button>

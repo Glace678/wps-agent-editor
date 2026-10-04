@@ -15,6 +15,17 @@ body .toolbar-dropdown-menu[data-word-font-color-menu]:has(.word-font-color-pick
 body .sd-toolbar-dropdown-menu[data-word-font-color-menu]:has(.word-font-color-picker--custom) {
   width: 356px !important;
   min-width: min(356px, calc(100vw - 16px)) !important;
+  /* On narrow viewports the panel must not crop the numeric/confirm area:
+     cap to the viewport and let the inner panel scroll/wrap instead. */
+  max-width: min(356px, calc(100vw - 16px)) !important;
+  overflow-x: auto !important;
+}
+
+@media (max-width: 380px) {
+  body .toolbar-dropdown-menu[data-word-font-color-menu] .word-font-color-render-host,
+  body .sd-toolbar-dropdown-menu[data-word-font-color-menu] .word-font-color-render-host {
+    overflow-x: auto;
+  }
 }
 
 body .toolbar-dropdown-menu[data-word-font-color-menu]

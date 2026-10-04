@@ -48,9 +48,12 @@ function detectInitialLanguage(): LanguageCode {
 
 function applyDocumentLanguage(language: LanguageCode): void {
   if (typeof document === 'undefined') return
+  const dir = language === 'ar' ? 'rtl' : 'ltr'
   document.documentElement.lang = language
-  document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
-  if (document.body) document.body.dir = 'ltr'
+  document.documentElement.dir = dir
+  // Keep <body> in the same direction as the root instead of forcing LTR,
+  // otherwise RTL languages (e.g. ar) render their descendants as LTR.
+  if (document.body) document.body.dir = dir
 }
 
 function syncNativeMenu(language: LanguageCode): void {

@@ -587,6 +587,9 @@ export function LightweightDocumentEditor() {
   }, [setEditorReady])
 
   useEffect(() => {
+    // Drop the previous editor's save callback on file switch so a save shortcut
+    // fired before the new editor registers cannot invoke the old document's save.
+    saveRef.current = null
     setEditorReady(false)
     setIsDirty(false)
     void desktopApi.documents.setCurrentFile(currentFile)
@@ -611,7 +614,14 @@ export function LightweightDocumentEditor() {
   useBinaryDocShortcuts(binaryKind, saveRef, tabNav)
 
   const codeHandlers = useMemo<ShortcutHandlerMap>(() => ({
-    save: () => { void saveRef.current?.() },
+    save: () => {
+      const pending = saveRef.current?.()
+      if (pending) {
+        void pending.catch((error) => {
+          console.error('Document save failed', error)
+        })
+      }
+    },
     nextTab: () => switchTabByOffset(1),
     previousTab: () => switchTabByOffset(-1),
     close: closeActiveTab,

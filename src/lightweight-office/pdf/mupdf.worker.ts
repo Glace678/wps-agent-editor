@@ -26,6 +26,11 @@ const MAX_IMAGE_PIXELS = 40_000_000
 const MAX_FONT_BYTES = 32 * 1024 * 1024
 const MAX_SAVE_BYTES = 100 * 1024 * 1024
 const WAE_METADATA_VERSION = 1
+// Bound the WAE annotation Payload so a malicious/complex PDF cannot make
+// JSON.parse (or the resulting object walk) consume unbounded memory/time.
+const MAX_WAE_PAYLOAD_CHARS = 64 * 1024
+const MAX_WAE_PAYLOAD_KEYS = 200
+const MAX_WAE_PAYLOAD_DEPTH = 6
 const WAE_NAME_PATTERN = /^WAE:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i
 const BUILTIN_PDF_FONTS = new Set([
   'Helvetica',
@@ -188,6 +193,44 @@ function validNormalizedRect(value: unknown): value is PdfNormalizedRect {
     && Number(rect.height) > 0
 }
 
+/**
+ * Parse a WAE Payload JSON string with hard limits: raw char length, total key
+ * count, and nesting depth. Returns null when any bound is exceeded so a hostile
+ * annotation is skipped instead of hanging the worker.
+ */
+function parseWaePayload(raw: string): Record<string, unknown> | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null
+  if (raw.length > MAX_WAE_PAYLOAD_CHARS) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+
+  let keys = 0
+  const walk = (value: unknown, depth: number): boolean => {
+    if (depth > MAX_WAE_PAYLOAD_DEPTH) return false
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (!walk(item, depth + 1)) return false
+      }
+      return true
+    }
+    if (value && typeof value === 'object') {
+      for (const key of Object.keys(value as Record<string, unknown>)) {
+        keys += 1
+        if (keys > MAX_WAE_PAYLOAD_KEYS) return false
+        if (!walk((value as Record<string, unknown>)[key], depth + 1)) return false
+      }
+    }
+    return true
+  }
+  if (!walk(parsed, 0)) return null
+  return parsed as Record<string, unknown>
+}
+
 function readWaeRecord(
   page: InstanceType<typeof mupdf.PDFPage>,
   pageIndex: number,
@@ -208,7 +251,8 @@ function readWaeRecord(
       if (!versionObject.isNumber() || versionObject.asNumber() !== WAE_METADATA_VERSION) return null
       const kind = readPdfObjectString(kindObject)
       if (!kind || !payloadObject.isString()) return null
-      const payload = JSON.parse(payloadObject.asString()) as Record<string, unknown>
+      const payload = parseWaePayload(payloadObject.asString())
+      if (!payload) return null
       if (payload.id !== match[1] || !validNormalizedRect(payload.rect)) return null
 
       const rect = normalizeRect(page, annotation.getRect())
@@ -745,12 +789,16 @@ function replaceBodyText(
   fontData?: ArrayBuffer,
   redactionRects: PdfNormalizedRect[] = [redactionRect],
 ): void {
+  // An explicit empty list would create no redactions (erasure skipped) yet still
+  // insert the replacement FreeText, leaving the original and new text overlapping.
+  // Fall back to the main rect so erasure always happens together with insertion.
+  const rects = redactionRects.length > 0 ? redactionRects : [redactionRect]
   const page = state.document.loadPage(pageIndex)
   try {
     const redactions: InstanceType<typeof mupdf.PDFAnnotation>[] = []
     try {
       // Redact each source line, so gaps/indents in a paragraph cannot erase nearby text.
-      for (const rect of redactionRects) {
+      for (const rect of rects) {
         const sourceRect = denormalizeRect(page, rect)
         const lineHeight = sourceRect[3] - sourceRect[1]
         const padding = Math.min(1, Math.max(0.2, lineHeight * 0.12))
@@ -1046,7 +1094,8 @@ function saveDocument(state: OpenDocumentState): PdfSaveResult {
 async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
   await initializeMuPdf()
   if (request.type === 'open') {
-    disposeCurrent()
+    // Construct the new document BEFORE disposing the current one: if opening
+    // fails we must not have already destroyed the (possibly dirty) previous doc.
     let document: InstanceType<typeof mupdf.PDFDocument>
     try {
       document = new mupdf.PDFDocument(request.data)
@@ -1056,6 +1105,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
         error instanceof Error ? error.message : 'Could not open the PDF',
       )
     }
+    disposeCurrent()
     current = {
       documentId: request.documentId,
       document,

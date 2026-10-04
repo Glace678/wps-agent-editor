@@ -7,6 +7,19 @@ import type {
 } from '@/types/generated'
 import { dedupeAgentAttachments } from '@/lib/agent-attachments'
 
+// Defensive replay guard for `agent-stream` frames. Frames are accumulated per
+// operationId: each frame carries an *incremental* content delta and the store
+// concatenates deltas into one event. If the upstream re-emits the exact same
+// delta (same runId + operationId + content) — e.g. on a listener resubscribe —
+// appending again would duplicate the streamed text. Track the last appended
+// delta per operation and skip an exact retransmission. The wire event has no
+// chunk/sequence id, so this is best-effort (flagged conditional in the review).
+const lastStreamDeltaByOperation = new Map<string, string>()
+
+function streamOperationKey(event: AgentCollaborationEvent): string {
+  return `${event.runId}|${event.operationId ?? ''}`
+}
+
 interface AgentState {
   agents: AgentConfig[]
   activeAgentId: string | null
@@ -181,19 +194,40 @@ export const useAgentStore = create<AgentState>((set) => ({
     if (duplicateIndex >= 0) {
       const collaborationEvents = [...state.collaborationEvents]
       const existing = collaborationEvents[duplicateIndex]
+      if (event.type === 'agent-stream') {
+        const delta = event.content ?? ''
+        const key = streamOperationKey(event)
+        // Skip an exact retransmission of the last delta instead of appending it
+        // a second time.
+        if (delta !== '' && lastStreamDeltaByOperation.get(key) === delta) {
+          return state
+        }
+        lastStreamDeltaByOperation.set(key, delta)
+        collaborationEvents[duplicateIndex] = {
+          ...existing,
+          ...event,
+          content: `${existing.content ?? ''}${delta}`,
+          timestamp: Math.min(existing.timestamp, event.timestamp),
+        }
+        return { collaborationEvents }
+      }
       collaborationEvents[duplicateIndex] = {
         ...existing,
         ...event,
-        content: event.type === 'agent-stream'
-          ? `${existing.content ?? ''}${event.content ?? ''}`
-          : event.content,
+        content: event.content,
         timestamp: Math.min(existing.timestamp, event.timestamp),
       }
       return { collaborationEvents }
+    }
+    if (event.type === 'agent-stream' && event.operationId) {
+      lastStreamDeltaByOperation.set(streamOperationKey(event), event.content ?? '')
     }
     return {
       collaborationEvents: [...state.collaborationEvents, event].slice(-500),
     }
   }),
-  clearCollaborationEvents: () => set({ collaborationEvents: [] }),
+  clearCollaborationEvents: () => {
+    lastStreamDeltaByOperation.clear()
+    return set({ collaborationEvents: [] })
+  },
 }))

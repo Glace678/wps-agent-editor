@@ -63,7 +63,7 @@ const wordEditorCss = readFileSync(
 )
 assert.match(
   wordEditorCss,
-  /\.superdoc-table-fragment\s*>\s*div:not\(\[style\*='border-'\]\)::after/,
+  /\.superdoc-table-fragment\s*>\s*div:not\(\[style\*='border-'\]\):not\(\[class\*='border'\]\)::after/,
 )
 assert.match(wordEditorCss, /border:\s*1px solid #000;/)
 assert.doesNotMatch(wordEditorCss, /border:\s*1px dotted rgb\(100 116 139 \/ 35%\);/)

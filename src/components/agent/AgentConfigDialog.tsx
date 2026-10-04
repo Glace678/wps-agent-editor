@@ -11,7 +11,7 @@ import { useTranslation } from '@/lib/i18n/runtime'
 
 interface AgentConfigDialogProps {
   agent: AgentConfig | null
-  onSave: (agent: AgentConfig) => void
+  onSave: (agent: AgentConfig) => Promise<void> | void
   onClose: () => void
   onConfigureProviders: () => void
 }
@@ -31,6 +31,8 @@ export function AgentConfigDialog({
   const [form, setForm] = useState<AgentConfig | null>(null)
   const [providers, setProviders] = useState<ProviderDefinition[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
     if (!agent) return
@@ -120,6 +122,22 @@ export function AgentConfigDialog({
       providerId,
       model: provider?.defaultModel || provider?.models[0]?.id || 'default',
     })
+  }
+
+  const handleSave = async () => {
+    if (saving) return
+    const finalModel = form.model.trim() || selectedProvider?.defaultModel || selectedProvider?.models[0]?.id || 'default'
+    setSaving(true)
+    setSaveError('')
+    try {
+      await onSave({ ...form, model: finalModel })
+      onClose()
+    } catch {
+      // 保存失败：保留弹窗与已填内容，提示用户可重试。
+      setSaveError(t('recentFiles.errorOperationFailed'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -221,14 +239,13 @@ export function AgentConfigDialog({
         </div>
 
         <div className="flex justify-end gap-2 border-t p-6">
+          {saveError && (
+            <span className="mr-auto self-center text-xs text-destructive">{saveError}</span>
+          )}
           <Button variant="outline" onClick={onClose}>{t('agentConfig.cancel')}</Button>
           <Button
-            disabled={!hasConfiguredProvider}
-            onClick={() => {
-              const finalModel = form.model.trim() || selectedProvider?.defaultModel || selectedProvider?.models[0]?.id || 'default'
-              onSave({ ...form, model: finalModel })
-              onClose()
-            }}
+            disabled={!hasConfiguredProvider || saving}
+            onClick={() => void handleSave()}
           >
             {t('agentConfig.save')}
           </Button>

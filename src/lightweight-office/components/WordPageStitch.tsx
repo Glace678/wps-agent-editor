@@ -125,8 +125,10 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
   const stitchedRef = useRef(stitched)
   stitchedRef.current = stitched
   /** 首次拼接前记录原始配置，拆分时按原值恢复 */
-  const originalRef = useRef<{ gap: number | undefined; enabled: boolean } | null>(null)
+  const originalRef = useRef<{ gap: number | undefined; enabled: boolean | undefined } | null>(null)
   const rafRef = useRef<number | null>(null)
+  /** Handle for the post-toggle scroll-anchoring settle loop. */
+  const settleRafRef = useRef<number | null>(null)
 
   const refresh = useCallback(() => {
     const overlay = overlayRef.current
@@ -201,6 +203,11 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
     setStitched(false)
     originalRef.current = null
   }, [superdoc])
+
+  // Cancel a pending scroll-anchoring settle loop on unmount.
+  useEffect(() => () => {
+    if (settleRafRef.current != null) cancelAnimationFrame(settleRafRef.current)
+  }, [])
 
   // 进入对开时引擎已把 virtualization 关掉、间距回到默认，拼接状态同步归零
   useEffect(() => {
@@ -295,10 +302,18 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
       }
       const goStitch = !stitchedRef.current
       if (!originalRef.current) {
+        // Preserve enabled exactly (including undefined) so the default semantics
+        // are restored on split rather than being coerced to false.
         originalRef.current = {
           gap: typeof virtualization.gap === 'number' ? virtualization.gap : undefined,
-          enabled: virtualization.enabled === true,
+          enabled: virtualization.enabled,
         }
+      }
+
+      // Cancel any in-flight scroll-anchoring settle from a previous toggle.
+      if (settleRafRef.current != null) {
+        cancelAnimationFrame(settleRafRef.current)
+        settleRafRef.current = null
       }
 
       // 滚动锚定：记录被双击间隙上方页面相对滚动容器的位置，重排后校正
@@ -318,10 +333,22 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
         presentation.setLayoutMode('horizontal')
         // 离开 vertical 时引擎会以 {enabled:false} 重建 virtualization 对象，重取活引用
         const current = presentation.getLayoutOptions()?.virtualization ?? virtualization
-        current.enabled = goStitch ? true : originalRef.current.enabled
-        current.gap = goStitch ? 0 : originalRef.current.gap
+        current.enabled = goStitch ? true : originalRef.current?.enabled
+        current.gap = goStitch ? 0 : originalRef.current?.gap
         presentation.setLayoutMode('vertical')
       } catch (err) {
+        // The virtualization object may already have been mutated; roll it back to
+        // the pre-stitch values so the engine and UI state do not drift apart.
+        try {
+          const live = presentation.getLayoutOptions()?.virtualization
+          if (live) {
+            live.enabled = originalRef.current?.enabled
+            live.gap = originalRef.current?.gap
+          }
+          presentation.setLayoutMode('vertical')
+        } catch {
+          // best-effort rollback
+        }
         console.warn('[WordPageStitch] 切换页间距失败:', err)
         return
       }
@@ -332,7 +359,10 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
       if (anchorDelta != null && scrollEl && host) {
         let attempts = 0
         const settle = () => {
-          if (!host.isConnected) return
+          if (!host.isConnected) {
+            settleRafRef.current = null
+            return
+          }
           const el = host.querySelector<HTMLElement>(`.superdoc-page[data-page-index="${upperIndex}"]`)
           if (el) {
             const delta = el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top
@@ -340,12 +370,14 @@ export function WordPageStitch({ superdoc, active, showHint }: WordPageStitchPro
             if (Math.abs(drift) > 1) {
               scrollEl.scrollTop += drift
               scheduleRefresh()
+              settleRafRef.current = requestAnimationFrame(settle)
               return
             }
           }
-          if (++attempts < SETTLE_FRAMES) requestAnimationFrame(settle)
+          if (++attempts < SETTLE_FRAMES) settleRafRef.current = requestAnimationFrame(settle)
+          else settleRafRef.current = null
         }
-        requestAnimationFrame(settle)
+        settleRafRef.current = requestAnimationFrame(settle)
       }
     },
     [superdoc, showHint, t, scheduleRefresh],

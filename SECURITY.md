@@ -26,4 +26,14 @@ The rollback guardian runs from a copied old executable outside the installed pa
 
 Tag builds publish a signed prerelease. Build matrix jobs have read-only repository permissions and do not retain checkout credentials; only the finalize job may create that prerelease. A separately dispatched staging workflow must pass all native checks before its isolated promotion job can make the release stable.
 
+## Reporting a vulnerability
+
 Report vulnerabilities privately to the project maintainers rather than opening a public issue.
+
+To report a security vulnerability, use GitHub's private Security Advisory flow:
+
+1. Open the advisory draft page at <https://github.com/Glace678/wps-agent-editor/security/advisories/new>
+2. Describe the affected version, the steps to reproduce, and the expected versus actual behavior.
+3. Submit the draft; only repository maintainers can view it while it is private.
+
+Please give maintainers a reasonable window to investigate and release a fix before disclosing publicly. Do not open a public issue, pull request, or discussion that reveals a reproducible security flaw.

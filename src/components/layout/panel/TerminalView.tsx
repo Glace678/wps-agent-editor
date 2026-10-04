@@ -189,10 +189,15 @@ export function TerminalView({ active }: { active: boolean }) {
             return
           }
           console.error('[terminal] Failed to start PTY session', error)
+          // terminalStart 失败时后端可能已插入 PTY session，前端 runtime 也已挂入
+          // runtimesRef；这里与卸载/host 失效分支一致地 kill（忽略二次错误）并
+          // dispose runtime，避免 PTY/listeners 残留。
+          void desktopApi.process.terminalKill(session.id).catch(() => undefined)
+          disposeRuntime(session.id)
+          pendingRuntime = null
           setSessions((current) => current.map((item) => item.id === session.id
             ? { ...item, status: 'error' }
             : item))
-          runtimesRef.current.get(session.id)?.terminal.write(`\r\n[${String(error)}]\r\n`)
         } finally {
           initializingRef.current.delete(session.id)
         }

@@ -341,9 +341,25 @@ export function PdfToolbar({
     return () => onRegisterFocusPageInput(null)
   }, [onRegisterFocusPageInput])
 
+  // Leaving edit mode unmounts the edit-only triggers/portals; close any open
+  // popup and clear its position so stale listeners / popovers cannot reappear.
+  useEffect(() => {
+    if (editMode) return
+    closeFontDropdown()
+    closeFontSizeDropdown()
+    closeColorDropdown()
+  }, [editMode, closeFontDropdown, closeFontSizeDropdown, closeColorDropdown])
+
   const commitPageInput = () => {
     const n = Number.parseInt(pageInput, 10)
-    if (Number.isFinite(n)) onGoToPage(n)
+    // Validate and clamp to the valid page range before navigating, so out-of
+    // range input does not reach downstream consumers.
+    if (!Number.isFinite(n) || totalPages <= 0) {
+      setPageInput(String(currentPage))
+      inputRef.current?.blur()
+      return
+    }
+    onGoToPage(Math.min(Math.max(1, n), totalPages))
     inputRef.current?.blur()
   }
 

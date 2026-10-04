@@ -44,14 +44,15 @@ export function BottomPanel() {
   const consoleLines = useDebugStore((s) => s.consoleLines)
   const debugStatus = useDebugStore((s) => s.status)
   const [problemCount, setProblemCount] = useState(0)
+  const [copyOutputFailed, setCopyOutputFailed] = useState(false)
+  const copyOutputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resizeRef = useRef<{ cleanup: (() => void) | null }>({ cleanup: null })
   const startResize = useCallback(() => {
     const onMove = (event: MouseEvent) => {
       const next = window.innerHeight - event.clientY
-      const clamped = Math.min(
-        Math.max(next, PANEL_MIN_HEIGHT),
-        window.innerHeight * PANEL_MAX_HEIGHT_RATIO,
-      )
+      // 小窗口下比例上限可能小于最小高度，用 max 保证下限不被上限吞掉。
+      const maxAllowed = Math.max(PANEL_MIN_HEIGHT, window.innerHeight * PANEL_MAX_HEIGHT_RATIO)
+      const clamped = Math.min(Math.max(next, PANEL_MIN_HEIGHT), maxAllowed)
       setHeight(clamped)
     }
     const onUp = () => {
@@ -72,6 +73,26 @@ export function BottomPanel() {
 
   useEffect(() => () => {
     resizeRef.current.cleanup?.()
+    if (copyOutputTimerRef.current) clearTimeout(copyOutputTimerRef.current)
+  }, [])
+
+  const handleCopyOutput = useCallback(async () => {
+    const text = usePanelStore.getState().outputText
+    if (!text) return
+    const flashFailure = () => {
+      setCopyOutputFailed(true)
+      if (copyOutputTimerRef.current) clearTimeout(copyOutputTimerRef.current)
+      copyOutputTimerRef.current = setTimeout(() => setCopyOutputFailed(false), 1800)
+    }
+    if (!navigator.clipboard?.writeText) {
+      flashFailure()
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      flashFailure()
+    }
   }, [])
 
   const tabs = useMemo(() => {
@@ -154,17 +175,22 @@ export function BottomPanel() {
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => void navigator.clipboard.writeText(usePanelStore.getState().outputText)}
-                  disabled={!usePanelStore.getState().outputText}
-                  aria-label={t('bottomPanel.copyOutput')}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
+                <Tooltip open={copyOutputFailed}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={handleCopyOutput}
+                      disabled={!usePanelStore.getState().outputText}
+                      aria-label={t('bottomPanel.copyOutput')}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{t('recentFiles.errorOperationFailed')}</TooltipContent>
+                </Tooltip>
               </>
             )}
             {tab === 'debug-console' && (

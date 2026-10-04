@@ -76,6 +76,26 @@ export function excelSheetsShareContentReferences(
   return true
 }
 
+/** Style fields that make an otherwise-empty cell document content. */
+const STYLE_CELL_KEYS = [
+  'bg', 'ff', 'fc', 'bl', 'it', 'fs', 'cl', 'un', 'vt', 'ht',
+  'tb', 'tr', 'rt', 'mc', 'qp', 'ct',
+] as const
+
+/**
+ * A cell counts as content when it holds a value/formula OR any authored style.
+ * Previously only v/m/f were checked, so applying a background / font / align to
+ * an empty cell was invisible to the fingerprint and never flagged dirty.
+ */
+function cellHasContentOrStyle(cell: Cell): boolean {
+  const c = cell as Cell & Record<string, unknown>
+  if (c.v !== undefined || c.m !== undefined || c.f) return true
+  for (const key of STYLE_CELL_KEYS) {
+    if (c[key] !== undefined) return true
+  }
+  return false
+}
+
 function matrixToCelldata(data: CellMatrix | undefined): NonNullable<Sheet['celldata']> {
   if (!data?.length) return []
   const celldata: NonNullable<Sheet['celldata']> = []
@@ -84,7 +104,7 @@ function matrixToCelldata(data: CellMatrix | undefined): NonNullable<Sheet['cell
     if (!row) continue
     for (let c = 0; c < row.length; c++) {
       const cell = row[c]
-      if (cell != null && (cell.v !== undefined || cell.m !== undefined || cell.f)) {
+      if (cell != null && cellHasContentOrStyle(cell)) {
         celldata.push({ r, c, v: cell })
       }
     }

@@ -385,6 +385,13 @@ export function CodeEditor({
   const onShellPreviousTabRef = useRef(onShellPreviousTab)
   const onShellCloseTabRef = useRef(onShellCloseTab)
   const decorationsRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null)
+  // Tracks the file currently mounted so an async save resolving after a file
+  // switch/unmount cannot mark the wrong document clean.
+  const filePathRef = useRef(filePath)
+  const unmountedRef = useRef(false)
+  // True when the loaded bytes are not valid UTF-8; we then refuse to overwrite
+  // (re-encoding as UTF-8 would irreversibly corrupt the file).
+  const nonUtf8Ref = useRef(false)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [fontSize, setFontSize] = useState(CODE_FONT_SIZE_DEFAULT)
   const [isRunning, setIsRunning] = useState(false)
@@ -407,6 +414,7 @@ export function CodeEditor({
   onShellNextTabRef.current = onShellNextTab
   onShellPreviousTabRef.current = onShellPreviousTab
   onShellCloseTabRef.current = onShellCloseTab
+  filePathRef.current = filePath
 
   const debuggable = Boolean(language?.runnable && language?.language === 'javascript'
     || language?.runnable && language?.language === 'typescript'
@@ -458,9 +466,18 @@ export function CodeEditor({
   const saveCurrent = useCallback(async () => {
     const model = modelRef.current
     if (!model) return
-    await desktopApi.documents.saveText(filePath, model.getValue(), 'utf-8')
+    const targetPath = filePathRef.current
+    // Fail closed: never re-encode and overwrite a file that is not valid UTF-8.
+    if (nonUtf8Ref.current) {
+      console.warn('[CodeEditor] Refusing to overwrite non-UTF-8 file:', targetPath)
+      return
+    }
+    await desktopApi.documents.saveText(targetPath, model.getValue(), 'utf-8')
+    // Only report success if we are still mounted on the same file; a save that
+    // spanned a file switch/unmount must not mark the wrong document clean.
+    if (unmountedRef.current || filePathRef.current !== targetPath) return
     onSaveSuccess()
-  }, [filePath, onSaveSuccess])
+  }, [onSaveSuccess])
 
   useEffect(() => {
     onRegisterSave(saveCurrent)
@@ -617,25 +634,32 @@ export function CodeEditor({
       setStatus(t('codeEditor.debugUnsupported'))
       return
     }
-    await saveCurrent()
-    const breakpoints = (useDebugStore.getState().breakpoints[filePath] ?? []).map((line) => ({ file: filePath, line }))
-    useDebugStore.getState().setStatus('starting')
-    usePanelStore.getState().openTab('debug-console')
-    setStatus(t('codeEditor.debugStarting'))
-    const sessionId = crypto.randomUUID()
-    const result = await desktopApi.process.debugStart(
-      sessionId,
-      filePath,
-      breakpoints,
-      (event) => handleDebugEvent(event),
-    )
-    if (result.ok) {
-      useDebugStore.getState().startSession(result.sessionId ?? sessionId, filePath, result.kind ?? 'node')
-      setStatus(t('codeEditor.debugRunning'))
-    } else if (result.error === 'unsupported') {
-      useDebugStore.getState().endSession()
-      setStatus(t('codeEditor.debugUnsupported'))
-    } else {
+    try {
+      await saveCurrent()
+      const breakpoints = (useDebugStore.getState().breakpoints[filePath] ?? []).map((line) => ({ file: filePath, line }))
+      useDebugStore.getState().setStatus('starting')
+      usePanelStore.getState().openTab('debug-console')
+      setStatus(t('codeEditor.debugStarting'))
+      const sessionId = crypto.randomUUID()
+      const result = await desktopApi.process.debugStart(
+        sessionId,
+        filePath,
+        breakpoints,
+        (event) => handleDebugEvent(event),
+      )
+      if (result.ok) {
+        useDebugStore.getState().startSession(result.sessionId ?? sessionId, filePath, result.kind ?? 'node')
+        setStatus(t('codeEditor.debugRunning'))
+      } else if (result.error === 'unsupported') {
+        useDebugStore.getState().endSession()
+        setStatus(t('codeEditor.debugUnsupported'))
+      } else {
+        useDebugStore.getState().endSession()
+        setStatus(t('codeEditor.debugStartFailed'))
+      }
+    } catch (error) {
+      // A rejected debugStart must not leave the session stuck in "starting".
+      console.error('[CodeEditor] debugStart failed', error)
       useDebugStore.getState().endSession()
       setStatus(t('codeEditor.debugStartFailed'))
     }
@@ -751,6 +775,9 @@ export function CodeEditor({
     if (!host || !language) return
     let cancelled = false
     let editor: monaco.editor.IStandaloneCodeEditor | null = null
+    // Whether this mount created the monaco model (so we own its lifecycle).
+    let createdModel = false
+    unmountedRef.current = false
     const disposables: monaco.IDisposable[] = []
     const uri = monaco.Uri.file(filePath)
     const unsubscribePlainText = documentBridge.subscribePlainText((value) => {
@@ -770,9 +797,22 @@ export function CodeEditor({
         if (!model) {
           const bytes = await readFileBytes(filePath)
           if (cancelled) return
+          // Detect non-UTF-8 content so we can fail closed on save instead of
+          // silently corrupting the file by re-encoding it as UTF-8.
+          try {
+            const body = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+              ? bytes.subarray(3)
+              : bytes
+            new TextDecoder('utf-8', { fatal: true }).decode(body)
+            nonUtf8Ref.current = false
+          } catch {
+            nonUtf8Ref.current = true
+          }
           model = monaco.editor.createModel(decodeSource(bytes), language.language, uri)
+          createdModel = true
         } else {
           monaco.editor.setModelLanguage(model, language.language)
+          nonUtf8Ref.current = false
         }
         if (cancelled) return
 
@@ -895,6 +935,7 @@ export function CodeEditor({
 
     return () => {
       cancelled = true
+      unmountedRef.current = true
       unsubscribePlainText()
       documentBridge.clear()
       host.removeEventListener('wheel', onWheel, { capture: true })
@@ -905,7 +946,11 @@ export function CodeEditor({
       disposables.forEach((disposable) => disposable.dispose())
       editor?.dispose()
       if (editorRef.current === editor) editorRef.current = null
-      if (modelRef.current?.uri.toString() === uri.toString()) modelRef.current = null
+      if (modelRef.current?.uri.toString() === uri.toString()) {
+        // Dispose only models this mount created; reused/cached models stay alive.
+        if (createdModel && !modelRef.current.isDisposed()) modelRef.current.dispose()
+        modelRef.current = null
+      }
       decorationsRef.current = null
     }
   }, [filePath, language])

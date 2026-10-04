@@ -17,7 +17,7 @@ import type { LanguageCode } from '@/lib/i18n'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readWordBuffer, saveFileBuffer } from '../utils/file-io'
-import { prepareWordBytes, resolveSavePathForWord } from '../utils/doc-compat'
+import { prepareWordBytes, resolveSavePathForWord, resolveUniqueWordSavePath } from '../utils/doc-compat'
 import { desktopApi } from '@/platform/desktop'
 import { loadSystemFontFaces, type SystemFontFace } from '../utils/system-fonts'
 import { createFullWordEditorModules } from '../word-toolbar'
@@ -139,6 +139,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
   const [wordEditorModules, setWordEditorModules] = useState<ReturnType<typeof createFullWordEditorModules> | null>(null)
   const [wordFontFaces, setWordFontFaces] = useState<SystemFontFace[]>([])
   const isInitializedRef = useRef(false)
+  const initGateTimerRef = useRef<number | null>(null)
   const editorRootRef = useRef<HTMLDivElement | null>(null)
   const [agentPointer, setAgentPointer] = useState<{ label: string; left: number; top: number } | null>(null)
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null)
@@ -195,6 +196,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
   }
 
   useEffect(() => {
+    let timer: number | null = null
     const unsubscribe = documentBridge.subscribeDocumentEvents((event: DocumentEvent) => {
       if (event.engine !== 'superdoc' || !event.operationId) return
       if (event.type !== 'operation-prepared' && event.type !== 'operation-applied') return
@@ -205,9 +207,16 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
         left: located?.left ?? (root ? root.clientWidth / 2 : 0),
         top: located?.top ?? (root ? root.clientHeight / 2 : 0),
       })
-      window.setTimeout(() => setAgentPointer(null), 1800)
+      if (timer != null) clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = null
+        setAgentPointer(null)
+      }, 1800)
     })
-    return unsubscribe
+    return () => {
+      unsubscribe()
+      if (timer != null) clearTimeout(timer)
+    }
   }, [])
 
   useEffect(() => {
@@ -271,6 +280,9 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     setViewMode('page')
     setViewSnapshot({ html: '', outline: [] })
     documentBridge.clear()
+    // Re-arm the dirty-detection gate so the freshly loaded document's own
+    // initialization updates don't immediately mark the file dirty.
+    isInitializedRef.current = false
     savePathRef.current = resolveSavePathForWord(filePath)
 
     async function load() {
@@ -530,7 +542,8 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return
       if (!isInsideEditor(e.target)) return
 
-      const isUndo = e.key === 'z' || e.key === 'Z'
+      // Ctrl/Cmd+Shift+Z must be redo; undecorated Z (no shift) is undo.
+      const isUndo = (e.key === 'z' || e.key === 'Z') && !e.shiftKey
       const isRedo = (e.key === 'y' || e.key === 'Y')
         || ((e.key === 'z' || e.key === 'Z') && e.shiftKey)
 
@@ -570,12 +583,27 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       if (!instance) return
       const blob = await instance.export({ triggerDownload: false })
       let target = savePathRef.current
+      let directWrite = false
       if (!desktopApi.files.getGrantId(target)) {
         const defaultName = target.split(/[/\\]/).pop() || 'document.docx'
         const selected = await desktopApi.files.selectSaveFile(defaultName)
         if (!selected) return
         target = selected.path
         savePathRef.current = target
+      } else {
+        directWrite = true
+      }
+      // Converting .doc/.odt -> .docx on a direct write: never silently overwrite
+      // an existing DOCX at the derived target. Pick a unique name instead.
+      // (The user-prompt path above is the explicit conflict-confirmation route.)
+      if (directWrite && ['doc', 'odt'].includes(getExtension(filePath))) {
+        const unique = await resolveUniqueWordSavePath(target, async (p) =>
+          (await desktopApi.files.stat(p)).exists,
+        )
+        if (unique !== target) {
+          target = unique
+          savePathRef.current = target
+        }
       }
       await saveFileBuffer(target, await blob.arrayBuffer())
       // 从 .doc 打开后保存为 .docx，并切换当前路径
@@ -660,7 +688,9 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
             documentBridge.setWord(event.superdoc, savePathRef.current)
             onReady()
             // 延迟启用 dirty 检测，避免初始化时的更新触发
-            setTimeout(() => {
+            if (initGateTimerRef.current != null) clearTimeout(initGateTimerRef.current)
+            initGateTimerRef.current = window.setTimeout(() => {
+              initGateTimerRef.current = null
               isInitializedRef.current = true
             }, 500)
 

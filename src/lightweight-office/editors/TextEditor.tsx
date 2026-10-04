@@ -293,6 +293,9 @@ export function TextEditor({
   const zoomStatusRef = useRef<HTMLSpanElement>(null)
   const displayNameRef = useRef(filePath.split(/[/\\]/).pop() || filePath)
   const dirtyRef = useRef(false)
+  // Serializes overlapping saves so a second save always waits for the first
+  // disk write to settle before snapshotting and writing again.
+  const saveChainRef = useRef<Promise<unknown>>(Promise.resolve())
   const tabsRef = useRef<TextTab[]>([])
   const activeTabIdRef = useRef(createTabId())
 
@@ -850,46 +853,72 @@ export function TextEditor({
       saveAs: boolean,
       options?: { encoding: TextEncoding; lineEnding: LineEnding },
     ): Promise<boolean> => {
-      let target = currentPathRef.current
-      if (saveAs || !target) {
-        const defaultName = /\.[^./\\]+$/.test(displayName) ? displayName : `${displayName}.txt`
-        target = (await desktopApi.files.selectSaveFile(defaultName))?.path ?? null
+      const runSave = async (): Promise<boolean> => {
+        let target = currentPathRef.current
+        if (saveAs || !target) {
+          const defaultName = /\.[^./\\]+$/.test(displayName) ? displayName : `${displayName}.txt`
+          target = (await desktopApi.files.selectSaveFile(defaultName))?.path ?? null
+        }
+        if (!target) return false
+
+        // Snapshot the tab identity and text we are about to write. After the
+        // disk write resolves we re-check these: if the user kept editing (or
+        // switched tabs) while the save was in flight, we must NOT report the
+        // document as clean.
+        const snapshotTabId = activeTabIdRef.current
+        const value = textRef.current
+        const targetLineEnding = options?.lineEnding ?? lineEndingRef.current
+        const targetEncoding = options?.encoding ?? encodingRef.current
+        const diskText = applyLineEnding(value, targetLineEnding)
+        await desktopApi.documents.saveText(target, diskText, targetEncoding)
+
+        const sameTab = activeTabIdRef.current === snapshotTabId
+        const unchanged = sameTab && textRef.current === value
+
+        // The disk now holds `value`. Advance the saved baseline, but only touch
+        // the refs belonging to the tab we actually saved. When the user kept
+        // editing during the in-flight save, those edits must stay dirty.
+        if (sameTab) {
+          savedTextRef.current = value
+          currentPathRef.current = target
+          if (unchanged) {
+            dirtyRef.current = false
+            setIsDirty(false)
+          }
+          encodingRef.current = targetEncoding
+          lineEndingRef.current = targetLineEnding
+          setEncoding(targetEncoding)
+          setLineEnding(targetLineEnding)
+          documentBridge.setPlainText(textRef.current, target)
+        }
+
+        const nextName = target.split(/[/\\]/).pop() || target
+        if (sameTab) {
+          displayNameRef.current = nextName
+          setDisplayName(nextName)
+          setDocumentType(nextName.toLowerCase().match(/\.(?:md|markdown)$/) ? 'markdown' : 'plain')
+        }
+        const opened = await desktopApi.files.open(target)
+        setRecentFiles(opened.recent)
+        if (target !== filePath) setCurrentFile(target, nextName)
+        // Update the saved tab by its snapshotted id (not the active tab), so a
+        // tab switch during the save cannot mark a different tab clean.
+        replaceTabs(tabsRef.current.map((tab) => {
+          if (tab.id !== snapshotTabId) return tab
+          const tabText = sameTab ? textRef.current : tab.text
+          return { ...tab, path: target, name: nextName, savedText: value, dirty: tabText !== value }
+        }))
+        onSaveSuccess()
+        return true
       }
-      if (!target) return false
 
-      const value = textRef.current
-      const targetLineEnding = options?.lineEnding ?? lineEndingRef.current
-      const targetEncoding = options?.encoding ?? encodingRef.current
-      const diskText = applyLineEnding(value, targetLineEnding)
-      await desktopApi.documents.saveText(target, diskText, targetEncoding)
-
-      savedTextRef.current = value
-      currentPathRef.current = target
-      dirtyRef.current = false
-      encodingRef.current = targetEncoding
-      lineEndingRef.current = targetLineEnding
-      setEncoding(targetEncoding)
-      setLineEnding(targetLineEnding)
-      setIsDirty(false)
-      documentBridge.setPlainText(value, target)
-
-      const nextName = target.split(/[/\\]/).pop() || target
-      displayNameRef.current = nextName
-      setDisplayName(nextName)
-      setDocumentType(nextName.toLowerCase().match(/\.(?:md|markdown)$/) ? 'markdown' : 'plain')
-      const opened = await desktopApi.files.open(target)
-      setRecentFiles(opened.recent)
-      if (target !== filePath) setCurrentFile(target, nextName)
-      const current = captureCurrentTab()
-      if (current) {
-        replaceTabs(tabsRef.current.map((tab) => tab.id === current.id
-          ? { ...current, path: target, name: nextName, savedText: value, dirty: false }
-          : tab))
-      }
-      onSaveSuccess()
-      return true
+      // Serialize overlapping saves: a second save always waits for the first
+      // disk write to settle before snapshotting and writing again.
+      const result = saveChainRef.current.then(() => runSave())
+      saveChainRef.current = result.catch(() => undefined)
+      return result
     },
-    [captureCurrentTab, displayName, filePath, onSaveSuccess, replaceTabs, setCurrentFile, setIsDirty],
+    [displayName, filePath, onSaveSuccess, replaceTabs, setCurrentFile, setIsDirty],
   )
 
   const saveAllDocuments = useCallback(async () => {

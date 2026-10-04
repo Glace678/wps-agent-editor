@@ -246,12 +246,17 @@ export function WordCaret({
   useEffect(() => {
     const root = editorRootRef.current
     if (!root) return
-    if (caretRect.visible) {
+    if (caretRect.visible && viewMode === 'page') {
       root.setAttribute('data-officeagentic-caret-active', 'true')
     } else {
       root.removeAttribute('data-officeagentic-caret-active')
     }
-  }, [caretRect.visible, editorRootRef])
+    // Clean up on view-mode change or unmount so the native caret is never left
+    // hidden when the custom caret is not on screen.
+    return () => {
+      root.removeAttribute('data-officeagentic-caret-active')
+    }
+  }, [caretRect.visible, editorRootRef, viewMode])
 
   if (!caretRect.visible || viewMode !== 'page') {
     return null

@@ -163,6 +163,9 @@ pub struct ConversationStore {
     codex_home: Arc<PathBuf>,
     summaries: Arc<RwLock<Vec<ConversationSummary>>>,
     import_gate: Arc<Mutex<()>>,
+    /// Serializes the record + summary + index composite write so a concurrent
+    /// save and delete cannot interleave and resurrect or desynchronize records.
+    write_gate: Arc<Mutex<()>>,
     notices: RecoveryNotices,
 }
 
@@ -219,6 +222,7 @@ impl ConversationStore {
             codex_home: Arc::new(codex_home),
             summaries: Arc::new(RwLock::new(summaries)),
             import_gate: Arc::new(Mutex::new(())),
+            write_gate: Arc::new(Mutex::new(())),
             notices,
         })
     }
@@ -258,7 +262,14 @@ impl ConversationStore {
     }
 
     pub fn save(&self, mut request: ConversationSaveRequest) -> AppResult<ConversationRecord> {
+        // Normalize once at the storage entry: the trimmed id is then used for
+        // validation, the summary, the record file name and the index, so that
+        // get/delete (which trim on the command side) resolve the same record.
+        request.id = request.id.trim().to_owned();
         validate_conversation_id(&request.id)?;
+        // Hold the composite write lock across the record + summary + index update
+        // so a concurrent delete cannot interleave and resurrect the record.
+        let _gate = self.write_gate.lock();
         request
             .messages
             .retain(|message| !message.content.trim().is_empty());
@@ -328,6 +339,10 @@ impl ConversationStore {
 
     pub fn delete(&self, id: &str) -> AppResult<bool> {
         validate_conversation_id(id)?;
+        // Serialize the record removal + summary removal + index rewrite against
+        // concurrent saves so a deleted record cannot be revived by an in-flight
+        // save reading a stale summary snapshot.
+        let _gate = self.write_gate.lock();
         let mut summaries = self.summaries.write();
         let original_len = summaries.len();
         summaries.retain(|summary| summary.id != id);
@@ -347,7 +362,10 @@ impl ConversationStore {
     }
 
     pub fn import_codex(&self) -> AppResult<CodexImportResult> {
-        let _guard = self.import_gate.lock();
+        let _import_gate = self.import_gate.lock();
+        // Reuse the same composite write lock as save/delete so imported records,
+        // summaries and the index cannot interleave with an in-flight mutation.
+        let _gate = self.write_gate.lock();
         let title_index = read_codex_title_index(&self.codex_home.join("session_index.jsonl"));
         let mut sources = Vec::new();
         collect_jsonl_files(&self.codex_home.join("sessions"), false, &mut sources)?;

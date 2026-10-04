@@ -118,23 +118,29 @@ export function attachExcelLiveResize(
     // 拖拽预览只下发一次 applyOp，不使用 flushSync：强制同步渲染会让 Fortune
     // 在每个 pointermove 上全画布重排（连带右侧整块数字区），是卡顿根源。
     // 去掉 flushSync 后，op 与浏览器帧合并，仅在帧末重绘一次，实时且流畅。
-    api.applyOp([
-      {
-        op: 'replace',
-        path: ['config', session.axis === 'col' ? 'columnlen' : 'rowlen'],
-        value: { ...session.originalMap, [session.index]: len },
-      },
-      {
-        op: 'replace',
-        path: [session.axis === 'col'
-          ? 'luckysheet_cols_change_size_start'
-          : 'luckysheet_rows_change_size_start'],
-        value: [
-          session.startNative + (len - session.originalLen) * session.zoom,
-          session.index,
-        ],
-      },
-    ])
+    try {
+      api.applyOp([
+        {
+          op: 'replace',
+          path: ['config', session.axis === 'col' ? 'columnlen' : 'rowlen'],
+          value: { ...session.originalMap, [session.index]: len },
+        },
+        {
+          op: 'replace',
+          path: [session.axis === 'col'
+            ? 'luckysheet_cols_change_size_start'
+            : 'luckysheet_rows_change_size_start'],
+          value: [
+            session.startNative + (len - session.originalLen) * session.zoom,
+            session.index,
+          ],
+        },
+      ])
+    } catch {
+      // A throwing op channel mid-drag must not leave listeners / a half-applied
+      // resize behind: treat the drag as canceled and restore the original sizes.
+      endSession(true)
+    }
   }
 
   /** Mirror Fortune's own guide-line DOM updates (mouseRender) for the axis. */
@@ -281,6 +287,8 @@ export function attachExcelLiveResize(
   shell.addEventListener('mousedown', onMouseDown, true)
   return () => {
     shell.removeEventListener('mousedown', onMouseDown, true)
-    endSession(false)
+    // Teardown has no following Fortune commit, so treat it as a cancel and revert
+    // any preview size that landed in config (otherwise it would be persisted).
+    endSession(true)
   }
 }

@@ -104,7 +104,7 @@ pub async fn providers_detect_ollama(
             format!("Ollama returned HTTP {}", response.status()),
         ));
     }
-    let value: Value = response.json().await?;
+    let value = crate::agents::provider::read_bounded_json(response).await?;
     let models = value["models"]
         .as_array()
         .into_iter()
@@ -229,7 +229,7 @@ pub async fn providers_custom_test(
             error: Some("connection-failed"),
         });
     }
-    let value: Value = response.json().await?;
+    let value = crate::agents::provider::read_bounded_json(response).await?;
     let models = value["data"]
         .as_array()
         .into_iter()
@@ -367,13 +367,18 @@ fn custom_definition(provider: CustomProviderConfig) -> ProviderDefinition {
 }
 
 async fn fetch_models_dev(client: &reqwest::Client) -> AppResult<Vec<ProviderDefinition>> {
-    let payload: HashMap<String, Value> = client
+    let response = client
         .get("https://models.dev/api.json")
         .send()
         .await?
-        .error_for_status()?
-        .json()
-        .await?;
+        .error_for_status()?;
+    let catalog = crate::agents::provider::read_bounded_json(response).await?;
+    let payload: HashMap<String, Value> = serde_json::from_value(catalog).map_err(|error| {
+        AppError::new(
+            "invalid-provider-response",
+            format!("models.dev catalog returned invalid JSON: {error}"),
+        )
+    })?;
     let mut providers = Vec::with_capacity(payload.len());
     for (id, provider) in payload {
         let api = provider["api"].as_str().unwrap_or_default();

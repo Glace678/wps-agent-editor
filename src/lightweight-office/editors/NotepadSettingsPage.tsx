@@ -430,13 +430,27 @@ export function NotepadSettingsPage({
 
   useEffect(() => {
     if (!open) return
-    requestAnimationFrame(() => {
+    // Re-sync the expanded sections whenever the dialog (re)opens or the
+    // requested initial section changes, instead of only on first mount.
+    setExpanded({
+      theme: initialSection === 'theme',
+      font: initialSection === 'font',
+      startup: initialSection === 'startup',
+      spelling: initialSection === 'spelling',
+    })
+  }, [open, initialSection])
+
+  useEffect(() => {
+    if (!open) return
+    let rafId = 0
+    rafId = requestAnimationFrame(() => {
       pageRef.current?.focus({ preventScroll: true })
       if (initialSection === 'font') {
         const fontPanel = document.getElementById('notepad-settings-font-panel')
         fontPanel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       }
     })
+    return () => cancelAnimationFrame(rafId)
   }, [initialSection, open, pageRef])
 
   useEffect(() => {
@@ -471,6 +485,9 @@ export function NotepadSettingsPage({
     fontSizeOptions.push(Number(fontSizeInput))
     fontSizeOptions.sort((a, b) => a - b)
   }
+
+  // When closed the dialog must not remain in the tab order / focusable.
+  if (!open) return null
 
   return (
     <div className="notepad-settings-overlay" data-testid="notepad-settings-overlay">

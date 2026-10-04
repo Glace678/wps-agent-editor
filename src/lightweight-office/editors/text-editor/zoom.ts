@@ -5,6 +5,7 @@ export const NOTEPAD_WHEEL_ZOOM_IDLE_MS = 160
 export const NOTEPAD_FONT_POINT_TO_PIXEL = 96 / 72
 
 export function clampNotepadZoom(value: number): number {
+  if (!Number.isFinite(value)) return NOTEPAD_MIN_ZOOM
   const stepped = Math.round(value / NOTEPAD_ZOOM_STEP) * NOTEPAD_ZOOM_STEP
   return Math.min(NOTEPAD_MAX_ZOOM, Math.max(NOTEPAD_MIN_ZOOM, stepped))
 }

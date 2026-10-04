@@ -55,6 +55,8 @@ const MAX_ATTACHMENT_FILE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_ATTACHMENT_CONTEXT_CHARS: usize = 64 * 1024;
 const MAX_ATTACHMENT_CHARS_PER_FILE: usize = 24 * 1024;
 const MAX_ATTACHMENT_CACHE_SESSIONS: usize = 64;
+const MAX_ATTACHMENT_CACHE_ENTRIES_PER_SESSION: usize = 64;
+const MAX_ATTACHMENT_CACHE_SESSION_BYTES: usize = 256 * 1024;
 const MAX_ATTACHMENT_ARCHIVE_ENTRIES: usize = 4096;
 const MAX_ATTACHMENT_XML_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATTACHMENT_EXTRACTION_TIME: Duration = Duration::from_secs(20);
@@ -111,10 +113,18 @@ struct PendingDocumentCommand {
     sender: oneshot::Sender<AppResult<Value>>,
 }
 
+/// One cached rendered attachment result, tracked with a last-used timestamp so
+/// the session can evict least-recently-used entries under its size budget.
+struct CachedAttachment {
+    text: String,
+    used_at: u64,
+}
+
 #[derive(Default)]
 struct AttachmentSession {
     touched_at: u64,
-    messages: HashMap<String, String>,
+    messages: HashMap<String, CachedAttachment>,
+    session_bytes: usize,
 }
 
 #[derive(Default)]
@@ -458,17 +468,18 @@ impl AgentRuntime {
             ensure_file_can_be_opened(&path)?;
         }
 
-        let signature = attachment_signature(owner, message);
-        if let Some(cached) = self
-            .attachment_cache
-            .lock()
-            .get_mut(conversation_id)
-            .and_then(|session| {
-                session.touched_at = unix_millis();
-                session.messages.get(&signature).cloned()
-            })
+        // The effective render budget is part of the cache key so a small-budget
+        // render cannot be reused (and starve) a later larger-budget request.
+        let signature = attachment_signature(owner, message, maximum_chars);
         {
-            return Ok(truncate_chars(&cached, maximum_chars));
+            let mut cache = self.attachment_cache.lock();
+            if let Some(session) = cache.get_mut(conversation_id) {
+                session.touched_at = unix_millis();
+                if let Some(entry) = session.messages.get_mut(&signature) {
+                    entry.used_at = unix_millis();
+                    return Ok(truncate_chars(&entry.text, maximum_chars));
+                }
+            }
         }
 
         let mut rendered = Vec::new();
@@ -491,19 +502,54 @@ impl AgentRuntime {
             )
         };
 
-        let mut cache = self.attachment_cache.lock();
-        if cache.len() >= MAX_ATTACHMENT_CACHE_SESSIONS && !cache.contains_key(conversation_id) {
-            if let Some(oldest) = cache
-                .iter()
-                .min_by_key(|(_, session)| session.touched_at)
-                .map(|(id, _)| id.clone())
+        // Cache only while this single conversation stays within its per-session
+        // entry count and byte budgets. A conversation that keeps producing new
+        // signatures must not grow the process memory without bound.
+        let entry_bytes = signature.len() + context.len();
+        if entry_bytes <= MAX_ATTACHMENT_CACHE_SESSION_BYTES {
+            let mut cache = self.attachment_cache.lock();
+            if cache.len() >= MAX_ATTACHMENT_CACHE_SESSIONS && !cache.contains_key(conversation_id) {
+                if let Some(oldest) = cache
+                    .iter()
+                    .min_by_key(|(_, session)| session.touched_at)
+                    .map(|(id, _)| id.clone())
+                {
+                    cache.remove(&oldest);
+                }
+            }
+            let session = cache.entry(conversation_id.to_owned()).or_default();
+            session.touched_at = unix_millis();
+            if let Some(previous) = session.messages.remove(&signature) {
+                session.session_bytes = session
+                    .session_bytes
+                    .saturating_sub(previous.text.len() + signature.len());
+            }
+            session.session_bytes = session.session_bytes.saturating_add(entry_bytes);
+            session.messages.insert(
+                signature.clone(),
+                CachedAttachment {
+                    text: context.clone(),
+                    used_at: unix_millis(),
+                },
+            );
+            while session.messages.len() > MAX_ATTACHMENT_CACHE_ENTRIES_PER_SESSION
+                || session.session_bytes > MAX_ATTACHMENT_CACHE_SESSION_BYTES
             {
-                cache.remove(&oldest);
+                let Some(oldest_key) = session
+                    .messages
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.used_at)
+                    .map(|(key, _)| key.clone())
+                else {
+                    break;
+                };
+                if let Some(removed) = session.messages.remove(&oldest_key) {
+                    session.session_bytes = session
+                        .session_bytes
+                        .saturating_sub(removed.text.len() + oldest_key.len());
+                }
             }
         }
-        let session = cache.entry(conversation_id.to_owned()).or_default();
-        session.touched_at = unix_millis();
-        session.messages.insert(signature, context.clone());
         Ok(truncate_chars(&context, maximum_chars))
     }
 }

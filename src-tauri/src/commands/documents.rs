@@ -12,11 +12,18 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{borrow::Cow, io::Cursor, path::PathBuf};
+use std::{
+    borrow::Cow,
+    io::Cursor,
+    path::PathBuf,
+    sync::OnceLock,
+};
 use tauri::{
     ipc::{InvokeBody, Request, Response},
     State, WebviewWindow,
 };
+use tokio::io::AsyncReadExt;
+use tokio::sync::Semaphore;
 
 use super::files::{validate_binary_ipc_size, MAX_BINARY_IPC_BYTES};
 
@@ -96,19 +103,27 @@ pub async fn documents_read_file(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> AppResult<Response> {
+    const MAX_READ_FILE_BYTES: u64 = 100 * 1024 * 1024;
     let path = state
         .files
         .access
         .resolve(window.label(), &path, &grant_id, false, Some(false))?;
     ensure_file_can_be_opened(&path)?;
-    let metadata = tokio::fs::metadata(&path).await?;
-    if metadata.len() > 100 * 1024 * 1024 {
+    // Open once and read from the same handle with a hard bound. We deliberately
+    // do not trust a separate metadata size: reading at most limit+1 bytes from
+    // the open handle closes the metadata/read TOCTOU window, and the actual
+    // number of bytes read is what is enforced.
+    let mut file = tokio::fs::File::open(&path).await?;
+    let mut reader = (&mut file).take(MAX_READ_FILE_BYTES.saturating_add(1));
+    let mut buffered = Vec::new();
+    reader.read_to_end(&mut buffered).await?;
+    if buffered.len() as u64 > MAX_READ_FILE_BYTES {
         return Err(AppError::new(
             "file-too-large",
             "File exceeds the 100 MiB IPC read limit",
         ));
     }
-    Ok(Response::new(tokio::fs::read(path).await?))
+    Ok(Response::new(buffered))
 }
 
 #[tauri::command]
@@ -306,10 +321,25 @@ pub async fn documents_set_current_file(
     Ok(serde_json::json!({ "success": true }))
 }
 
+/// Bounds how many PNG clipboard decodes may run at once. Even with a pixel
+/// limit, decoding several near-limit images concurrently would stack the
+/// decoded and RGBA buffers; the semaphore caps that concurrency.
+static PNG_DECODE_SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
+
+fn png_decode_semaphore() -> &'static Semaphore {
+    PNG_DECODE_SEMAPHORE.get_or_init(|| Semaphore::new(2))
+}
+
 #[tauri::command]
 pub async fn documents_write_png_clipboard(request: Request<'_>) -> AppResult<Value> {
     const MAX_PNG_BYTES: usize = 25 * 1024 * 1024;
     const MAX_PIXELS: u64 = 100_000_000;
+    // A lower decoded-bytes hard cap, checked before allocating the decoded
+    // buffer. With normalization to color8 the decoded buffer is at most 4
+    // bytes/pixel, and the RGBA conversion allocates another buffer; capping the
+    // decoded buffer keeps the worst-case resident set bounded on low-memory
+    // devices while keeping the existing 25 MiB compressed / 100 MP limits.
+    const MAX_DECODED_PIXEL_BYTES: usize = 96 * 1024 * 1024;
 
     let png = match request.body() {
         InvokeBody::Raw(data) => data.clone(),
@@ -326,6 +356,12 @@ pub async fn documents_write_png_clipboard(request: Request<'_>) -> AppResult<Va
         ));
     }
 
+    // Hold the permit across the blocking decode so concurrent decodes stay bounded.
+    let _permit = png_decode_semaphore()
+        .acquire()
+        .await
+        .map_err(|error| AppError::internal(format!("PNG decode semaphore closed: {error}")))?;
+
     tokio::task::spawn_blocking(move || {
         let mut decoder = png::Decoder::new(Cursor::new(png));
         decoder.set_transformations(png::Transformations::normalize_to_color8());
@@ -336,7 +372,11 @@ pub async fn documents_write_png_clipboard(request: Request<'_>) -> AppResult<Va
             )
         })?;
         let info = reader.info();
-        let pixels = u64::from(info.width) * u64::from(info.height);
+        // Checked arithmetic on the pixel count and decoded buffer size before
+        // any allocation.
+        let pixels = u64::from(info.width)
+            .checked_mul(u64::from(info.height))
+            .ok_or_else(|| AppError::new("image-too-large", "PNG dimensions overflow"))?;
         if info.width == 0 || info.height == 0 || pixels > MAX_PIXELS {
             return Err(AppError::new(
                 "image-too-large",
@@ -347,6 +387,12 @@ pub async fn documents_write_png_clipboard(request: Request<'_>) -> AppResult<Va
         let output_size = reader.output_buffer_size().ok_or_else(|| {
             AppError::new("invalid-binary", "PNG decoded size cannot be determined")
         })?;
+        if output_size > MAX_DECODED_PIXEL_BYTES {
+            return Err(AppError::new(
+                "image-too-large",
+                "PNG decoded buffer exceeds the per-image memory cap",
+            ));
+        }
         let mut decoded = vec![0; output_size];
         let frame = reader.next_frame(&mut decoded).map_err(|error| {
             AppError::new("invalid-binary", format!("Cannot decode PNG: {error}"))

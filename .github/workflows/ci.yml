@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
         with:
           components: rustfmt, clippy
       - name: Install Tauri system dependencies
@@ -32,7 +32,10 @@ jobs:
       - run: node scripts/check-version.mjs
       - run: npm run check:sensitive
       - run: node scripts/release/test-release-contract.mjs
-      - run: npm audit --omit=dev --audit-level=high
+      - name: Audit all dependencies (production + development)
+        run: npm audit --audit-level=high
+      - name: Audit production dependencies only
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run check:i18n
       - run: npm run check:providers
       - run: npm run test:web-canaries
@@ -65,12 +68,12 @@ jobs:
       WAE_BUILD_TARGET: ${{ matrix.target }}
       MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
         with:
           targets: ${{ matrix.target }}
       - name: Install Linux build dependencies
@@ -97,7 +100,7 @@ jobs:
         run: |
           node scripts/release/collect-unsigned-artifact.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle pr-artifact
           node scripts/release/check-artifacts.mjs pr-artifact
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: unsigned-pr-${{ matrix.platform }}-${{ matrix.arch }}
           path: pr-artifact/*

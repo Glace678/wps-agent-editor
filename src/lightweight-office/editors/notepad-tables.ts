@@ -34,19 +34,61 @@ export function serializeTableCellText(value: string): string {
   return escapeHtmlText(value).replace(/\n/g, '<br>')
 }
 
+/** Whitelisted table attributes that survive a save/reopen round-trip. */
+const TABLE_ATTR_WHITELIST = [
+  'class', 'style', 'id', 'width', 'border', 'cellpadding', 'cellspacing', 'align',
+] as const
+const ROW_ATTR_WHITELIST = ['class', 'style', 'align', 'valign'] as const
+const CELL_ATTR_WHITELIST = [
+  'colspan', 'rowspan', 'headers', 'abbr', 'scope', 'class', 'style', 'align', 'valign',
+] as const
+const COLGROUP_ATTR_WHITELIST = ['class', 'style'] as const
+const COL_ATTR_WHITELIST = ['span', 'width', 'class', 'style'] as const
+
+/** Emit only whitelisted attributes (plus data-*), with escaped values. */
+function serializeAttrs(el: Element, whitelist: readonly string[]): string {
+  let out = ''
+  for (const name of whitelist) {
+    if (!el.hasAttribute(name)) continue
+    out += ` ${name}="${escapeHtmlText(el.getAttribute(name) ?? '')}"`
+  }
+  for (const attr of Array.from(el.attributes)) {
+    if (attr.name.startsWith('data-') && !whitelist.includes(attr.name)) {
+      out += ` ${attr.name}="${escapeHtmlText(attr.value)}"`
+    }
+  }
+  return out
+}
+
+function serializeColgroup(colgroup: HTMLTableColElement): string {
+  const cols = Array.from(colgroup.querySelectorAll(':scope > col'))
+    .map((col) => `<col${serializeAttrs(col, COL_ATTR_WHITELIST)}>`)
+    .join('')
+  return `<colgroup${serializeAttrs(colgroup, COLGROUP_ATTR_WHITELIST)}>${cols}</colgroup>`
+}
+
 /** Serialize a live DOM table to a single HTML table block (no surrounding newlines). */
 export function serializeTableElement(table: HTMLTableElement): string {
-  const renderRow = (row: HTMLTableRowElement, fallback: 'th' | 'td') => {
+  const renderCell = (cell: HTMLTableCellElement, fallback: 'th' | 'td'): string => {
+    const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : fallback
+    return `<${tag}${serializeAttrs(cell, CELL_ATTR_WHITELIST)}>${serializeTableCellText(cellPlainText(cell))}</${tag}>`
+  }
+  const renderRow = (row: HTMLTableRowElement, fallback: 'th' | 'td'): string => {
     const cells = Array.from(row.cells)
-      .map((cell) => {
-        const tag = cell.tagName.toLowerCase() === 'th' ? 'th' : fallback
-        return `<${tag}>${serializeTableCellText(cellPlainText(cell))}</${tag}>`
-      })
+      .map((cell) => renderCell(cell, fallback))
       .join('')
-    return `<tr>${cells}</tr>`
+    return `<tr${serializeAttrs(row, ROW_ATTR_WHITELIST)}>${cells}</tr>`
   }
 
-  const parts: string[] = ['<table class="notepad-md-table">']
+  const parts: string[] = [`<table${serializeAttrs(table, TABLE_ATTR_WHITELIST)}>`]
+  if (table.caption) {
+    parts.push(
+      `<caption${serializeAttrs(table.caption, CELL_ATTR_WHITELIST)}>${serializeTableCellText(cellPlainText(table.caption))}</caption>`,
+    )
+  }
+  for (const child of Array.from(table.children)) {
+    if (child instanceof HTMLTableColElement) parts.push(serializeColgroup(child))
+  }
   if (table.tHead && table.tHead.rows.length > 0) {
     parts.push('<thead>')
     for (const row of Array.from(table.tHead.rows)) parts.push(renderRow(row, 'th'))
@@ -71,10 +113,26 @@ function isPipeTableRow(line: string): boolean {
   return trimmed.includes('|')
 }
 
+/** Split a pipe-table row into cells, dropping outer pipes and trimming. */
+function splitPipeCells(line: string): string[] {
+  const trimmed = line.trim()
+  let inner = trimmed
+  if (inner.startsWith('|')) inner = inner.slice(1)
+  if (inner.endsWith('|')) inner = inner.slice(0, -1)
+  return inner.split('|').map((cell) => cell.trim())
+}
+
+/**
+ * A GFM separator row must actually contain a pipe AND every cell must be a
+ * dash run with optional alignment colons. The previous regex accepted a bare
+ * "---" line (no pipe), so ordinary text like "a | b" followed by "---" was
+ * mis-detected as a table and rewritten.
+ */
 function isPipeSeparatorRow(line: string): boolean {
   const trimmed = line.trim()
-  if (!trimmed.includes('-')) return false
-  return /^\|?[\s|:.-]+\|?$/.test(trimmed)
+  if (!trimmed.includes('|') || !trimmed.includes('-')) return false
+  const cells = splitPipeCells(trimmed)
+  return cells.length > 0 && cells.every((cell) => /^:?-+:?$/.test(cell))
 }
 
 function findFencedCodeRegions(source: string): TableRegion[] {
@@ -201,6 +259,7 @@ export function findMarkdownTableRegions(source: string): TableRegion[] {
       && !lineIsFenced(index + 1)
       && isPipeTableRow(lines[index])
       && isPipeSeparatorRow(lines[index + 1])
+      && splitPipeCells(lines[index]).length === splitPipeCells(lines[index + 1]).length
     ) {
       let endLine = index + 2
       while (
@@ -437,14 +496,44 @@ export function replaceTablesInSource(source: string, tableHtmls: string[]): str
   return next
 }
 
+/** Whitelist of attributes accepted on a freshly inserted table; values are escaped. */
+const INSERT_TABLE_ATTR_WHITELIST = new Set([
+  'class', 'style', 'id', 'width', 'align', 'border',
+])
+
+/**
+ * Reduce a free-form attributes string to whitelisted, escaped `name="value"`
+ * pairs. Anything not explicitly allowed (including unbalanced/quote-breakout
+ * payloads) is dropped, so caller-supplied attributes cannot inject markup.
+ */
+function sanitizeTableAttributes(attributes: string | undefined): string {
+  if (!attributes) return ''
+  let out = ''
+  const pairPattern = /([a-zA-Z][a-zA-Z0-9-]*)\s*=\s*"([^"]*)"/g
+  let match: RegExpExecArray | null
+  while ((match = pairPattern.exec(attributes)) !== null) {
+    const name = match[1].toLowerCase()
+    // data-* attributes are allowed (e.g. the internal `data-notepad-new-table`
+    // insertion marker) — they cannot execute script and the value is still
+    // escaped below. on* / event handlers and other dangerous attrs stay dropped.
+    if (!INSERT_TABLE_ATTR_WHITELIST.has(name) && !name.startsWith('data-')) continue
+    out += ` ${name}="${escapeHtmlText(match[2])}"`
+  }
+  return out
+}
+
 /** Build an empty HTML grid for insert (leading/trailing blank lines separate the block). */
 export function buildHtmlTable(
   rows: number,
   columns: number,
   attributes?: string,
 ): string {
-  const safeRows = Math.max(1, Math.min(8, Math.floor(rows)))
-  const safeColumns = Math.max(1, Math.min(10, Math.floor(columns)))
+  // Non-finite (NaN / Infinity) dimensions must fall back to a 1x1 grid instead
+  // of producing an empty Array.from({ length: NaN }).
+  const finiteRows = Number.isFinite(rows) ? Math.floor(rows) : 1
+  const finiteColumns = Number.isFinite(columns) ? Math.floor(columns) : 1
+  const safeRows = Math.max(1, Math.min(8, finiteRows))
+  const safeColumns = Math.max(1, Math.min(10, finiteColumns))
   const body = Array.from({ length: safeRows }, () => {
     const cells = Array.from(
       { length: safeColumns },
@@ -452,7 +541,7 @@ export function buildHtmlTable(
     ).join('')
     return `<tr>${cells}</tr>`
   }).join('')
-  const extraAttr = attributes ? ` ${attributes}` : ''
+  const extraAttr = sanitizeTableAttributes(attributes)
   return [
     '',
     `<table class="notepad-md-table"${extraAttr}>`,

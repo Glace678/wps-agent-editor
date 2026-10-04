@@ -119,8 +119,12 @@ export function resolveExcelToolbarShortcut(
   tip: string,
 ): string | null {
   if (iconId) {
-    const byId = EXCEL_TOOLBAR_SHORTCUTS[iconId]
-    if (byId) return byId
+    // Guard against prototype-pollution-style ids (`#__proto__`, `#constructor`)
+    // resolving to inherited Object members; only accept own, string values.
+    if (Object.prototype.hasOwnProperty.call(EXCEL_TOOLBAR_SHORTCUTS, iconId)) {
+      const byId = EXCEL_TOOLBAR_SHORTCUTS[iconId]
+      if (typeof byId === 'string') return byId
+    }
   }
 
   const text = tip.trim()
@@ -219,13 +223,17 @@ export function decorateExcelToolbarControl(el: HTMLElement): boolean {
 
 /** Decorate every toolbar button / combo inside an Excel shell. */
 export function decorateExcelToolbarShortcuts(shell: HTMLElement): number {
+  // Do not require [data-tips]: some controls only expose aria-label, and the
+  // overflow ("more") combo-arrow also needs annotation. decorate() itself
+  // reads whichever label is present and no-ops when there is no tip.
   const controls = shell.querySelectorAll<HTMLElement>(
     [
-      '.fortune-toolbar .fortune-toolbar-button[data-tips]',
-      '.fortune-toolbar .fortune-toolbar-combo-button[data-tips]',
-      '.fortune-toolbar .fortune-toolbar-combo-arrow[data-tips]',
-      '.fortune-toolbar-more-container .fortune-toolbar-button[data-tips]',
-      '.fortune-toolbar-more-container .fortune-toolbar-combo-button[data-tips]',
+      '.fortune-toolbar .fortune-toolbar-button',
+      '.fortune-toolbar .fortune-toolbar-combo-button',
+      '.fortune-toolbar .fortune-toolbar-combo-arrow',
+      '.fortune-toolbar-more-container .fortune-toolbar-button',
+      '.fortune-toolbar-more-container .fortune-toolbar-combo-button',
+      '.fortune-toolbar-more-container .fortune-toolbar-combo-arrow',
     ].join(', '),
   )
   let updated = 0

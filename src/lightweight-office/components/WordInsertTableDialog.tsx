@@ -145,13 +145,32 @@ const INSERT_TABLE_TEXTS: Record<LanguageCode, InsertTableTexts> = {
   },
 }
 
+function clampDimension(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const rounded = Math.round(value)
+  if (rounded < min || rounded > max) return null
+  return rounded
+}
+
+/** Strictly parse the fixed column width: whole input must be a positive finite number. */
+function parseFixedWidth(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return undefined
+  const value = Number(trimmed)
+  if (!Number.isFinite(value) || value <= 0) return undefined
+  return value
+}
+
 function getInitialDimensions(): { rows: number; cols: number; remember: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (typeof parsed.rows === 'number' && typeof parsed.cols === 'number') {
-        return { rows: parsed.rows, cols: parsed.cols, remember: true }
+      // Reject negative / zero / decimal / out-of-range / NaN persisted values.
+      const cols = clampDimension(parsed.cols, 1, 63)
+      const rows = clampDimension(parsed.rows, 1, 1000)
+      if (cols !== null && rows !== null) {
+        return { rows, cols, remember: true }
       }
     }
   } catch {
@@ -176,15 +195,21 @@ export function WordInsertTableDialog({ open, onClose, onInsert }: WordInsertTab
       setCols(current.cols)
       setRows(current.rows)
       setRemember(current.remember)
+      // Reset the column-width mode each open so a temporary fixed choice from the
+      // previous use is not silently carried over.
+      setWidthMode('auto')
+      setFixedWidth('0.16')
     }
   }, [open])
 
   if (!open) return null
 
   const handleConfirm = () => {
+    const safeCols = Math.max(1, Math.min(63, Math.round(cols) || 1))
+    const safeRows = Math.max(1, Math.min(1000, Math.round(rows) || 1))
     if (remember) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ rows, cols }))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ rows: safeRows, cols: safeCols }))
       } catch {
         // ignore
       }
@@ -195,8 +220,8 @@ export function WordInsertTableDialog({ open, onClose, onInsert }: WordInsertTab
         // ignore
       }
     }
-    const widthVal = widthMode === 'fixed' ? parseFloat(fixedWidth) || undefined : undefined
-    onInsert(rows, cols, widthVal)
+    const widthVal = widthMode === 'fixed' ? parseFixedWidth(fixedWidth) : undefined
+    onInsert(safeRows, safeCols, widthVal)
     onClose()
   }
 

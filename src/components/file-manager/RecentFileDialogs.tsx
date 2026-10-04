@@ -160,7 +160,7 @@ export function RenameDialog({
   )
 }
 
-export function ShareDialog({ files, onClose }: { files: RecentFile[]; onClose: () => void }) {
+export function ShareDialog({ files, warning, onClose }: { files: RecentFile[]; warning?: string; onClose: () => void }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState<'file' | 'path' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -188,10 +188,17 @@ export function ShareDialog({ files, onClose }: { files: RecentFile[]; onClose: 
   }
 
   const copyPath = async () => {
+    setError(null)
+    if (!navigator.clipboard?.writeText) {
+      setError(t('recentFiles.errorOperationFailed'))
+      return
+    }
     try {
       await navigator.clipboard.writeText(filePaths.join('\n'))
     } catch {
-      // Clipboard access can fail in browser previews; ignore and keep UI responsive.
+      // 剪贴板不可用/被拒：保持弹窗，展示错误，不提示“已复制”。
+      setError(t('recentFiles.errorOperationFailed'))
+      return
     }
     finish('path')
   }
@@ -218,6 +225,7 @@ export function ShareDialog({ files, onClose }: { files: RecentFile[]; onClose: 
           ))}
         </div>
       )}
+      {warning && <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">{warning}</p>}
       {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
       <div className="flex flex-col gap-2">
         <button type="button" className={optionClass} onClick={() => void copyFile()}>
@@ -260,13 +268,32 @@ export function HistoryDialog({ file, onClose }: { file: RecentFile; onClose: ()
   const [restoredId, setRestoredId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const historyRequestRef = useRef(0)
+
+  const describeHistoryError = (thrown: unknown): string => {
+    const code = typeof thrown === 'object' && thrown !== null && 'code' in thrown
+      ? String((thrown as { code: unknown }).code)
+      : ''
+    if (code === 'not-found') return t('recentFiles.errorNotFound')
+    return t('recentFiles.errorOperationFailed')
+  }
 
   const reload = async () => {
-    setVersions(await desktopApi.files.historyList(file.path))
+    const requestId = ++historyRequestRef.current
+    try {
+      const list = await desktopApi.files.historyList(file.path)
+      if (requestId !== historyRequestRef.current) return
+      setVersions(list)
+      setError(null)
+    } catch (thrown) {
+      if (requestId !== historyRequestRef.current) return
+      setError(describeHistoryError(thrown))
+    }
   }
 
   useEffect(() => {
-    void desktopApi.files.historyList(file.path).then(setVersions)
+    void reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path])
 
   const restore = async (version: FileVersion) => {
@@ -286,6 +313,8 @@ export function HistoryDialog({ file, onClose }: { file: RecentFile; onClose: ()
       }
       setRestoredId(version.id)
       await reload()
+    } catch (thrown) {
+      setError(describeHistoryError(thrown))
     } finally {
       setBusy(false)
       setConfirming(null)

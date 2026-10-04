@@ -242,7 +242,75 @@ function detectImageMime(bytes: Uint8Array): PdfImageAnnotationRecord['mimeType'
   return null
 }
 
+/**
+ * Read pixel dimensions straight from the image header without decoding pixels.
+ * This lets callers reject decompression-bomb-sized images before the expensive
+ * createImageBitmap decode ever runs. Returns null when the header can't be parsed.
+ */
+function readImageHeaderDimensions(
+  bytes: Uint8Array,
+  mimeType: string,
+): { width: number; height: number } | null {
+  try {
+    if (mimeType === 'image/png') {
+      // 8-byte signature | 4-byte length | "IHDR" | 4-byte width (BE) | 4-byte height (BE)
+      if (bytes.length < 24) return null
+      if (bytes[12] !== 0x49 || bytes[13] !== 0x48 || bytes[14] !== 0x44 || bytes[15] !== 0x52) return null
+      const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19]
+      const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]
+      return { width, height }
+    }
+    if (mimeType === 'image/jpeg') {
+      let offset = 2 // skip SOI marker
+      while (offset + 9 < bytes.length) {
+        if (bytes[offset] !== 0xff) return null
+        const marker = bytes[offset + 1]
+        // SOF markers (exclude DHT/C4, JPG/C8, DAC/CC) carry the frame dimensions.
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          const height = (bytes[offset + 5] << 8) | bytes[offset + 6]
+          const width = (bytes[offset + 7] << 8) | bytes[offset + 8]
+          return { width, height }
+        }
+        const segLen = (bytes[offset + 2] << 8) | bytes[offset + 3]
+        if (segLen < 2) return null
+        offset += 2 + segLen
+      }
+      return null
+    }
+    if (mimeType === 'image/webp') {
+      if (bytes.length < 16) return null
+      const fourcc = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15])
+      if (fourcc === 'VP8X') {
+        if (bytes.length < 30) return null
+        const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16)
+        const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16)
+        return { width, height }
+      }
+      if (fourcc === 'VP8L') {
+        if (bytes.length < 25) return null
+        const b1 = bytes[21], b2 = bytes[22], b3 = bytes[23], b4 = bytes[24]
+        const width = 1 + (((b2 & 0x3f) << 8) | b1)
+        const height = 1 + (((b4 & 0x0f) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6))
+        return { width, height }
+      }
+      if (fourcc === 'VP8 ') {
+        if (bytes.length < 30) return null
+        const width = bytes[26] | ((bytes[27] & 0x3f) << 8)
+        const height = bytes[28] | ((bytes[29] & 0x3f) << 8)
+        return { width, height }
+      }
+      return null
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 async function readImageDimensions(data: ArrayBuffer, mimeType: string): Promise<{ width: number; height: number }> {
+  // Prefer cheap header parsing so oversized images are rejected before decoding.
+  const header = readImageHeaderDimensions(new Uint8Array(data), mimeType)
+  if (header && header.width > 0 && header.height > 0) return header
   const blob = new Blob([data], { type: mimeType })
   if (typeof createImageBitmap === 'function') {
     const bitmap = await createImageBitmap(blob)

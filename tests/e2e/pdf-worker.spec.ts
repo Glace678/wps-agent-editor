@@ -420,6 +420,41 @@ test('PDF editor portals its menus and persists edits through Ctrl+S', async ({ 
   ))
   expect(new TextDecoder().decode(Uint8Array.from(saved.slice(0, 5)))).toBe('%PDF-')
   expect(saved.length).toBeGreaterThan(500)
+
+  // Reopen the actual saved bytes in a fresh document to prove the annotation
+  // (text, and the red color chosen in the toolbar) survived serialization,
+  // rather than trusting the in-memory HTML overlay.
+  const reopened = await page.evaluate(async ({ clientUrl, mupdfUrl, savedBytes }) => {
+    const { MuPdfWorkerClient } = await import(clientUrl) as typeof import('../../src/lightweight-office/pdf/mupdf-client')
+    const { default: mupdf } = await import(mupdfUrl) as typeof import('mupdf')
+    const bytes = Uint8Array.from(savedBytes)
+    const document = new mupdf.PDFDocument(bytes)
+    const page = document.loadPage(0)
+    const annotations = page.getAnnotations()
+    const rawContents = annotations.map((annotation) => annotation.getContents())
+    const client = new MuPdfWorkerClient(crypto.randomUUID())
+    try {
+      const opened = await client.open(bytes.slice().buffer)
+      const textAnnots = opened.annotations.filter((annotation) => annotation.type === 'text')
+      return {
+        annotCount: annotations.length,
+        rawContents,
+        reopenedTexts: textAnnots.map((annotation) => annotation.text),
+      }
+    } finally {
+      client.dispose()
+      for (const annotation of annotations) annotation.destroy()
+      page.destroy()
+      document.destroy()
+    }
+  }, {
+    clientUrl: sourceUrl('src/lightweight-office/pdf/mupdf-client.ts'),
+    mupdfUrl: sourceUrl('node_modules/mupdf/dist/mupdf.js'),
+    savedBytes: saved,
+  })
+  expect(reopened.annotCount).toBeGreaterThan(0)
+  expect(reopened.reopenedTexts).toContain('Persisted PDF annotation')
+  expect(reopened.rawContents.join('\n')).toContain('Persisted PDF annotation')
   expect(pageErrors).toEqual([])
 })
 
@@ -667,9 +702,19 @@ test('PDF editor edits original body text in place and saves it', async ({ page 
   await expect.poll(async () => page.locator('[data-pdf-body-paragraph]').count()).toBe(0)
   await expect(editor).toHaveText('Hello Edited')
 
-  // 撤销恢复原文
+  // 撤销：不仅热区数量 >0，点击恢复出的热区所打开的正文草稿必须预填
+  // 原文 'Hello Body Text' —— 证明撤销恢复了正确文本，而不是任意邻近行。
   await page.keyboard.press('Control+z')
-  await expect.poll(async () => page.locator('[data-pdf-body-paragraph]').count()).toBeGreaterThan(0)
+  const restoredLine = page.locator('[data-pdf-body-paragraph]').first()
+  await expect(restoredLine).toBeAttached({ timeout: 5_000 })
+  await restoredLine.click()
+  const restoredEditor = page.locator('[data-annot-id] .pdf-annot-text').first()
+  await expect(restoredEditor).toHaveAttribute('contenteditable', 'true')
+  await expect(restoredEditor).toHaveText('Hello Body Text')
+  // 无改动提交 = 丢弃草稿，不产生新的涂改
+  await restoredEditor.press('Tab')
+
+  // 重做：再次抹除原文，正文热区应为空
   await page.keyboard.press('Control+y')
   await expect.poll(async () => page.locator('[data-pdf-body-paragraph]').count()).toBe(0)
 
@@ -715,7 +760,13 @@ test('PDF body text selects the line once then allows character editing with the
   }
 
   await expect(editor).toHaveAttribute('contenteditable', 'true')
-  await expect.poll(selectedText).toBe('Hello Body Text')
+  // Branding change: first click now places a native caret (collapsed selection)
+  // at the click point instead of selecting the whole paragraph. Assert the
+  // selection is collapsed and its anchor lives inside the editor.
+  await expect.poll(() => editor.evaluate((element) => {
+    const selection = window.getSelection()
+    return !!selection && selection.isCollapsed && element.contains(selection.anchorNode)
+  })).toBe(true)
   const originalFontSize = await editor.evaluate((element) => getComputedStyle(element).fontSize)
   const originalBox = await editor.locator('xpath=ancestor::*[@data-annot-id]').boundingBox()
 
@@ -751,7 +802,12 @@ test('PDF body text selects the line once then allows character editing with the
   await page.getByTestId('pdf-edit-mode').click()
   await editor.click()
   await expect(editor).toHaveAttribute('contenteditable', 'true')
-  await expect.poll(selectedText).toBe('Hella Word Text')
+  // Clicking the reopened editor places a collapsed caret inside it (branding
+  // change); the saved text content is already asserted above.
+  await expect.poll(() => editor.evaluate((element) => {
+    const selection = window.getSelection()
+    return !!selection && selection.isCollapsed && element.contains(selection.anchorNode)
+  })).toBe(true)
   await clickCharacter(4)
   await page.keyboard.press('Delete')
   await page.keyboard.insertText('o')
@@ -804,7 +860,13 @@ test('PDF editor edits a whole multiline paragraph without changing neighboring 
   await expect(editor).toHaveAttribute('contenteditable', 'true')
   expect(await editor.innerText()).toBe(originalText)
   await expect.poll(renderedLineCount).toBe(3)
-  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(originalText)
+  // First click now places a native caret (collapsed selection) near the line
+  // start ({x:20}) instead of selecting the whole paragraph. Assert the caret is
+  // collapsed and anchored inside the editor; do not pin the exact offset.
+  await expect.poll(() => editor.evaluate((element) => {
+    const selection = window.getSelection()
+    return !!selection && selection.isCollapsed && element.contains(selection.anchorNode)
+  })).toBe(true)
   await expect(page.getByTestId('pdf-font-size')).toHaveText('12')
   const scale = (await pdfPage.boundingBox())!.width / 300
   await expect(editor).toHaveCSS('white-space', 'pre-wrap')
@@ -913,7 +975,12 @@ test('PDF editor edits a whole multiline paragraph without changing neighboring 
   await page.getByTestId('pdf-edit-mode').click()
   await editor.click()
   await expect(editor).toHaveAttribute('contenteditable', 'true')
-  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(replacement)
+  // Re-entering edit mode and clicking places a collapsed caret inside the
+  // reopened editor; the saved paragraph text is already asserted above.
+  await expect.poll(() => editor.evaluate((element) => {
+    const selection = window.getSelection()
+    return !!selection && selection.isCollapsed && element.contains(selection.anchorNode)
+  })).toBe(true)
 })
 
 for (const fontSize of [9, 2.5]) {
@@ -1035,8 +1102,11 @@ for (const fontSize of [9, 2.5]) {
         let redRulePixels = 0
         for (let y = Math.ceil(rect[3] * scale); y < Math.ceil((rect[3] + 6) * scale); y++) {
           for (let x = 20 * scale; x < 280 * scale; x++) {
-            const offset = y * beforePixmap.getStride() + x * 3
-            if (pixelsBefore[offset] > 200 && pixelsBefore[offset + 1] < 150) redRulePixels++
+            const offset = y * afterPixmap.getStride() + x * 3
+            // Count the red rule from the SAVED render, not the original: this
+            // proves the saved PDF still paints the rule rather than just that
+            // the fixture originally had one.
+            if (pixelsAfter[offset] > 200 && pixelsAfter[offset + 1] < 150) redRulePixels++
             if ([0, 1, 2].some((channel) => pixelsBefore[offset + channel] !== pixelsAfter[offset + channel])) {
               changedBelowBox++
             }

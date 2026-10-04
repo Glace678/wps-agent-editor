@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { TriangleAlert, X } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import type { LanguageCode } from '@/lib/i18n'
@@ -94,6 +94,28 @@ export function SaveConfirmDialog({
 }: SaveConfirmDialogProps) {
   const { language } = useTranslation()
   const texts = SAVE_CONFIRM_TEXTS[language as LanguageCode] ?? SAVE_CONFIRM_TEXTS.en
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(false)
+  const savingRef = useRef(false)
+
+  // Guard against double-trigger (rapid Enter/S/clicks) and surface async save
+  // failures instead of dropping the rejection and letting the user assume the
+  // document was saved.
+  const handleSave = useCallback(async () => {
+    if (savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(false)
+    try {
+      await onSave()
+    } catch (error) {
+      console.warn('[SaveConfirmDialog] Save failed:', error)
+      setSaveError(true)
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }, [onSave])
 
   useEffect(() => {
     if (!isOpen) return
@@ -111,7 +133,7 @@ export function SaveConfirmDialog({
         if (!event.ctrlKey && !event.metaKey) {
           event.preventDefault()
           event.stopPropagation()
-          void onSave()
+          void handleSave()
           return
         }
       }
@@ -128,14 +150,14 @@ export function SaveConfirmDialog({
       if (event.key === 'Enter') {
         event.preventDefault()
         event.stopPropagation()
-        void onSave()
+        void handleSave()
         return
       }
     }
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [isOpen, onCancel, onDontSave, onSave])
+  }, [isOpen, onCancel, onDontSave, handleSave])
 
   if (!isOpen) return null
 
@@ -178,13 +200,19 @@ export function SaveConfirmDialog({
           <p className="text-[14px] leading-relaxed text-foreground/90 dark:text-[#e0e0e0]">
             {messageText}
           </p>
+          {saveError && (
+            <p className="mt-2 text-[13px] text-red-600 dark:text-red-400" role="alert">
+              {language === 'zh-CN' ? '保存失败，请重试。' : 'The document could not be saved. Please try again.'}
+            </p>
+          )}
         </div>
 
         <footer className="flex items-center justify-end gap-2.5">
           <button
             type="button"
-            className="flex h-8 min-w-[76px] items-center justify-center rounded-lg bg-[#0078d4] px-4 text-[13px] font-medium text-white shadow-sm hover:bg-[#106ebe] active:bg-[#005a9e] transition-colors cursor-pointer"
-            onClick={() => void onSave()}
+            className="flex h-8 min-w-[76px] items-center justify-center rounded-lg bg-[#0078d4] px-4 text-[13px] font-medium text-white shadow-sm hover:bg-[#106ebe] active:bg-[#005a9e] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => void handleSave()}
+            disabled={saving}
           >
             {saveText}
           </button>

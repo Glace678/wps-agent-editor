@@ -1,8 +1,10 @@
-import { execFileSync, spawnSync } from 'node:child_process'
-import { cp, mkdtemp, mkdir, readFile, rm, stat } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { cp, mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const targets = {
   'i686-pc-windows-msvc': { package: 'win32-ia32', executable: 'esbuild.exe' },
@@ -44,9 +46,81 @@ async function packageVersion() {
   return value.version
 }
 
+// Read the integrity (SHA-512) that npm ci resolved for this platform package
+// from package-lock.json. We refuse to download a tarball we cannot pin.
+async function loadLockEntry(name) {
+  const lock = JSON.parse(await readFile('package-lock.json', 'utf8'))
+  const key = `node_modules/@esbuild/${name}`
+  const entry = lock.packages?.[key]
+  if (!entry || typeof entry.integrity !== 'string') {
+    throw new Error(`package-lock.json has no integrity entry for ${key}; refusing an unverified esbuild download`)
+  }
+  if (!entry.integrity.startsWith('sha512-')) {
+    throw new Error(`package-lock.json integrity for ${key} is not sha512: ${entry.integrity}`)
+  }
+  return entry
+}
+
+function parseOctalField(buf) {
+  const text = buf.toString('utf8').split('\0')[0].trim()
+  return text ? parseInt(text, 8) : 0
+}
+
+function parseCString(buf) {
+  const nul = buf.indexOf(0)
+  return buf.toString('utf8', 0, nul === -1 ? buf.length : nul)
+}
+
+// Extract a gzip tarball into destDir while rejecting path traversal, absolute
+// paths, and any symlink/hardlink members. Only regular files are written.
+async function safeExtractTar(archiveBytes, destDir) {
+  const data = gunzipSync(archiveBytes)
+  const root = resolve(destDir)
+  let offset = 0
+  while (offset + 512 <= data.length) {
+    const header = data.subarray(offset, offset + 512)
+    if (header.every((b) => b === 0)) break
+    const name = parseCString(header.subarray(0, 100))
+    const size = parseOctalField(header.subarray(124, 136))
+    const typeByte = header[156]
+    const typeflag = typeByte ? String.fromCharCode(typeByte) : '0'
+    const prefix = parseCString(header.subarray(345, 500))
+    const fullName = prefix ? `${prefix}/${name}` : name
+    const dataStart = offset + 512
+    const dataEnd = dataStart + size
+    if (dataEnd > data.length) throw new Error(`Truncated tar entry: ${fullName}`)
+    if (isAbsolute(fullName) || fullName.startsWith('/')) {
+      throw new Error(`Refusing absolute tar path: ${fullName}`)
+    }
+    if (fullName.split('/').includes('..')) {
+      throw new Error(`Refusing parent-directory tar path: ${fullName}`)
+    }
+    const target = resolve(root, fullName)
+    const rel = relative(root, target)
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error(`Tar path escapes staging directory: ${fullName}`)
+    }
+    if (typeflag === '1' || typeflag === '2') {
+      throw new Error(`Refusing hard/symlink tar entry: ${fullName}`)
+    }
+    if (typeflag === '5') {
+      // Directory members are created implicitly by writing files.
+    } else if (typeflag === '0' || typeflag === '') {
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, Buffer.from(data.subarray(dataStart, dataEnd)))
+    } else if (typeflag === 'x' || typeflag === 'g') {
+      // pax/gnu extended-header metadata; not payload.
+    } else {
+      throw new Error(`Refusing unsupported tar entry type '${typeflag}' for ${fullName}`)
+    }
+    offset = dataStart + Math.ceil(size / 512) * 512
+  }
+}
+
 async function downloadPackage(name, version, executable) {
   const directory = await mkdtemp(join(tmpdir(), 'wae-esbuild-'))
   try {
+    const lockEntry = await loadLockEntry(name)
     const npm = npmInvocation()
     const output = execFileSync(
       npm.command,
@@ -55,12 +129,27 @@ async function downloadPackage(name, version, executable) {
     ).trim().split(/\r?\n/).at(-1)
     if (!output) throw new Error(`npm pack did not return an archive for @esbuild/${name}`)
     const archive = join(directory, basename(output))
-    const extracted = spawnSync('tar', ['-xzf', archive, '-C', directory], {
-      encoding: 'utf8',
-      windowsHide: true,
-    })
-    if (extracted.status !== 0) throw new Error(extracted.stderr || 'Cannot extract esbuild package')
-    return await cpToStableTemp(join(directory, 'package', executable), name)
+    const archiveBytes = await readFile(archive)
+    // Verify the downloaded tarball against the lock's SHA-512 before trusting it.
+    const actualIntegrity = 'sha512-' + createHash('sha512').update(archiveBytes).digest('base64')
+    if (actualIntegrity !== lockEntry.integrity) {
+      throw new Error(
+        `esbuild tarball integrity mismatch for @esbuild/${name}@${version}: ` +
+        `expected ${lockEntry.integrity}, got ${actualIntegrity}`,
+      )
+    }
+    await safeExtractTar(archiveBytes, directory)
+    const binary = join(directory, 'package', executable)
+    // Re-check containment through realpath so no symlink or junction can point
+    // the copied binary outside the isolated staging directory.
+    const rootReal = await realpath(directory)
+    const binaryReal = await realpath(binary)
+    if (binaryReal !== rootReal && !binaryReal.startsWith(rootReal + sep)) {
+      throw new Error(`Extracted esbuild binary escapes staging directory: ${binary}`)
+    }
+    const metadata = await stat(binaryReal)
+    if (!metadata.isFile()) throw new Error(`Extracted esbuild binary is not a regular file: ${binary}`)
+    return await cpToStableTemp(binaryReal, name)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

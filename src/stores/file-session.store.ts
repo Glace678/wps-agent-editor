@@ -59,11 +59,24 @@ export const useFileSessionStore = create<FileSessionStore>((set) => ({
   ...emptySession,
   hydrated: false,
 
-  hydrate: (session) => set({
-    ...session,
-    recentDirectories: uniquePaths(session.recentDirectories, MAX_RECENT_DIRECTORIES),
-    openFiles: uniquePaths(session.openFiles, MAX_OPEN_FILES),
-    hydrated: true,
+  hydrate: (session) => set(() => {
+    // Normalize + truncate openFiles first, then validate activeFile against the
+    // surviving set so the restored activeFile can never point at a file that
+    // was deduped or truncated away (mirrors setDocuments' invariant).
+    const recentDirectories = uniquePaths(session.recentDirectories, MAX_RECENT_DIRECTORIES)
+    const openFiles = uniquePaths(session.openFiles, MAX_OPEN_FILES)
+    const requestedKey = session.activeFile ? pathKey(session.activeFile) : null
+    const activeFile = requestedKey
+      ? openFiles.find((path) => pathKey(path) === requestedKey) ?? null
+      : null
+    return {
+      mainDirectory: session.mainDirectory,
+      currentDirectory: session.currentDirectory,
+      recentDirectories,
+      openFiles,
+      activeFile,
+      hydrated: true,
+    }
   }),
 
   setMainDirectory: (directory) => set((state) => (

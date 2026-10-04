@@ -5,6 +5,7 @@ import { documentBridge } from './document-bridge'
 
 export function useAgentBridge() {
   useEffect(() => {
+    let disposed = false
     const unsubscribeCommand = subscribeDesktopEvent<{
       requestId: string
       command: Parameters<typeof documentBridge.execute>[0]
@@ -16,7 +17,15 @@ export function useAgentBridge() {
       } catch (error) {
         result = { success: false, error: error instanceof Error ? error.message : String(error) }
       }
-      await desktopApi.agents.sendDocumentResult(requestId, result)
+      // If the bridge (or its host) has torn down, do not attempt to send back:
+      // a rejected send here would otherwise be an unhandled rejection and the
+      // requestId would never settle.
+      if (disposed) return
+      try {
+        await desktopApi.agents.sendDocumentResult(requestId, result)
+      } catch (error) {
+        console.warn('[AgentBridge] Failed to send document result for', requestId, error)
+      }
     })
     const unsubscribeCancel = subscribeDesktopEvent<{ runId?: string }>('lw:agent-cancel', (payload) => {
       const { runId } = payload
@@ -29,6 +38,7 @@ export function useAgentBridge() {
       })
     })
     return () => {
+      disposed = true
       unsubscribeCommand?.()
       unsubscribeCancel?.()
       unsubscribeEvents()

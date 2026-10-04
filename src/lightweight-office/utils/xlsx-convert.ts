@@ -27,6 +27,34 @@ const INDEXED_COLORS = [
   '800000', '008000', '000080', '808000', '800080', '008080', 'C0C0C0', '808080',
 ]
 
+// Excel hard limits (rows/cols are 0-based here, inclusive max).
+const EXCEL_MAX_ROW = 1_048_575
+const EXCEL_MAX_COLUMN = 16_383
+
+/** Drop illegal worksheet-name characters and guarantee uniqueness. */
+function uniqueSheetName(name: string, index: number, used: Set<string>): string {
+  const cleaned = (name || `Sheet${index + 1}`)
+    .replace(/[\\/?*\[\]:]/g, ' ')
+    .trim()
+    .slice(0, 31) || `Sheet${index + 1}`
+  let candidate = cleaned
+  let suffix = 1
+  while (used.has(candidate.toLowerCase())) {
+    suffix += 1
+    const suffixText = ` ${suffix}`
+    candidate = cleaned.slice(0, Math.max(1, 31 - suffixText.length)) + suffixText
+  }
+  used.add(candidate.toLowerCase())
+  return candidate
+}
+
+/** Reject non-integer / out-of-bounds / negative cell coordinates. */
+function validCellCoord(r: unknown, c: unknown): boolean {
+  return Number.isInteger(r) && Number.isInteger(c)
+    && (r as number) >= 0 && (c as number) >= 0
+    && (r as number) <= EXCEL_MAX_ROW && (c as number) <= EXCEL_MAX_COLUMN
+}
+
 /* Fortune Sheet falls back to 10pt Times New Roman when a workbook cell has
    no explicit font metadata. Segoe UI at 11pt has much stronger Windows
    hinting for small digits while explicit workbook fonts remain untouched. */
@@ -341,29 +369,60 @@ function applyFortuneCellValue(excelCell: ExcelCell, cell: Cell | null | undefin
   }
 }
 
+interface MergeRect {
+  startRow: number
+  startCol: number
+  endRow: number
+  endCol: number
+}
+
+function overlapsExisting(rect: MergeRect, existing: MergeRect[]): boolean {
+  return existing.some(
+    (other) => rect.startRow <= other.endRow
+      && rect.endRow >= other.startRow
+      && rect.startCol <= other.endCol
+      && rect.endCol >= other.startCol,
+  )
+}
+
 function applyFortuneSheetMerges(worksheet: ExcelJS.Worksheet, sheet: Sheet): void {
   const merges = sheet.config?.merge
   if (!merges) return
 
-  const seen = new Set<string>()
+  const applied: MergeRect[] = []
   for (const merge of Object.values(merges)) {
     if (!merge) continue
     const row = Number(merge.r)
     const column = Number(merge.c)
-    const rowSpan = Math.max(1, Number(merge.rs) || 1)
-    const columnSpan = Math.max(1, Number(merge.cs) || 1)
+    const rowSpan = Number(merge.rs)
+    const columnSpan = Number(merge.cs)
+    // Validate endpoints and spans: reject non-finite / negative / oversized input
+    // instead of letting exceljs throw or silently corrupt offsets.
     if (!Number.isInteger(row) || !Number.isInteger(column)) continue
-    if (rowSpan === 1 && columnSpan === 1) continue
+    if (!Number.isFinite(rowSpan) || !Number.isFinite(columnSpan)) continue
+    if (rowSpan < 1 || columnSpan < 1) continue
+    if (row === 0 && column === 0 && rowSpan === 1 && columnSpan === 1) continue
+    if (row < 0 || column < 0) continue
 
-    const key = `${row}:${column}:${rowSpan}:${columnSpan}`
-    if (seen.has(key)) continue
-    seen.add(key)
+    const endRow = row + rowSpan - 1
+    const endCol = column + columnSpan - 1
+    if (row === endRow && column === endCol) continue
+    if (endRow > EXCEL_MAX_ROW || endCol > EXCEL_MAX_COLUMN) continue
+
+    const rect: MergeRect = {
+      startRow: row,
+      startCol: column,
+      endRow,
+      endCol,
+    }
+    if (overlapsExisting(rect, applied)) continue
+    applied.push(rect)
 
     worksheet.mergeCells(
       row + 1,
       column + 1,
-      row + rowSpan,
-      column + columnSpan,
+      endRow + 1,
+      endCol + 1,
     )
   }
 }
@@ -439,23 +498,67 @@ function decodeCsvBuffer(buffer: ArrayBuffer): string {
   return new TextDecoder('utf-8').decode(bytes.subarray(offset))
 }
 
-function detectCsvDelimiter(text: string): ',' | ';' | '\t' {
-  const counts = new Map<',' | ';' | '\t', number>([[',', 0], [';', 0], ['\t', 0]])
+const CSV_DELIMITERS = [',', ';', '\t'] as const
+
+/** Collect up to `maxLines` physical lines while respecting quoted newlines. */
+function collectCsvSampleLines(text: string, maxLines: number): string[] {
+  const lines: string[] = []
+  let current = ''
   let quoted = false
-  for (let index = 0; index < text.length; index++) {
+  for (let index = 0; index < text.length && lines.length < maxLines; index++) {
     const character = text[index]
     if (character === '"') {
-      if (quoted && text[index + 1] === '"') index++
-      else quoted = !quoted
+      if (quoted && text[index + 1] === '"') {
+        current += character
+        index++
+        continue
+      }
+      quoted = !quoted
+      current += character
       continue
     }
-    if (!quoted && (character === '\r' || character === '\n')) break
-    if (!quoted && counts.has(character as ',' | ';' | '\t')) {
-      const delimiter = character as ',' | ';' | '\t'
-      counts.set(delimiter, (counts.get(delimiter) ?? 0) + 1)
+    if ((character === '\n' || character === '\r') && !quoted) {
+      if (character === '\r' && text[index + 1] === '\n') index++
+      lines.push(current)
+      current = ''
+      continue
+    }
+    current += character
+  }
+  if (lines.length < maxLines) lines.push(current)
+  return lines
+}
+
+/**
+ * Evaluate candidate delimiters across the first several lines (respecting
+ * quotes) rather than only the first row, so a header that happens to lack the
+ * delimiter (comment / single-field row) does not mis-classify the whole file.
+ */
+function detectCsvDelimiter(text: string): ',' | ';' | '\t' {
+  const totals: Record<string, number> = { ',': 0, ';': 0, '\t': 0 }
+  const linesWith: Record<string, number> = { ',': 0, ';': 0, '\t': 0 }
+  for (const line of collectCsvSampleLines(text, 10)) {
+    let quoted = false
+    const perLine: Record<string, number> = { ',': 0, ';': 0, '\t': 0 }
+    for (let index = 0; index < line.length; index++) {
+      const character = line[index]
+      if (character === '"') {
+        if (quoted && line[index + 1] === '"') index++
+        else quoted = !quoted
+        continue
+      }
+      if ((CSV_DELIMITERS as readonly string[]).includes(character)) {
+        perLine[character] += 1
+      }
+    }
+    for (const delimiter of CSV_DELIMITERS) {
+      totals[delimiter] += perLine[delimiter]
+      if (perLine[delimiter] > 0) linesWith[delimiter] += 1
     }
   }
-  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? ','
+  const best = [...CSV_DELIMITERS]
+    .sort((a, b) => linesWith[b] - linesWith[a] || totals[b] - totals[a])[0]
+  return totals[best] > 0 ? best : ','
 }
 
 function parseCsv(text: string, delimiter: ',' | ';' | '\t'): string[][] {
@@ -619,8 +722,9 @@ export async function sheetsToXlsxBuffer(sheets: Sheet[]): Promise<ArrayBuffer> 
         celldata: [],
       } satisfies Sheet]
 
+  const usedNames = new Set<string>()
   for (const [index, sheet] of sourceSheets.entries()) {
-    const worksheet = workbook.addWorksheet(sheet.name || `Sheet${index + 1}`)
+    const worksheet = workbook.addWorksheet(uniqueSheetName(sheet.name || `Sheet${index + 1}`, index, usedNames))
     if (sheet.hide === 1) worksheet.state = 'hidden'
 
     const cells = (sheet.celldata && sheet.celldata.length > 0)
@@ -629,6 +733,8 @@ export async function sheetsToXlsxBuffer(sheets: Sheet[]): Promise<ArrayBuffer> 
 
     let wroteContent = false
     for (const entry of cells || []) {
+      // Skip malformed coordinates rather than letting exceljs misplace or throw.
+      if (!validCellCoord(entry.r, entry.c)) continue
       const excelCell = worksheet.getCell(entry.r + 1, entry.c + 1)
       applyFortuneCellValue(excelCell, entry.v)
       applyFortuneCellStyle(excelCell, entry.v)

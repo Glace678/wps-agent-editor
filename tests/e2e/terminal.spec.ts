@@ -210,9 +210,15 @@ test('routes ANSI, Unicode, input, resize, exit, and four tabs by exact session 
   }, { id: firstId })
   const firstRows = page.locator(`[data-terminal-session-id="${firstId}"] .xterm-rows`)
   await expect(firstRows).toContainText('RED Unicode: 你好 العربية')
+  // ESC[31m must render RED in xterm's ANSI red (#cd0000 = rgb(205,0,0)),
+  // not merely "not the default gray". ESC[0m must then restore the default
+  // foreground (#d4d4d4 = rgb(212,212,212)) for the following text.
   const redColor = await firstRows.locator('span').filter({ hasText: 'RED' }).first()
     .evaluate((element) => getComputedStyle(element).color)
-  expect(redColor).not.toBe('rgb(212, 212, 212)')
+  expect(redColor).toBe('rgb(204, 0, 0)')
+  const resetColor = await firstRows.locator('span').filter({ hasText: 'Unicode' }).first()
+    .evaluate((element) => getComputedStyle(element).color)
+  expect(resetColor).toBe('rgb(212, 212, 212)')
 
   const terminalInput = page.locator(`[data-terminal-session-id="${firstId}"] .xterm-helper-textarea`)
   await terminalInput.focus()
@@ -245,11 +251,27 @@ test('routes ANSI, Unicode, input, resize, exit, and four tabs by exact session 
     mock.emitOutput(first, first, 'FIRST-ONLY')
     mock.emitOutput(fourth, fourth, 'FOURTH-ONLY')
   }, { first: ids[0], fourth: ids[3] })
-  await expect(page.locator(`[data-terminal-session-id="${ids[3]}"] .xterm-rows`))
-    .toContainText('FOURTH-ONLY')
+  const fourthRows = page.locator(`[data-terminal-session-id="${ids[3]}"] .xterm-rows`)
+  // The correctly-routed event must ARRIVE at its target terminal (fourth).
+  await expect(fourthRows).toContainText('FOURTH-ONLY')
+  // The trap event (delivered to first's listener but carrying sessionId=fourth)
+  // must be DROPPED by session-id routing: it must NOT be painted onto fourth
+  // just because the event's sessionId equals fourth.
+  await expect(fourthRows).not.toContainText('WRONG-SESSION')
+  // ...and must stay exclusive: the other two terminals receive nothing.
+  const secondRows = page.locator(`[data-terminal-session-id="${ids[1]}"] .xterm-rows`)
+  const thirdRows = page.locator(`[data-terminal-session-id="${ids[2]}"] .xterm-rows`)
+  for (const rows of [secondRows, thirdRows]) {
+    await expect(rows).not.toContainText('WRONG-SESSION')
+    await expect(rows).not.toContainText('FIRST-ONLY')
+    await expect(rows).not.toContainText('FOURTH-ONLY')
+  }
   await page.getByTestId('terminal-tab-1').getByRole('button').first().click()
   await expect(firstRows).toContainText('FIRST-ONLY')
+  // first received the trap event on its own listener but must have filtered it
+  // out (event.sessionId=fourth), so it paints only FIRST-ONLY.
   expect(await firstRows.textContent()).not.toContain('WRONG-SESSION')
+  expect(await firstRows.textContent()).not.toContain('FOURTH-ONLY')
   await page.getByTestId('terminal-tab-4').getByRole('button').first().click()
 
   const resizeCount = (await snapshot(page)).resizes.length
@@ -277,7 +299,19 @@ test('routes ANSI, Unicode, input, resize, exit, and four tabs by exact session 
   await expect(page.getByTestId('bottom-panel')).toBeHidden()
   await page.getByTestId('app-menu-view').click()
   await page.getByTestId('app-menu-action-open-terminal').click()
+  // Reopening must restore the FULL session set with identity and status:
+  // tab 1 running, tab 3 exited, tab 4 running; the closed tab 2 stays gone.
   await expect(page.getByTestId('terminal-tab-4')).toBeVisible()
+  await expect(page.getByTestId('terminal-tab-1'))
+    .toHaveAttribute('data-terminal-status', 'running')
+  await expect(page.getByTestId('terminal-tab-3'))
+    .toHaveAttribute('data-terminal-status', 'exited')
+  await expect(page.getByTestId('terminal-tab-4'))
+    .toHaveAttribute('data-terminal-status', 'running')
+  await expect(page.getByTestId('terminal-tab-2')).toHaveCount(0)
+  expect(await sessionId(page, 1)).toBe(ids[0])
+  expect(await sessionId(page, 3)).toBe(ids[2])
+  expect(await sessionId(page, 4)).toBe(ids[3])
   expect((await snapshot(page)).starts).toHaveLength(startsBeforeCollapse)
 })
 
@@ -295,5 +329,13 @@ test('kills a session again when close wins a pending terminal start', async ({ 
     }).__WAE_TERMINAL_MOCK__.releaseStarts()
   })
   await expect.poll(async () => (await snapshot(page)).kills.filter((value) => value === id).length)
-    .toBeGreaterThanOrEqual(2)
+    .toBe(2)
+  // Exactly the close-time kill plus one compensating kill after the deferred
+  // start resolved: no duplicate cleanup, no leaked kill for any other session,
+  // and the single start we issued is the only one recorded.
+  const end = await snapshot(page)
+  expect(end.kills.filter((value) => value === id)).toHaveLength(2)
+  expect(new Set(end.kills).size).toBe(1)
+  expect(end.starts).toHaveLength(1)
+  expect(end.starts[0].sessionId).toBe(id)
 })

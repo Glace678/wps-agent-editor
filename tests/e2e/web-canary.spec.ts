@@ -91,6 +91,12 @@ async function installDesktopMock(page: Page, excelFixtureBytes: number[]): Prom
         }
         return new TextEncoder().encode('typed desktop bridge\n')
       }
+      if (command === 'documents_save_text') {
+        // Record the exact save payload (target path + content + encoding) so the
+        // test can verify what the editor actually wrote, not just that it saved.
+        (window as unknown as Record<string, unknown>).__WAE_SAVE_TEXT_CALL__ = args
+        return { success: true }
+      }
       return { success: true }
     }
     Object.assign(window, {
@@ -123,7 +129,7 @@ test('starts with the typed desktop bridge and renders the workspace', async ({ 
   page.on('pageerror', (error) => pageErrors.push(error))
   await page.goto('/')
 
-  await expect(page).toHaveTitle('WPS Agent Editor')
+  await expect(page).toHaveTitle('Office Agentic')
   await expect(page.getByTestId('file-manager-home-button')).toBeVisible()
   await expect(page.getByTestId('theme-toggle')).toBeVisible()
   await expect(page.getByTestId('agent-new')).toBeVisible()
@@ -243,6 +249,16 @@ test('opens, edits, and saves a granted text startup file through typed commands
     (window as unknown as { __WAE_TEST_COMMANDS__: string[] }).__WAE_TEST_COMMANDS__
       .includes('documents_save_text')
   ))).toBe(true)
+
+  // Verify the save actually targeted the granted file and wrote the edited
+  // content (not merely that a save command fired somewhere).
+  const saveCall = await page.evaluate(() => (
+    window as unknown as Record<string, unknown>
+  ).__WAE_SAVE_TEXT_CALL__) as { path: string; text: string; encoding: string }
+  expect(saveCall.path).toBe('/mock/notes.txt')
+  expect(saveCall.text).toBe('changed through Tauri')
+  expect(typeof saveCall.encoding).toBe('string')
+  expect(saveCall.encoding.length).toBeGreaterThan(0)
 })
 
 test('restores persisted folders and all document tabs through granted session paths', async ({ page }) => {
@@ -336,6 +352,10 @@ test('shows one tooltip and usable color/style controls for the Excel border com
   await colorHexInput.click()
   await colorHexInput.fill('#336699')
   await expect(colorHexInput).toHaveValue('#336699')
+  // The hex value must be committed into the picker's selected-color state
+  // (data-selected-color), not merely echoed back into the input field.
+  await expect(colorSubmenu.locator('.excel-circular-color-picker'))
+    .toHaveAttribute('data-selected-color', '#336699')
   await expect(colorSubmenu).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('excel-border-color-submenu.png') })
 
@@ -357,7 +377,11 @@ test('shows one tooltip and usable color/style controls for the Excel border com
     .map((top, index) => top - styleOptionTops[index])
   expect(Math.min(...styleOptionSteps)).toBeGreaterThanOrEqual(28)
 
-  const styleChoice = styleSubmenu.locator('.fortune-border-style-picker-menu').nth(4)
+  // Select the border style by its line semantics (the "Dashed" option renders
+  // its sample SVG with stroke-dasharray="5,5"), not by its menu position.
+  const styleChoice = styleSubmenu.locator(
+    '.fortune-border-style-picker-menu:has(svg path[stroke-dasharray="5,5"])',
+  )
   const styleChoiceBox = await styleChoice.boundingBox()
   expect(styleChoiceBox).not.toBeNull()
   await page.mouse.move(
@@ -373,6 +397,9 @@ test('shows one tooltip and usable color/style controls for the Excel border com
   await expect(styleSubmenu).toBeVisible()
   await styleChoice.click()
   await expect(styleSubmenu).toBeVisible()
+  // The chosen style must be committed into the border row's style preview swatch.
+  await expect(styleRow.locator(':scope > .fortune-border-style-preview path'))
+    .toHaveAttribute('stroke-dasharray', '5,5')
 
   const styleSubmenuIsBounded = await styleSubmenu.evaluate((submenu) => {
     const shell = submenu.closest('.excel-editor-shell')
@@ -394,7 +421,7 @@ test('shows one tooltip and usable color/style controls for the Excel border com
 })
 
 test('records custom shortcuts and rejects conflicting assignments', async ({ page }, testInfo) => {
-  await page.addInitScript(() => localStorage.setItem('wps-agent-language', 'zh-CN'))
+  await page.addInitScript(() => localStorage.setItem('officeagentic-agent-language', 'zh-CN'))
   await page.goto('/')
   await page.getByTestId('theme-toggle').click()
   await expect(page.locator('html')).toHaveClass(/dark/)

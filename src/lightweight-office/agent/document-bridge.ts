@@ -54,7 +54,13 @@ const documentEventListeners = new Set<DocumentEventListener>()
 const operationQueue = new LiveOperationQueue()
 const runRevisions = new Map<string, number>()
 let suppressUserRevision = false
-let agentMutationGraceUntil = 0
+// One-shot absorption of the async editor update that the agent's own mutation
+// provokes. A fixed wall-clock grace window would also swallow genuine user
+// edits typed shortly after an agent edit, so instead we absorb exactly one echo
+// and clear the flag (via a short safety timer) when no echo ever arrives.
+let pendingAgentEcho = false
+let pendingEchoTimer: ReturnType<typeof setTimeout> | null = null
+const AGENT_ECHO_TIMEOUT_MS = 150
 
 function notifyPlainTextListeners(): void {
   for (const listener of plainTextListeners) {
@@ -189,6 +195,11 @@ export const documentBridge = {
     state.plainText = ''
     state.revision = 0
     runRevisions.clear()
+    pendingAgentEcho = false
+    if (pendingEchoTimer !== null) {
+      clearTimeout(pendingEchoTimer)
+      pendingEchoTimer = null
+    }
   },
 
   getState() {
@@ -244,7 +255,15 @@ export const documentBridge = {
           return { success: false, operationId, revision: state.revision, error: message }
         } finally {
           suppressUserRevision = false
-          agentMutationGraceUntil = Date.now() + 250
+          if (operation.action !== 'readDocument') {
+            // Arm one-shot absorption for the echo update our own mutation fires.
+            pendingAgentEcho = true
+            if (pendingEchoTimer !== null) clearTimeout(pendingEchoTimer)
+            pendingEchoTimer = setTimeout(() => {
+              pendingAgentEcho = false
+              pendingEchoTimer = null
+            }, AGENT_ECHO_TIMEOUT_MS)
+          }
         }
       },
     )
@@ -258,7 +277,16 @@ export const documentBridge = {
 
   markUserEdit(): void {
     if (suppressUserRevision) return
-    if (Date.now() < agentMutationGraceUntil) return
+    if (pendingAgentEcho) {
+      // This is the echo of our own agent mutation, not a real user edit: absorb
+      // exactly one and then let subsequent genuine user edits bump the revision.
+      pendingAgentEcho = false
+      if (pendingEchoTimer !== null) {
+        clearTimeout(pendingEchoTimer)
+        pendingEchoTimer = null
+      }
+      return
+    }
     state.revision += 1
     emitDocumentEvent('revision-changed', { action: 'readDocument' }, {
       revision: state.revision,
@@ -306,13 +334,52 @@ function codePosition(command: AgentEditCommand): { lineNumber: number; column: 
   return editor.getPosition() ?? { lineNumber: 1, column: 1 }
 }
 
+function finiteInt(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.floor(value)
+}
+
+function clampCodePosition(
+  editor: CodeEditorAdapter,
+  line: number,
+  column: number,
+): { lineNumber: number; column: number } {
+  const lineCount = Math.max(1, editor.getLineCount())
+  const clampedLine = Math.min(Math.max(1, Math.floor(line)), lineCount)
+  const maxColumn = Math.max(1, editor.getLineMaxColumn(clampedLine))
+  const clampedColumn = Math.min(Math.max(1, Math.floor(column)), maxColumn)
+  return { lineNumber: clampedLine, column: clampedColumn }
+}
+
+function positionsOrdered(
+  start: { lineNumber: number; column: number },
+  end: { lineNumber: number; column: number },
+): boolean {
+  return (
+    end.lineNumber > start.lineNumber ||
+    (end.lineNumber === start.lineNumber && end.column >= start.column)
+  )
+}
+
 function executeCodeCommand(command: AgentEditCommand): DocumentOperationResult {
   const editor = state.codeEditor
   if (!editor) return { success: false, error: 'Code editor not ready' }
-  const start = codePosition(command)
-  const end = typeof command.endLine === 'number' && typeof command.endColumn === 'number'
-    ? { lineNumber: command.endLine, column: command.endColumn }
-    : start
+  // Clamp both endpoints to finite, in-bounds integers so malformed agent ranges
+  // (negative, NaN, Infinity, overshoot, or end before start) cannot reach the
+  // adapter.
+  const start = clampCodePosition(editor, codePosition(command).lineNumber, codePosition(command).column)
+  let end: { lineNumber: number; column: number }
+  if (typeof command.endLine === 'number' || typeof command.endColumn === 'number') {
+    const endLine = finiteInt(command.endLine)
+    const endColumn = finiteInt(command.endColumn)
+    if (endLine === null || endColumn === null) {
+      return { success: false, error: 'Invalid code edit range: end must be finite integers' }
+    }
+    end = clampCodePosition(editor, endLine, endColumn)
+    if (!positionsOrdered(start, end)) end = { ...start }
+  } else {
+    end = { ...start }
+  }
   const text = command.action === 'deleteCodeRange'
     ? ''
     : command.action === 'replaceCodeRange'
@@ -444,12 +511,38 @@ async function replaceWordText(search: string, replace: string, all?: boolean): 
 
 async function readDocument(): Promise<unknown> {
   if (state.codeEditor) return { success: true, content: state.codeEditor.getValue() }
-  if (state.kind === 'word' && state.filePath) {
+
+  // Snapshot the active document identity up front. The import / file read /
+  // mammoth parse below are async; if the user switches documents while they are
+  // in flight we must discard the result instead of reading back a mix of the
+  // old and new document (cross-document leak / wrong sync).
+  const snapshot = {
+    kind: state.kind,
+    filePath: state.filePath,
+    superdoc: state.superdoc,
+    workbook: state.workbook,
+    revision: state.revision,
+  }
+  const identityStale = () =>
+    state.kind !== snapshot.kind ||
+    state.filePath !== snapshot.filePath ||
+    state.superdoc !== snapshot.superdoc ||
+    state.workbook !== snapshot.workbook
+
+  if (snapshot.kind === 'word' && snapshot.filePath) {
     const { default: mammoth } = await import('mammoth')
-    const arrayBuffer = await readFileBuffer(state.filePath)
+    const arrayBuffer = await readFileBuffer(snapshot.filePath)
     const result = await mammoth.extractRawText({ arrayBuffer })
-    const live = (state.superdoc?.activeEditor as any)?.state?.doc?.textContent
-    return { success: true, content: live || result.value }
+    if (identityStale()) {
+      return { success: false, stale: true, error: 'STALE_READ_DOCUMENT' }
+    }
+    const doc = (state.superdoc?.activeEditor as any)?.state?.doc
+    // A live editor means the on-screen content is authoritative. Return it even
+    // when it is empty (textContent === ''); do NOT fall back to the on-disk
+    // mammoth text, which would be stale. Only when there is no live editor do we
+    // use the parsed disk content.
+    if (doc) return { success: true, content: doc.textContent ?? '' }
+    return { success: true, content: result.value }
   }
   if (state.kind === 'excel' && state.workbook) {
     const sheet = state.workbook.getSheet()

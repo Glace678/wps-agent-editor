@@ -119,7 +119,13 @@ function placeNestedPopup(
   if (!popup.style.top) popup.style.top = '0px'
 
   const popupRect = popup.getBoundingClientRect()
-  const popupWidth = Math.max(popupRect.width, popup.scrollWidth)
+  // Cap the (possibly wide) flyout to the available shell width so nested menus
+  // cannot overflow the editor viewport; allow internal scrolling beyond that.
+  const maxPopupWidth = Math.max(
+    1,
+    Math.floor(shellRect.width - EXCEL_TOOLBAR_POPUP_EDGE_INSET * 2),
+  )
+  const popupWidth = Math.min(Math.max(popupRect.width, popup.scrollWidth), maxPopupWidth)
   const triggerRect = trigger.getBoundingClientRect()
   const leftBoundary = shellRect.left + EXCEL_TOOLBAR_POPUP_EDGE_INSET
   const rightBoundary = shellRect.right - EXCEL_TOOLBAR_POPUP_EDGE_INSET
@@ -221,9 +227,47 @@ export function attachExcelToolbarPopupBoundary(shell: HTMLElement): () => void 
   let previousPointerX = Number.NaN
   let activeBorderOption: HTMLElement | null = null
 
+  // Fortune reuses popup DOM nodes. We mutate inline styles / datasets to escape
+  // clipping; snapshot them on first touch so cleanup can restore the original
+  // state (otherwise the next menu opens with stale fixed positioning).
+  const POPUP_DATASET_KEYS = [
+    'excelPopupBoundary',
+    'excelPopupShiftX',
+    'excelPopupEscapedClip',
+    'excelPopupAnchorSide',
+    'excelPopupAnchorTopOffset',
+    'excelPopupNaturalMaxWidth',
+    'excelPickerContentWidth',
+  ] as const
+  interface PopupSnapshot {
+    cssText: string
+    datasets: Partial<Record<(typeof POPUP_DATASET_KEYS)[number], string | undefined>>
+  }
+  const touchedPopups = new Map<HTMLElement, PopupSnapshot>()
+
+  const trackPopup = (popup: HTMLElement) => {
+    if (touchedPopups.has(popup)) return
+    const datasets: PopupSnapshot['datasets'] = {}
+    for (const key of POPUP_DATASET_KEYS) datasets[key] = popup.dataset[key]
+    touchedPopups.set(popup, { cssText: popup.style.cssText, datasets })
+  }
+
+  const restoreTouchedPopups = () => {
+    for (const [popup, snapshot] of touchedPopups) {
+      popup.style.cssText = snapshot.cssText
+      for (const key of POPUP_DATASET_KEYS) {
+        const original = snapshot.datasets[key]
+        if (original === undefined) delete popup.dataset[key]
+        else popup.dataset[key] = original
+      }
+    }
+    touchedPopups.clear()
+  }
+
   const fitOpenPopups = () => {
     frame = null
     shell.querySelectorAll<HTMLElement>(EXCEL_TOOLBAR_POPUP_SELECTOR).forEach((popup) => {
+      trackPopup(popup)
       fitExcelToolbarPopupToShell(shell, popup)
     })
   }
@@ -427,5 +471,6 @@ export function attachExcelToolbarPopupBoundary(shell: HTMLElement): () => void 
     window.removeEventListener('resize', scheduleFit)
     if (frame !== null) cancelAnimationFrame(frame)
     cancelBorderSubmenuClose()
+    restoreTouchedPopups()
   }
 }

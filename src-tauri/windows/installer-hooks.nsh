@@ -1,5 +1,5 @@
 !macro WAE_WRITE_SAFE_OPEN_COMMAND PROG_ID
-  WriteRegStr SHCTX "Software\Classes\${PROG_ID}\shell\open\command" "" '$\"$INSTDIR\wps-agent-editor.exe$\" $\"%1$\"'
+  WriteRegStr SHCTX "Software\Classes\${PROG_ID}\shell\open\command" "" '$\"$INSTDIR\office-agentic.exe$\" $\"%1$\"'
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

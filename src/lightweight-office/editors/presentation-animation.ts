@@ -30,8 +30,22 @@ export interface PresentationAnimationRuntime {
   slideElement: HTMLElement | null
 }
 
+const MAX_PPTX_INPUT_BYTES = 100 * 1024 * 1024
+const MAX_PPTX_ENTRIES = 10000
+const MAX_PPTX_SLIDES = 1000
+const MAX_SLIDE_XML_BYTES = 5 * 1024 * 1024
+const ZIP_EXTRACT_CONCURRENCY = 6
+
 function normalizeZipPath(baseDirectory: string, target: string): string {
-  const segments = `${baseDirectory}/${target.replace(/\\/g, '/')}`.split('/')
+  let cleanTarget = target.replace(/\\/g, '/')
+  // A relationship Target starting with '/' is an absolute package reference and
+  // must resolve from the package root, not relative to baseDirectory (otherwise
+  // a '/ppt/...' target becomes 'ppt/ppt/...' and the slide XML is silently lost).
+  if (cleanTarget.startsWith('/')) {
+    cleanTarget = cleanTarget.slice(1)
+    baseDirectory = ''
+  }
+  const segments = `${baseDirectory}/${cleanTarget}`.split('/')
   const normalized: string[] = []
   for (const segment of segments) {
     if (!segment || segment === '.') continue
@@ -41,11 +55,37 @@ function normalizeZipPath(baseDirectory: string, target: string): string {
   return normalized.join('/')
 }
 
+/** Run `fn` over items with bounded concurrency to avoid exploding memory/CPU. */
+async function boundedMap<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workers = Array.from(
+    { length: Math.max(1, Math.min(concurrency, items.length)) },
+    async () => {
+      for (;;) {
+        const index = cursor
+        cursor += 1
+        if (index >= items.length) return
+        results[index] = await fn(items[index] as T, index)
+      }
+    },
+  )
+  await Promise.all(workers)
+  return results
+}
+
 export async function extractPresentationSlideXml(
   input: ArrayBuffer,
   slideIndexes?: readonly number[],
 ): Promise<string[]> {
+  // Fail closed on obviously oversized input to avoid zip-bomb / memory blowups.
+  if (input.byteLength > MAX_PPTX_INPUT_BYTES) return []
   const zip = await JSZip.loadAsync(input)
+  if (Object.keys(zip.files).length > MAX_PPTX_ENTRIES) return []
   const presentationEntry = zip.file('ppt/presentation.xml')
   const relationshipsEntry = zip.file('ppt/_rels/presentation.xml.rels')
   if (!presentationEntry || !relationshipsEntry || typeof DOMParser === 'undefined') return []
@@ -87,11 +127,15 @@ export async function extractPresentationSlideXml(
         return leftNumber - rightNumber
       })
   const requested = slideIndexes ? new Set(slideIndexes) : null
-  return Promise.all(paths.map(async (slidePath, index) => (
-    requested && !requested.has(index)
-      ? ''
-      : zip.file(slidePath)?.async('string') ?? ''
-  )))
+  const limitedPaths = paths.slice(0, MAX_PPTX_SLIDES)
+  return boundedMap(limitedPaths, ZIP_EXTRACT_CONCURRENCY, async (slidePath, index) => {
+    if (requested && !requested.has(index)) return ''
+    const entry = zip.file(slidePath)
+    if (!entry) return ''
+    const text = await entry.async('string')
+    // Per-slide decompressed size cap.
+    return text.length > MAX_SLIDE_XML_BYTES ? '' : text
+  })
 }
 
 const ANIMATION_CLASSES = [

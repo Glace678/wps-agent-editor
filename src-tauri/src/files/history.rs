@@ -1,4 +1,5 @@
 use std::{
+    io::Read,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -137,17 +138,31 @@ impl HistoryStore {
     }
 
     fn snapshot_unlocked(&self, path: &Path, force: bool) -> AppResult<bool> {
-        let metadata = match std::fs::metadata(path) {
-            Ok(metadata) if metadata.is_file() && metadata.len() <= MAX_SNAPSHOT_SIZE => metadata,
-            Ok(_) => return Ok(false),
+        let mut file = match std::fs::File::open(path) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(error.into()),
         };
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Ok(false);
+        }
+        // Read from the already-open handle with a hard bound of at most
+        // MAX_SNAPSHOT_SIZE + 1 bytes. If the file grew past the limit between
+        // the metadata check and the read, the actual byte count reflects it and
+        // we refuse instead of copying an over-large snapshot.
+        let mut reader = (&mut file).take(MAX_SNAPSHOT_SIZE.saturating_add(1));
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data)?;
+        let actual_len = data.len() as u64;
+        if actual_len > MAX_SNAPSHOT_SIZE {
+            return Ok(false);
+        }
         let source_mtime_ms = system_time_ms(metadata.modified().ok());
         let directory = self.directory_for(path);
         let mut index = self.read_index(&directory)?;
         if let Some(latest) = index.first() {
-            if latest.source_mtime_ms == source_mtime_ms && latest.size == metadata.len() {
+            if latest.source_mtime_ms == source_mtime_ms && latest.size == actual_len {
                 return Ok(false);
             }
             if !force && now_ms().saturating_sub(latest.saved_at) < MIN_SNAPSHOT_INTERVAL_MS {
@@ -173,14 +188,13 @@ impl HistoryStore {
             id = format!("{saved_at}{extension}");
         }
 
-        let data = std::fs::read(path)?;
         write_atomic(&directory.join(&id), &data)?;
         index.insert(
             0,
             HistoryIndexEntry {
                 id,
                 saved_at,
-                size: metadata.len(),
+                size: actual_len,
                 source_mtime_ms,
             },
         );
