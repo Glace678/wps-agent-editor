@@ -1,18 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { ProviderLogo } from '@/components/agent/ProviderLogo'
 import { searchProviders } from '@/lib/provider-search'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
+import { usePopover } from '@/hooks/use-popover'
 import type { ProviderDefinition } from '@/types/provider'
 
 interface AgentProviderPickerProps {
@@ -23,15 +16,6 @@ interface AgentProviderPickerProps {
   onChange: (providerId: string) => void
 }
 
-interface PopupPosition {
-  left: number
-  top: number
-  width: number
-}
-
-const POPUP_GAP = 4
-const VIEWPORT_PADDING = 12
-
 export function AgentProviderPicker({
   providers,
   value,
@@ -40,13 +24,7 @@ export function AgentProviderPicker({
   onChange,
 }: AgentProviderPickerProps) {
   const { language, t } = useTranslation()
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const popupRef = useRef<HTMLDivElement>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
-  const optionsRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [position, setPosition] = useState<PopupPosition | null>(null)
 
   const filteredProviders = useMemo(
     () => searchProviders(providers, query, language).map(({ provider }) => provider),
@@ -59,115 +37,25 @@ export function AgentProviderPicker({
       ? t('agentConfig.loading')
       : t('providerSettings.enterApiKey')
 
-  const updatePosition = useCallback(() => {
-    const trigger = triggerRef.current
-    const popup = popupRef.current
-    if (!trigger || !popup) return
-    const triggerRect = trigger.getBoundingClientRect()
-    const popupHeight = popup.getBoundingClientRect().height
-    const width = Math.min(
-      Math.max(triggerRect.width, 256),
-      window.innerWidth - VIEWPORT_PADDING * 2,
-    )
-    const left = Math.min(
-      Math.max(VIEWPORT_PADDING, triggerRect.left),
-      window.innerWidth - width - VIEWPORT_PADDING,
-    )
-    const below = triggerRect.bottom + POPUP_GAP
-    const above = triggerRect.top - POPUP_GAP - popupHeight
-    const top = below + popupHeight <= window.innerHeight - VIEWPORT_PADDING
-      ? below
-      : Math.max(VIEWPORT_PADDING, above)
-    setPosition({ left, top, width })
-  }, [])
-
-  const close = useCallback((restoreFocus = false) => {
-    setOpen(false)
-    setPosition(null)
-    if (restoreFocus) requestAnimationFrame(() => triggerRef.current?.focus())
-  }, [])
-
-  const show = useCallback(() => {
-    if (disabled) return
-    setQuery('')
-    setPosition(null)
-    setOpen(true)
-  }, [disabled])
-
-  useLayoutEffect(() => {
-    if (!open) return
-    updatePosition()
-    const frame = requestAnimationFrame(() => {
-      updatePosition()
-      searchRef.current?.focus()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [filteredProviders.length, open, updatePosition])
-
-  useEffect(() => {
-    if (!open) return
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node
-        && (popupRef.current?.contains(event.target) || triggerRef.current?.contains(event.target))) {
-        return
-      }
-      close()
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        close(true)
-      }
-    }
-    const handleFocusIn = (event: FocusEvent) => {
-      if (event.target instanceof Node
-        && (popupRef.current?.contains(event.target) || triggerRef.current?.contains(event.target))) {
-        return
-      }
-      close()
-    }
-    document.addEventListener('pointerdown', handlePointerDown, true)
-    document.addEventListener('keydown', handleKeyDown, true)
-    document.addEventListener('focusin', handleFocusIn, true)
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true)
-      document.removeEventListener('keydown', handleKeyDown, true)
-      document.removeEventListener('focusin', handleFocusIn, true)
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [close, open, updatePosition])
-
-  const focusOption = (index: number) => {
-    const options = [...(optionsRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])]
-    if (options.length === 0) return
-    options[(index + options.length) % options.length].focus()
-  }
-
-  const handleOptionsKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const options = [...(optionsRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])]
-    const currentIndex = options.indexOf(document.activeElement as HTMLElement)
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      focusOption(currentIndex + 1)
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      if (currentIndex <= 0) searchRef.current?.focus()
-      else focusOption(currentIndex - 1)
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      focusOption(0)
-    } else if (event.key === 'End') {
-      event.preventDefault()
-      focusOption(options.length - 1)
-    }
-  }
+  const {
+    open,
+    position,
+    triggerRef,
+    popoverRef,
+    initialFocusRef,
+    optionsRef,
+    keyboard,
+    show,
+    close,
+  } = usePopover({
+    minWidth: 256,
+    blocked: () => disabled,
+    contentKey: filteredProviders.length,
+  })
 
   const popup = open && createPortal(
     <div
-      ref={popupRef}
+      ref={(node) => { popoverRef.current = node }}
       role="dialog"
       aria-label="LLM Provider"
       className="fixed z-[10000] flex max-h-[min(18rem,50vh)] flex-col overflow-hidden rounded-md border bg-card text-card-foreground shadow-xl"
@@ -184,14 +72,14 @@ export function AgentProviderPicker({
         <div className="flex h-9 items-center gap-2 rounded-[4px] bg-muted px-3 focus-within:ring-1 focus-within:ring-ring">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
-            ref={searchRef}
+            ref={(node) => { initialFocusRef.current = node }}
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown') {
                 event.preventDefault()
-                focusOption(0)
+                keyboard.focusOption(0)
               }
             }}
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -203,11 +91,11 @@ export function AgentProviderPicker({
       </div>
 
       <div
-        ref={optionsRef}
+        ref={(node) => { optionsRef.current = node }}
         role="listbox"
         aria-label="LLM Provider"
         className="min-h-0 flex-1 overflow-y-auto p-1.5"
-        onKeyDown={handleOptionsKeyDown}
+        onKeyDown={keyboard.onKeyDown}
       >
         {filteredProviders.length === 0 ? (
           <div className="flex h-20 items-center justify-center px-4 text-center text-sm text-muted-foreground">
@@ -250,7 +138,7 @@ export function AgentProviderPicker({
   return (
     <>
       <button
-        ref={triggerRef}
+        ref={(node) => { triggerRef.current = node }}
         type="button"
         className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-card px-3 text-left text-sm text-card-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         disabled={disabled}

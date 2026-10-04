@@ -12,12 +12,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    borrow::Cow,
-    io::Cursor,
-    path::PathBuf,
-    sync::OnceLock,
-};
+use std::{borrow::Cow, io::Cursor, path::PathBuf, sync::OnceLock};
 use tauri::{
     ipc::{InvokeBody, Request, Response},
     State, WebviewWindow,

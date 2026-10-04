@@ -1,6 +1,7 @@
 import type {
   AgentCacheUsage,
   AgentCollaborationEvent,
+  AgentCollaborationEventType,
   AgentConfig,
   CollaborationMode,
 } from '@/types/agent'
@@ -193,16 +194,44 @@ export function summarizeCollaborationCacheUsage(
   return summary
 }
 
+type HiddenSpeech = SpeechTranscriptItem & { hidden?: boolean }
+
 /**
- * Converts the raw collaboration event stream into a WeChat-style transcript.
- * Pure and synchronous: the store already dedupes/merges `agent-stream` frames
- * by operationId, this function only orders and groups them per speaker.
+ * Mutable reducer state shared by the per-event handler functions. Handlers
+ * interact with the in-progress transcript only through this context, never
+ * with the raw maps directly.
  */
-export function buildCollaborationTranscript(
-  events: AgentCollaborationEvent[],
+interface TranscriptContext {
+  readonly mode: CollaborationMode
+  readonly items: readonly InternalItem[]
+  nextKey(): string
+  commitItem(item: InternalItem): void
+  pushSystem(
+    messageKey: SystemLineKey,
+    tone: SystemTranscriptItem['tone'],
+    params?: Record<string, string>,
+  ): void
+  settleTyping(agentId?: string): void
+  settleAllTyping(): void
+  pushTyping(event: AgentCollaborationEvent): void
+  /** Creates a bubble or merges the text into the bubble keyed by operationId. */
+  upsertSpeech(event: AgentCollaborationEvent, text: string, streaming: boolean): void
+  findSpeechForAgent(agentId: string): HiddenSpeech | undefined
+  speechKeyForOperation(operationId: string): string | undefined
+  markSpeechSettled(key: string): void
+  isSpeechSettled(key: string): boolean
+  identityOfRef(ref: {
+    agentId?: string
+    agentName?: string
+    providerId?: string
+    model?: string
+  }): AgentIdentity
+}
+
+function createTranscriptContext(
   agents: AgentConfig[],
   mode: CollaborationMode,
-): TranscriptItem[] {
+): TranscriptContext {
   const items: InternalItem[] = []
   let uid = 0
   const nextKey = () => `item-${uid++}`
@@ -216,13 +245,8 @@ export function buildCollaborationTranscript(
   const settledSpeech = new Set<string>()
   const typingByAgent = new Map<string, string>()
 
-  const identityOf = (event: AgentCollaborationEvent): AgentIdentity =>
-    resolveAgentIdentity({
-      agentId: event.agentId,
-      agentName: event.agentName,
-      providerId: event.providerId,
-      model: event.model,
-    }, agents)
+  const identityOfRef: TranscriptContext['identityOfRef'] = (ref) =>
+    resolveAgentIdentity(ref, agents)
 
   const settleTyping = (agentId?: string) => {
     if (!agentId) return
@@ -240,20 +264,33 @@ export function buildCollaborationTranscript(
     typingByAgent.clear()
   }
 
-  const pushSystem = (
-    messageKey: SystemLineKey,
-    tone: SystemTranscriptItem['tone'],
-    params: Record<string, string> = {},
+  const pushSystem: TranscriptContext['pushSystem'] = (
+    messageKey,
+    tone,
+    params = {},
   ) => {
     items.push({ kind: 'system', key: nextKey(), tone, messageKey, params })
   }
 
-  const upsertSpeech = (
-    event: AgentCollaborationEvent,
-    text: string,
-    streaming: boolean,
-  ): void => {
-    const agent = identityOf(event)
+  const pushTyping: TranscriptContext['pushTyping'] = (event) => {
+    if (!event.agentId) return
+    settleTyping(event.agentId)
+    const key = nextKey()
+    items.push({
+      kind: 'typing',
+      key,
+      agent: identityOfRef(event),
+      clusterHead: true,
+    })
+    typingByAgent.set(event.agentId, key)
+  }
+
+  const upsertSpeech: TranscriptContext['upsertSpeech'] = (
+    event,
+    text,
+    streaming,
+  ) => {
+    const agent = identityOfRef(event)
     if (!agent.agentId) return
     settleTyping(agent.agentId)
     const operationKey = event.operationId ? speechByOperation.get(event.operationId) : undefined
@@ -278,178 +315,222 @@ export function buildCollaborationTranscript(
     lastSpeechByAgent.set(agent.agentId, key)
   }
 
-  for (const event of events) {
-    switch (event.type) {
-      case 'run-start':
-        if (event.content?.trim()) {
-          items.push({ kind: 'task', key: nextKey(), text: event.content })
-        }
-        break
-
-      case 'task-created': {
-        const name = event.agentName || ''
-        pushSystem(
-          mode === 'directed' ? 'directorReady' : 'synthesizerReady',
-          'info',
-          { agent: name },
-        )
-        break
-      }
-
-      case 'task-assigned':
-        settleTyping(event.agentId)
-        pushSystem('taskAssigned', 'info', { agent: event.agentName || '' })
-        break
-
-      case 'agent-start':
-        if (event.agentId) {
-          settleTyping(event.agentId)
-          const key = nextKey()
-          items.push({
-            kind: 'typing',
-            key,
-            agent: identityOf(event),
-            clusterHead: true,
-          })
-          typingByAgent.set(event.agentId, key)
-        }
-        break
-
-      case 'agent-stream': {
-        // Store frames are accumulated per operationId; hide half-emitted
-        // tool fences and keep the typing row until real prose arrives.
-        const visible = event.content ? stripToolFencesLive(event.content) : ''
-        if (visible) upsertSpeech(event, visible, true)
-        break
-      }
-
-      case 'agent-message':
-      case 'agent-question':
-      case 'agent-answer': {
-        if (!event.content) break
-        const visible = stripToolFences(event.content)
-        const agentId = event.agentId
-        const lastKey = agentId ? lastSpeechByAgent.get(agentId) : undefined
-        const lastEntry = lastKey === undefined
-          ? undefined
-          : items.find((entry) => entry.key === lastKey)
-        // lastSpeechByAgent only ever stores speech-item keys; narrow once so
-        // the mutation below needs no non-null assertion.
-        const activeSpeech = lastEntry?.kind === 'speech' ? lastEntry : undefined
-        // Finalize the still-streaming bubble of the current turn only. When
-        // no previous speech item exists (e.g. a tool-only message arriving
-        // before any prose) lastKey/activeSpeech are undefined and this branch
-        // only settles the typing row.
-        if (lastKey !== undefined && activeSpeech !== undefined && (!visible || !settledSpeech.has(lastKey))) {
-          if (visible) {
-            activeSpeech.text = visible
-            activeSpeech.streaming = false
-            settledSpeech.add(lastKey)
-          } else {
-            // Tool-only turn: the delegation card / system line replaces it.
-            // Only hide the prior bubble when we can tie it to THIS turn — via
-            // a shared operation id or a still-streaming bubble. If the last
-            // bubble belongs to an earlier, already-answered turn, leave it
-            // visible and just clear the typing row instead.
-            const belongsToCurrentTurn =
-              (event.operationId !== undefined && speechByOperation.get(event.operationId) === lastKey)
-              || activeSpeech.streaming === true
-            if (belongsToCurrentTurn) {
-              activeSpeech.hidden = true
-              settledSpeech.add(lastKey)
-            }
-          }
-          settleTyping(agentId)
-          break
-        }
-        // A later finalized turn (or a message without preceding stream
-        // frames) becomes its own bubble.
-        if (visible && agentId) {
-          upsertSpeech(event, visible, false)
-          const freshKey = lastSpeechByAgent.get(agentId)
-          if (freshKey !== undefined) settledSpeech.add(freshKey)
-        }
-        settleTyping(agentId)
-        break
-      }
-
-      case 'agent-delegated': {
-        settleTyping(event.fromAgentId)
-        items.push({
-          kind: 'delegation',
-          key: nextKey(),
-          from: resolveAgentIdentity(
-            { agentId: event.fromAgentId, agentName: event.fromAgentName },
-            agents,
-          ),
-          to: resolveAgentIdentity(
-            { agentId: event.toAgentId, agentName: event.toAgentName },
-            agents,
-          ),
-          text: event.content || '',
-        })
-        break
-      }
-
-      case 'agent-tool':
-        settleTyping(event.agentId)
-        if (event.tool === 'delegate_task') break
-        pushSystem('toolInvoked', 'info', {
-          agent: event.agentName || '',
-          tool: event.tool || 'tool',
-        })
-        break
-
-      case 'document-operation-applied':
-        settleTyping(event.agentId)
-        pushSystem('documentApplied', 'info', {
-          agent: event.agentName || '',
-          action: event.action || '',
-        })
-        break
-
-      case 'document-operation-rejected':
-        settleTyping(event.agentId)
-        pushSystem('documentRejected', 'warning', {
-          agent: event.agentName || '',
-          action: event.action || '',
-        })
-        break
-
-      case 'handoff':
-        pushSystem('handoff', 'info', {
-          from: event.fromAgentName || '',
-          to: event.toAgentName || '',
-        })
-        break
-
-      case 'conflict':
-        pushSystem('conflict', 'warning', { detail: event.content || event.message || '' })
-        break
-
-      case 'run-complete':
-        settleAllTyping()
-        pushSystem('runComplete', 'success')
-        break
-
-      case 'run-cancelled':
-        settleAllTyping()
-        pushSystem('runCancelled', 'warning')
-        break
-
-      case 'error':
-        settleAllTyping()
-        pushSystem('error', 'error', { error: event.error || '' })
-        break
-
-      default:
-        // document-operation-prepared / cursor / selection / revision and
-        // other lifecycle noise are intentionally not rendered in the chat.
-        break
-    }
+  const findSpeechForAgent = (agentId: string): HiddenSpeech | undefined => {
+    const key = lastSpeechByAgent.get(agentId)
+    if (key === undefined) return undefined
+    const item = items.find((entry) => entry.key === key)
+    return item?.kind === 'speech' ? item : undefined
   }
 
-  const visible = items.filter((item) => !item.hidden)
+  return {
+    mode,
+    items,
+    nextKey,
+    commitItem: (item) => {
+      items.push(item)
+    },
+    pushSystem,
+    settleTyping,
+    settleAllTyping,
+    pushTyping,
+    upsertSpeech,
+    findSpeechForAgent,
+    speechKeyForOperation: (operationId) => speechByOperation.get(operationId),
+    markSpeechSettled: (key) => {
+      settledSpeech.add(key)
+    },
+    isSpeechSettled: (key) => settledSpeech.has(key),
+    identityOfRef,
+  }
+}
+
+type TranscriptEventHandler = (
+  event: AgentCollaborationEvent,
+  ctx: TranscriptContext,
+) => void
+
+const onRunStart: TranscriptEventHandler = (event, ctx) => {
+  if (event.content?.trim()) {
+    ctx.commitItem({ kind: 'task', key: ctx.nextKey(), text: event.content })
+  }
+}
+
+const onTaskCreated: TranscriptEventHandler = (event, ctx) => {
+  ctx.pushSystem(
+    ctx.mode === 'directed' ? 'directorReady' : 'synthesizerReady',
+    'info',
+    { agent: event.agentName || '' },
+  )
+}
+
+const onTaskAssigned: TranscriptEventHandler = (event, ctx) => {
+  ctx.settleTyping(event.agentId)
+  ctx.pushSystem('taskAssigned', 'info', { agent: event.agentName || '' })
+}
+
+const onAgentStart: TranscriptEventHandler = (event, ctx) => {
+  ctx.pushTyping(event)
+}
+
+const onAgentStream: TranscriptEventHandler = (event, ctx) => {
+  // Store frames are accumulated per operationId; hide half-emitted
+  // tool fences and keep the typing row until real prose arrives.
+  const visible = event.content ? stripToolFencesLive(event.content) : ''
+  if (visible) ctx.upsertSpeech(event, visible, true)
+}
+
+const onAgentMessage: TranscriptEventHandler = (event, ctx) => {
+  if (!event.content) return
+  const visible = stripToolFences(event.content)
+  const agentId = event.agentId
+  const activeSpeech = agentId ? ctx.findSpeechForAgent(agentId) : undefined
+  const lastKey = activeSpeech?.key
+  // Finalize the still-streaming bubble of the current turn only. When
+  // no previous speech item exists (e.g. a tool-only message arriving
+  // before any prose) activeSpeech is undefined and this handler only
+  // settles the typing row.
+  if (agentId && activeSpeech && lastKey !== undefined
+      && (!visible || !ctx.isSpeechSettled(lastKey))) {
+    if (visible) {
+      activeSpeech.text = visible
+      activeSpeech.streaming = false
+      ctx.markSpeechSettled(lastKey)
+    } else {
+      // Tool-only turn: the delegation card / system line replaces it.
+      // Only hide the prior bubble when we can tie it to THIS turn — via
+      // a shared operation id or a still-streaming bubble. If the last
+      // bubble belongs to an earlier, already-answered turn, leave it
+      // visible and just clear the typing row instead.
+      const belongsToCurrentTurn =
+        (event.operationId !== undefined
+          && ctx.speechKeyForOperation(event.operationId) === lastKey)
+        || activeSpeech.streaming === true
+      if (belongsToCurrentTurn) {
+        activeSpeech.hidden = true
+        ctx.markSpeechSettled(lastKey)
+      }
+    }
+    ctx.settleTyping(agentId)
+    return
+  }
+  // A later finalized turn (or a message without preceding stream
+  // frames) becomes its own bubble.
+  if (visible && agentId) {
+    ctx.upsertSpeech(event, visible, false)
+    const fresh = ctx.findSpeechForAgent(agentId)
+    if (fresh) ctx.markSpeechSettled(fresh.key)
+  }
+  ctx.settleTyping(agentId)
+}
+
+const onAgentDelegated: TranscriptEventHandler = (event, ctx) => {
+  ctx.settleTyping(event.fromAgentId)
+  ctx.commitItem({
+    kind: 'delegation',
+    key: ctx.nextKey(),
+    from: ctx.identityOfRef({
+      agentId: event.fromAgentId,
+      agentName: event.fromAgentName,
+    }),
+    to: ctx.identityOfRef({
+      agentId: event.toAgentId,
+      agentName: event.toAgentName,
+    }),
+    text: event.content || '',
+  })
+}
+
+const onAgentTool: TranscriptEventHandler = (event, ctx) => {
+  ctx.settleTyping(event.agentId)
+  if (event.tool === 'delegate_task') return
+  ctx.pushSystem('toolInvoked', 'info', {
+    agent: event.agentName || '',
+    tool: event.tool || 'tool',
+  })
+}
+
+const onDocumentOperationApplied: TranscriptEventHandler = (event, ctx) => {
+  ctx.settleTyping(event.agentId)
+  ctx.pushSystem('documentApplied', 'info', {
+    agent: event.agentName || '',
+    action: event.action || '',
+  })
+}
+
+const onDocumentOperationRejected: TranscriptEventHandler = (event, ctx) => {
+  ctx.settleTyping(event.agentId)
+  ctx.pushSystem('documentRejected', 'warning', {
+    agent: event.agentName || '',
+    action: event.action || '',
+  })
+}
+
+const onHandoff: TranscriptEventHandler = (event, ctx) => {
+  ctx.pushSystem('handoff', 'info', {
+    from: event.fromAgentName || '',
+    to: event.toAgentName || '',
+  })
+}
+
+const onConflict: TranscriptEventHandler = (event, ctx) => {
+  ctx.pushSystem('conflict', 'warning', {
+    detail: event.content || event.message || '',
+  })
+}
+
+const onRunComplete: TranscriptEventHandler = (_event, ctx) => {
+  ctx.settleAllTyping()
+  ctx.pushSystem('runComplete', 'success')
+}
+
+const onRunCancelled: TranscriptEventHandler = (_event, ctx) => {
+  ctx.settleAllTyping()
+  ctx.pushSystem('runCancelled', 'warning')
+}
+
+const onError: TranscriptEventHandler = (event, ctx) => {
+  ctx.settleAllTyping()
+  ctx.pushSystem('error', 'error', { error: event.error || '' })
+}
+
+const TRANSCRIPT_HANDLERS: Partial<
+  Record<AgentCollaborationEventType, TranscriptEventHandler>
+> = {
+  'run-start': onRunStart,
+  'task-created': onTaskCreated,
+  'task-assigned': onTaskAssigned,
+  'agent-start': onAgentStart,
+  'agent-stream': onAgentStream,
+  'agent-message': onAgentMessage,
+  'agent-question': onAgentMessage,
+  'agent-answer': onAgentMessage,
+  'agent-delegated': onAgentDelegated,
+  'agent-tool': onAgentTool,
+  'document-operation-applied': onDocumentOperationApplied,
+  'document-operation-rejected': onDocumentOperationRejected,
+  handoff: onHandoff,
+  conflict: onConflict,
+  'run-complete': onRunComplete,
+  'run-cancelled': onRunCancelled,
+  error: onError,
+}
+
+/**
+ * Converts the raw collaboration event stream into a WeChat-style transcript.
+ * Pure and synchronous: the store already dedupes/merges `agent-stream` frames
+ * by operationId, this function only orders and groups them per speaker.
+ */
+export function buildCollaborationTranscript(
+  events: AgentCollaborationEvent[],
+  agents: AgentConfig[],
+  mode: CollaborationMode,
+): TranscriptItem[] {
+  const ctx = createTranscriptContext(agents, mode)
+  for (const event of events) {
+    TRANSCRIPT_HANDLERS[event.type]?.(event, ctx)
+  }
+
+  const visible = ctx.items.filter((item) => !item.hidden)
 
   // Cluster consecutive bubbles/typing rows of the same agent (WeChat style).
   let previousSpeaker: string | undefined

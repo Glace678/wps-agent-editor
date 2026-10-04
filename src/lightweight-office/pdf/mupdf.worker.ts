@@ -16,28 +16,24 @@ import type {
   PdfWorkerResponse,
 } from './mupdf-protocol'
 import { PDF_TEXT_WRAP_TOLERANCE, inferBlockAlign, textParagraphs } from './pdf-text-paragraphs'
+import {
+  BUILTIN_PDF_FONTS,
+  MAX_FONT_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_PIXELS,
+  MAX_PAGE_PIXELS,
+  MAX_PAGE_SIDE,
+  MAX_SAVE_BYTES,
+  parseWaePayload,
+  readPdfObjectString,
+  validFontDescriptor,
+  validNormalizedRect,
+  WAE_METADATA_VERSION,
+  WAE_NAME_PATTERN,
+} from './worker/wae-limits'
+import { detectImageMime } from './pdf-image-header'
 
 type MuPdfApi = typeof import('mupdf').default
-
-const MAX_PAGE_PIXELS = 16_777_216
-const MAX_PAGE_SIDE = 16_384
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024
-const MAX_IMAGE_PIXELS = 40_000_000
-const MAX_FONT_BYTES = 32 * 1024 * 1024
-const MAX_SAVE_BYTES = 100 * 1024 * 1024
-const WAE_METADATA_VERSION = 1
-// Bound the WAE annotation Payload so a malicious/complex PDF cannot make
-// JSON.parse (or the resulting object walk) consume unbounded memory/time.
-const MAX_WAE_PAYLOAD_CHARS = 64 * 1024
-const MAX_WAE_PAYLOAD_KEYS = 200
-const MAX_WAE_PAYLOAD_DEPTH = 6
-const WAE_NAME_PATTERN = /^WAE:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i
-const BUILTIN_PDF_FONTS = new Set([
-  'Helvetica',
-  'Helvetica-Bold',
-  'Helvetica-Oblique',
-  'Helvetica-BoldOblique',
-])
 
 interface OpenDocumentState {
   documentId: string
@@ -167,68 +163,6 @@ function denormalizeRect(
     bounds[0] + (x + width) * pageWidth,
     bounds[1] + (y + height) * pageHeight,
   ]
-}
-
-function readPdfObjectString(object: InstanceType<typeof mupdf.PDFObject>): string | null {
-  if (object.isName()) return object.asName()
-  if (object.isString()) return object.asString()
-  return null
-}
-
-function validFontDescriptor(value: unknown): value is PdfFontDescriptor {
-  if (!value || typeof value !== 'object') return false
-  const font = value as Partial<PdfFontDescriptor>
-  return typeof font.fontId === 'string'
-    && typeof font.familyName === 'string'
-    && Number.isInteger(font.faceIndex)
-    && typeof font.weight === 'number'
-    && (font.style === 'normal' || font.style === 'italic' || font.style === 'oblique')
-}
-
-function validNormalizedRect(value: unknown): value is PdfNormalizedRect {
-  if (!value || typeof value !== 'object') return false
-  const rect = value as Partial<PdfNormalizedRect>
-  return [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)
-    && Number(rect.width) > 0
-    && Number(rect.height) > 0
-}
-
-/**
- * Parse a WAE Payload JSON string with hard limits: raw char length, total key
- * count, and nesting depth. Returns null when any bound is exceeded so a hostile
- * annotation is skipped instead of hanging the worker.
- */
-function parseWaePayload(raw: string): Record<string, unknown> | null {
-  if (typeof raw !== 'string' || raw.length === 0) return null
-  if (raw.length > MAX_WAE_PAYLOAD_CHARS) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return null
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-
-  let keys = 0
-  const walk = (value: unknown, depth: number): boolean => {
-    if (depth > MAX_WAE_PAYLOAD_DEPTH) return false
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (!walk(item, depth + 1)) return false
-      }
-      return true
-    }
-    if (value && typeof value === 'object') {
-      for (const key of Object.keys(value as Record<string, unknown>)) {
-        keys += 1
-        if (keys > MAX_WAE_PAYLOAD_KEYS) return false
-        if (!walk((value as Record<string, unknown>)[key], depth + 1)) return false
-      }
-    }
-    return true
-  }
-  if (!walk(parsed, 0)) return null
-  return parsed as Record<string, unknown>
 }
 
 function readWaeRecord(
@@ -649,29 +583,6 @@ function applyTextAppearance(
   }
 }
 
-function imageType(bytes: Uint8Array): PdfImageAnnotationRecord['mimeType'] | null {
-  if (
-    bytes.length >= 8
-    && bytes[0] === 0x89
-    && bytes[1] === 0x50
-    && bytes[2] === 0x4e
-    && bytes[3] === 0x47
-    && bytes[4] === 0x0d
-    && bytes[5] === 0x0a
-    && bytes[6] === 0x1a
-    && bytes[7] === 0x0a
-  ) return 'image/png'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return 'image/jpeg'
-  }
-  if (
-    bytes.length >= 12
-    && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF'
-    && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP'
-  ) return 'image/webp'
-  return null
-}
-
 function createImageAnnotation(
   state: OpenDocumentState,
   record: PdfImageAnnotationRecord,
@@ -680,7 +591,7 @@ function createImageAnnotation(
   if (imageData.byteLength === 0 || imageData.byteLength > MAX_IMAGE_BYTES) {
     throw new PdfWorkerError('image-too-large', 'Images must be no larger than 25 MiB')
   }
-  const detectedType = imageType(new Uint8Array(imageData))
+  const detectedType = detectImageMime(new Uint8Array(imageData))
   if (!detectedType || detectedType !== record.mimeType) {
     throw new PdfWorkerError('invalid-image', 'The image MIME type does not match its file signature')
   }

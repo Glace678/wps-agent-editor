@@ -1,13 +1,5 @@
 import { desktopApi } from '@/platform'
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Bot, Check, ChevronDown, Layers, Network, Play, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,6 +8,7 @@ import { useTranslation } from '@/lib/i18n/runtime'
 import type { LanguageCode } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { modelDisplayName } from '@/lib/agent-model'
+import { usePopover } from '@/hooks/use-popover'
 import type { AgentConfig, CollaborationMode } from '@/types/agent'
 import type { ProviderDefinition } from '@/types/provider'
 
@@ -26,15 +19,6 @@ interface CollaborationConfigDialogProps {
   onClose: () => void
   providers?: ProviderDefinition[]
 }
-
-interface PopupPosition {
-  left: number
-  top: number
-  width: number
-}
-
-const POPUP_GAP = 4
-const VIEWPORT_PADDING = 12
 
 const AGENT_SEARCH_PLACEHOLDER: Record<LanguageCode, string> = {
   'zh-CN': '搜索 Agent...',
@@ -88,29 +72,20 @@ export function CollaborationConfigDialog({
     return () => { cancelled = true }
   }, [initialProviders])
 
-  const getCleanModelName = useCallback(
-    (agent: AgentConfig): string => modelDisplayName(agent.providerId, agent.model, providers) || 'default',
-    [providers],
-  )
+  const getCleanModelName = (agent: AgentConfig): string =>
+    modelDisplayName(agent.providerId, agent.model, providers) || 'default'
 
-  const getProviderLabel = useCallback((providerId: string | undefined): string => {
+  const getProviderLabel = (providerId: string | undefined): string => {
     if (!providerId) return ''
-    const p = providers.find((item) => item.id === providerId)
-    if (p?.name && !p.name.toLowerCase().startsWith('custom-')) return p.name
+    const provider = providers.find((item) => item.id === providerId)
+    if (provider?.name && !provider.name.toLowerCase().startsWith('custom-')) return provider.name
     if (providerId.toLowerCase().startsWith('custom-')) {
       return t('providerSettings.customProvider')
     }
     return providerId
-  }, [providers, t])
+  }
 
-  // Searchable Root Agent Dropdown State
-  const [dropdownOpen, setDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [position, setPosition] = useState<PopupPosition | null>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const popupRef = useRef<HTMLDivElement>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
-  const optionsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setSelectedIds(enabledAgents.map((agent) => agent.id))
@@ -142,7 +117,6 @@ export function CollaborationConfigDialog({
     && !hasAgentWithoutModel
     && !isRunning
 
-  // Search filter for root agents
   const filteredRootAgents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return selectedAgents
@@ -157,119 +131,28 @@ export function CollaborationConfigDialog({
         || providerName.includes(q)
       )
     })
-  }, [getCleanModelName, getProviderLabel, searchQuery, selectedAgents])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, selectedAgents, providers, t])
 
-  const updatePosition = useCallback(() => {
-    const trigger = triggerRef.current
-    const popup = popupRef.current
-    if (!trigger || !popup) return
-    const triggerRect = trigger.getBoundingClientRect()
-    const popupHeight = popup.getBoundingClientRect().height
-    const width = Math.min(
-      Math.max(triggerRect.width, 280),
-      window.innerWidth - VIEWPORT_PADDING * 2,
-    )
-    const left = Math.min(
-      Math.max(VIEWPORT_PADDING, triggerRect.left),
-      window.innerWidth - width - VIEWPORT_PADDING,
-    )
-    const below = triggerRect.bottom + POPUP_GAP
-    const above = triggerRect.top - POPUP_GAP - popupHeight
-    const top = below + popupHeight <= window.innerHeight - VIEWPORT_PADDING
-      ? below
-      : Math.max(VIEWPORT_PADDING, above)
-    setPosition({ left, top, width })
-  }, [])
-
-  const closeDropdown = useCallback((restoreFocus = false) => {
-    setDropdownOpen(false)
-    setPosition(null)
-    if (restoreFocus) requestAnimationFrame(() => triggerRef.current?.focus())
-  }, [])
-
-  const openDropdown = useCallback(() => {
-    if (selectedAgents.length === 0) return
-    setSearchQuery('')
-    setPosition(null)
-    setDropdownOpen(true)
-  }, [selectedAgents.length])
-
-  useLayoutEffect(() => {
-    if (!dropdownOpen) return
-    updatePosition()
-    const frame = requestAnimationFrame(() => {
-      updatePosition()
-      searchRef.current?.focus()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [dropdownOpen, updatePosition])
-
-  useEffect(() => {
-    if (!dropdownOpen) return
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node
-        && (popupRef.current?.contains(event.target) || triggerRef.current?.contains(event.target))) {
-        return
-      }
-      closeDropdown()
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        closeDropdown(true)
-      }
-    }
-    const handleFocusIn = (event: FocusEvent) => {
-      if (event.target instanceof Node
-        && (popupRef.current?.contains(event.target) || triggerRef.current?.contains(event.target))) {
-        return
-      }
-      closeDropdown()
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown, true)
-    document.addEventListener('keydown', handleKeyDown, true)
-    document.addEventListener('focusin', handleFocusIn, true)
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true)
-      document.removeEventListener('keydown', handleKeyDown, true)
-      document.removeEventListener('focusin', handleFocusIn, true)
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [closeDropdown, dropdownOpen, updatePosition])
-
-  const focusOption = (index: number) => {
-    const options = [...(optionsRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])]
-    if (options.length === 0) return
-    options[(index + options.length) % options.length].focus()
-  }
-
-  const handleOptionsKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const options = [...(optionsRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])]
-    const currentIndex = options.indexOf(document.activeElement as HTMLElement)
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      focusOption(currentIndex + 1)
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      if (currentIndex <= 0) searchRef.current?.focus()
-      else focusOption(currentIndex - 1)
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      focusOption(0)
-    } else if (event.key === 'End') {
-      event.preventDefault()
-      focusOption(options.length - 1)
-    }
-  }
+  const {
+    open: dropdownOpen,
+    position,
+    triggerRef,
+    popoverRef,
+    initialFocusRef,
+    optionsRef,
+    keyboard,
+    show: openDropdown,
+    close: closeDropdown,
+  } = usePopover({
+    minWidth: 280,
+    blocked: () => selectedAgents.length === 0,
+    contentKey: filteredRootAgents.length,
+  })
 
   const rootAgentPopup = dropdownOpen && createPortal(
     <div
-      ref={popupRef}
+      ref={(node) => { popoverRef.current = node }}
       role="dialog"
       aria-label={t('agentUi.rootAgent')}
       className="fixed z-[10000] flex max-h-[min(18rem,45vh)] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl dark:border-border dark:bg-[#1f1f23]"
@@ -286,14 +169,14 @@ export function CollaborationConfigDialog({
         <div className="flex h-8 items-center gap-2 rounded-lg bg-muted/60 px-2.5 focus-within:ring-1 focus-within:ring-ring">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
-            ref={searchRef}
+            ref={(node) => { initialFocusRef.current = node }}
             type="search"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown') {
                 event.preventDefault()
-                focusOption(0)
+                keyboard.focusOption(0)
               }
             }}
             className="min-w-0 flex-1 bg-transparent text-xs text-popover-foreground outline-none placeholder:text-muted-foreground"
@@ -315,11 +198,11 @@ export function CollaborationConfigDialog({
       </div>
 
       <div
-        ref={optionsRef}
+        ref={(node) => { optionsRef.current = node }}
         role="listbox"
         aria-label={t('agentUi.rootAgent')}
-        className="min-h-0 flex-1 overflow-y-auto p-1.5 space-y-0.5"
-        onKeyDown={handleOptionsKeyDown}
+        className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5"
+        onKeyDown={keyboard.onKeyDown}
       >
         {filteredRootAgents.length === 0 ? (
           <div className="flex h-16 items-center justify-center px-4 text-center text-xs text-muted-foreground">
@@ -450,7 +333,7 @@ export function CollaborationConfigDialog({
               {mode === 'directed' ? t('agentUi.directorAgent') : t('agentUi.rootAgent')}
             </label>
             <button
-              ref={triggerRef}
+              ref={(node) => { triggerRef.current = node }}
               id="collaboration-root-agent"
               data-testid="collaboration-root-agent"
               type="button"
@@ -533,7 +416,7 @@ export function CollaborationConfigDialog({
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-xs font-semibold text-foreground">{agent.name}</span>
                         <span
-                          className="shrink-0 max-w-[220px] truncate rounded bg-muted/80 px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground"
+                          className="max-w-[220px] truncate rounded bg-muted/80 px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground"
                           title={getCleanModelName(agent)}
                         >
                           {getCleanModelName(agent)}

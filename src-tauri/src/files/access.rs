@@ -355,11 +355,7 @@ impl AccessRegistry {
     /// Evicts least-recently-minted child grants for an owner until the owner is
     /// back under the per-owner budget, bounding registry growth while a window
     /// stays alive.
-    fn enforce_child_grant_budget(
-        &self,
-        grants: &mut HashMap<String, Grant>,
-        owner: &str,
-    ) {
+    fn enforce_child_grant_budget(&self, grants: &mut HashMap<String, Grant>, owner: &str) {
         let mut child_ids: Vec<(String, Instant)> = grants
             .iter()
             .filter(|(_, grant)| grant.owner == owner && grant.source == GrantSource::Child)

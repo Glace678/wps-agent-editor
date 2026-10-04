@@ -8,8 +8,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const src = fs.readFileSync(path.join(root, 'src/lightweight-office/editors/ExcelEditor.tsx'), 'utf8')
-const css = fs.readFileSync(path.join(root, 'src/lightweight-office/fortune-sheet-theme.css'), 'utf8')
+const read = (relativePath) =>
+  fs.readFileSync(path.join(root, relativePath), 'utf8')
+const src = read('src/lightweight-office/editors/ExcelEditor.tsx')
+const kindSource = read('src/lightweight-office/utils/excel-picker-kind.ts')
+const copySource = read('src/lightweight-office/utils/excel-picker-copy.ts')
+const widthSource = read('src/lightweight-office/utils/excel-picker-width.ts')
+const labelSource = read('src/lightweight-office/utils/excel-picker-labels.ts')
+const allSources = `${src}\n${kindSource}\n${copySource}\n${widthSource}\n${labelSource}`
+const css = read('src/lightweight-office/fortune-sheet-theme.css')
 
 let passed = 0
 function test(name, fn) {
@@ -32,43 +39,43 @@ test('decoratePicker pins search before the scrolling select', () => {
 })
 
 test('Excel visually reuses the Word Chinese-first system-font order', () => {
-  assert.match(src, /function orderExcelFontPickerOptions/)
-  assert.match(src, /getOrderedFontFamilyEntries\(fontFaces\)/)
+  assert.match(widthSource, /export function orderExcelFontPickerOptions/)
+  assert.match(widthSource, /getOrderedFontFamilyEntries\(fontFaces\)/)
   assert.match(src, /if \(kind === 'font'\) orderExcelFontPickerOptions\(select, fontFaces\)/)
-  assert.match(src, /excel-font-picker-symbol-label/)
+  assert.match(widthSource, /excel-font-picker-symbol-label/)
   assert.match(css, /\.excel-font-picker-symbol-label[\s\S]*?font-family:/)
 })
 
 test('font/format/size picker kind detection covers Fortune locales + heuristics', () => {
   // Spanish / Russian labels that previously missed the search field.
-  assert.match(src, /\\bfuente\\b/)
+  assert.match(labelSource, /\\bfuente\\b/)
   // JS \b is ASCII-only: \bшрифт\b can never match, so the token must be bare.
-  assert.match(src, /шрифт/)
-  assert.doesNotMatch(src, /\\bшрифт\\b/)
-  assert.doesNotMatch(src, /\\bформат\\b/)
-  assert.match(src, /tama\[nñ\]o/)
-  assert.match(src, /размер/)
-  assert.match(src, /шрифта/)
+  assert.match(allSources, /шрифт/)
+  assert.doesNotMatch(allSources, /\\bшрифт\\b/)
+  assert.doesNotMatch(allSources, /\\bформат\\b/)
+  assert.match(labelSource, /tama\[nñ\]o/)
+  assert.match(labelSource, /размер/)
+  assert.match(labelSource, /шрифта/)
   // Format (格式) picker
-  assert.match(src, /'format'/)
-  assert.match(src, /EXCEL_FORMAT_LABEL_RE/)
-  assert.match(src, /looksLikeFormatList/)
+  assert.match(kindSource, /'format'/)
+  assert.match(kindSource, /EXCEL_FORMAT_LABEL_RE/)
+  assert.match(kindSource, /looksLikeFormatList/)
   assert.match(src, /excel-format-search/)
   // Fallback when labels are missing or unexpected.
-  assert.match(src, /looksLikeFontList/)
+  assert.match(kindSource, /looksLikeFontList/)
   // Per kind + language width strategies (not one global max algorithm).
-  assert.match(src, /fitExcelToolbarPickerWidth/)
-  assert.match(src, /resolveExcelPickerWidthStrategy/)
-  assert.match(src, /isCjkUiLanguage/)
-  assert.match(src, /isLongHintLanguage/)
-  assert.match(src, /collectSystemFontDisplayNames/)
-  assert.match(src, /measureExcelPickerTextWidth/)
-  assert.match(src, /widthForPlaceholder/)
-  assert.match(src, /widthForLongestLabel/)
+  assert.match(widthSource, /fitExcelToolbarPickerWidth/)
+  assert.match(widthSource, /resolveExcelPickerWidthStrategy/)
+  assert.match(widthSource, /isCjkUiLanguage/)
+  assert.match(widthSource, /isLongHintLanguage/)
+  assert.match(widthSource, /collectSystemFontDisplayNames/)
+  assert.match(widthSource, /measureExcelPickerTextWidth/)
+  assert.match(widthSource, /widthForPlaceholder/)
+  assert.match(widthSource, /widthForLongestLabel/)
   // Font-size stays compact; sizing uses text metrics only (no live scrollWidth).
-  assert.match(src, /'font-size':\s*\{\s*min:\s*56/)
-  assert.match(src, /Pure text metrics only/)
-  assert.doesNotMatch(src, /considerName\(name,\s*Math\.ceil\(option\.scrollWidth/)
+  assert.match(widthSource, /'font-size':\s*\{\s*min:\s*56/)
+  assert.match(widthSource, /Pure text metrics only/)
+  assert.doesNotMatch(widthSource, /considerName\(name,\s*Math\.ceil\(option\.scrollWidth/)
   // Avoid native search clear gutter (black trailing edge).
   assert.match(src, /input\.type = 'text'/)
 })

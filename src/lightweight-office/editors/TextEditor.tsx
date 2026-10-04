@@ -1,6 +1,5 @@
 import { desktopApi } from '@/platform'
 import {
-  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -13,17 +12,7 @@ import {
   type FormEvent as ReactFormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type ReactNode,
 } from 'react'
-import {
-  Check,
-  ChevronDown,
-  ChevronUp,
-  MoreHorizontal,
-  Search,
-  X,
-} from 'lucide-react'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import DOMPurify from 'dompurify'
 import { useEditorStore } from '@/stores/editor.store'
 import { useTranslation } from '@/lib/i18n/runtime'
@@ -47,6 +36,15 @@ import {
 } from '../utils/system-fonts'
 import { DocumentTabBar } from '../components/DocumentTabBar'
 import { SaveConfirmDialog } from '../components/SaveConfirmDialog'
+import { GoToLineDialog } from './text-editor/dialogs/GoToLineDialog'
+import { InsertLinkDialog } from './text-editor/dialogs/InsertLinkDialog'
+import {
+  PageSetupDialog,
+  type NotepadPageSetup,
+} from './text-editor/dialogs/PageSetupDialog'
+import { SaveAsDialog } from './text-editor/dialogs/SaveAsDialog'
+import { FindBar } from './text-editor/FindBar'
+import { MarkdownViewModeSelect } from './text-editor/MarkdownViewModeSelect'
 import { NotepadCommandBar } from './NotepadCommandBar'
 import { NotepadSettingsPage } from './NotepadSettingsPage'
 import {
@@ -104,6 +102,7 @@ import {
   tableRowAtPoint,
 } from './text-editor/table'
 import {
+  applyNotepadTextZoom,
   clampNotepadZoom,
   NOTEPAD_FONT_POINT_TO_PIXEL,
   NOTEPAD_WHEEL_ZOOM_IDLE_MS,
@@ -165,85 +164,9 @@ interface TextTab {
   dirty: boolean
 }
 
-interface PageSetup {
-  size: 'A4' | 'Letter'
-  orientation: 'portrait' | 'landscape'
-  margins: { top: number; right: number; bottom: number; left: number }
-  header: string
-  footer: string
-}
-
-function applyNotepadTextZoom(
-  root: HTMLElement | null,
-  fontSizePoints: number,
-  percent: number,
-): void {
-  if (!root) return
-  const pixels = fontSizePoints * NOTEPAD_FONT_POINT_TO_PIXEL * (percent / 100)
-  root.style.setProperty('--notepad-editor-font-size', `${pixels}px`)
-}
-
 function createTabId(): string {
   return `notepad-tab-${crypto.randomUUID()}`
 }
-
-function Modal({
-  title,
-  onClose,
-  children,
-  wide = false,
-}: {
-  title: string
-  onClose: () => void
-  children: ReactNode
-  wide?: boolean
-}) {
-  const { t } = useTranslation()
-  return (
-    <div
-      className="absolute inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-[1px]"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <section
-        className={`flex max-h-[calc(100%-2rem)] w-full flex-col rounded-2xl border border-black/10 bg-[#f9f9f9] text-[#1f1f1f] shadow-2xl dark:border-white/10 dark:bg-[#2b2b2b] dark:text-[#f5f5f5] ${wide ? 'max-w-[720px]' : 'max-w-[400px]'}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        {/* Windows 11 Notepad settings uses a large page title; small utility
-            dialogs (Go to / Page setup / Save as) keep the compact header. */}
-        <header className={`flex items-center justify-between px-5 ${wide ? 'h-14' : 'h-12'}`}>
-          <h2 className={wide ? 'text-[20px] font-semibold' : 'text-[16px] font-semibold'}>{title}</h2>
-          <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-black/[0.07] dark:hover:bg-white/[0.08]"
-            aria-label={t('menu.close')}
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </header>
-        <div className="min-h-0 overflow-y-auto px-5 pb-5">{children}</div>
-      </section>
-    </div>
-  )
-}
-
-const inputClass =
-  'h-8 w-full rounded-lg border border-black/15 bg-white px-3 text-[13px] outline-none focus:border-[#0067c0] focus:ring-1 focus:ring-[#0067c0] dark:border-white/15 dark:bg-[#202020]'
-
-const dialogButtonClass =
-  'h-8 min-w-[82px] rounded-lg border border-black/10 bg-white px-4 text-[13px] hover:bg-black/[0.04] disabled:opacity-45 dark:border-white/10 dark:bg-[#333] dark:hover:bg-white/[0.06]'
-
-const marginLabelKeys = {
-  top: 'notepad.marginTop',
-  bottom: 'notepad.marginBottom',
-  left: 'notepad.marginLeft',
-  right: 'notepad.marginRight',
-} as const
 
 export function TextEditor({
   filePath,
@@ -597,7 +520,7 @@ export function TextEditor({
   const [saveAsOpen, setSaveAsOpen] = useState(false)
   const [saveAsEncoding, setSaveAsEncoding] = useState<TextEncoding>('utf-8')
   const [saveAsLineEnding, setSaveAsLineEnding] = useState<LineEnding>('crlf')
-  const [pageSetup, setPageSetup] = useState<PageSetup>({
+  const [pageSetup, setPageSetup] = useState<NotepadPageSetup>({
     size: 'A4',
     orientation: 'portrait',
     margins: { top: 20, right: 20, bottom: 20, left: 20 },
@@ -2799,85 +2722,39 @@ export function TextEditor({
       />
 
       {findOpen && (
-        <div className="flex shrink-0 items-start justify-end border-b border-black/[0.08] bg-[#f7f7f7] px-2 py-2 dark:border-white/[0.07] dark:bg-[#252525]">
-          <div className="flex w-full max-w-[560px] flex-col gap-2">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <button
-                type="button"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] hover:bg-black/[0.06] dark:hover:bg-white/[0.07]"
-                aria-label={replaceMode
-                  ? t('notepad.closeReplaceOptions')
-                  : t('notepad.openReplaceOptions')}
-                onClick={() => setReplaceMode((value) => !value)}
-              >
-                <ChevronDown className={`h-4 w-4 transition-transform ${replaceMode ? 'rotate-180' : ''}`} />
-              </button>
-              <div className="relative min-w-[140px] flex-1">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 opacity-55" />
-                <input
-                  ref={findInputRef}
-                  value={findQuery}
-                  onChange={(event) => setFindQuery(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); navigateFind(event.shiftKey ? -1 : 1); } }}
-                  className={`${inputClass} min-w-[140px] flex-1 pl-8`}
-                  placeholder={t('notepad.find')}
-                  aria-label={t('notepad.find')}
-                  data-testid="text-find-input"
-                />
-              </div>
-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] opacity-55">{matches.length ? `${Math.max(1, activeMatch + 1)}/${matches.length}` : '0/0'}</span>
-              <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] hover:bg-black/[0.06] dark:hover:bg-white/[0.07]" aria-label={t('notepad.previous')} title={t('notepad.previousShortcut')} onClick={() => navigateFind(-1)}>
-                <ChevronUp className="h-4 w-4" />
-              </button>
-              <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] hover:bg-black/[0.06] dark:hover:bg-white/[0.07]" aria-label={t('notepad.next')} title={t('notepad.nextShortcut')} onClick={() => navigateFind(1)}>
-                <ChevronDown className="h-4 w-4" />
-              </button>
-              <DropdownMenu.Root modal={false}>
-                <DropdownMenu.Trigger asChild>
-                  <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] hover:bg-black/[0.06] dark:hover:bg-white/[0.07]" aria-label={t('notepad.moreOptions')}>
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content sideOffset={4} align="end" className="z-[10000] min-w-[180px] rounded-md border border-black/10 bg-[#f9f9f9] p-1 text-[13px] shadow-xl dark:border-white/10 dark:bg-[#2c2c2c] dark:text-[#f5f5f5]">
-                    <DropdownMenu.CheckboxItem
-                      className="flex h-8 cursor-default select-none items-center rounded-[4px] px-2 outline-none data-[highlighted]:bg-black/[0.07] dark:data-[highlighted]:bg-white/[0.08]"
-                      checked={findOptions.matchCase}
-                      onCheckedChange={(checked) => setFindOptions((value) => ({ ...value, matchCase: Boolean(checked) }))}
-                    >
-                      {t('notepad.matchCase')}
-                    </DropdownMenu.CheckboxItem>
-                    <DropdownMenu.CheckboxItem
-                      className="flex h-8 cursor-default select-none items-center rounded-[4px] px-2 outline-none data-[highlighted]:bg-black/[0.07] dark:data-[highlighted]:bg-white/[0.08]"
-                      checked={findOptions.wrapAround}
-                      onCheckedChange={(checked) => setFindOptions((value) => ({ ...value, wrapAround: Boolean(checked) }))}
-                    >
-                      {t('notepad.wrapAround')}
-                    </DropdownMenu.CheckboxItem>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-              <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] hover:bg-black/[0.06] dark:hover:bg-white/[0.07]" aria-label={t('notepad.closeFind')} onClick={closeFind}>
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {replaceMode && (
-              <div className="flex min-w-0 items-center gap-1.5">
-                <input
-                  value={replaceText}
-                  onChange={(event) => setReplaceText(event.target.value)}
-                  className={`${inputClass} min-w-[140px] flex-1`}
-                  placeholder={t('notepad.replaceWith')}
-                  aria-label={t('notepad.replaceWith')}
-                  data-testid="text-replace-input"
-                />
-                <button type="button" className={dialogButtonClass} onClick={replaceCurrentMatch}>{t('notepad.replace')}</button>
-                <button type="button" className={dialogButtonClass} onClick={replaceAllMatches}>{t('notepad.replaceAll')}</button>
-              </div>
-            )}
-          </div>
-        </div>
+        <FindBar
+          inputRef={findInputRef}
+          labels={{
+            closeReplaceOptions: t('notepad.closeReplaceOptions'),
+            openReplaceOptions: t('notepad.openReplaceOptions'),
+            find: t('notepad.find'),
+            previous: t('notepad.previous'),
+            previousShortcut: t('notepad.previousShortcut'),
+            next: t('notepad.next'),
+            nextShortcut: t('notepad.nextShortcut'),
+            moreOptions: t('notepad.moreOptions'),
+            matchCase: t('notepad.matchCase'),
+            wrapAround: t('notepad.wrapAround'),
+            closeFind: t('notepad.closeFind'),
+            replaceWith: t('notepad.replaceWith'),
+            replace: t('notepad.replace'),
+            replaceAll: t('notepad.replaceAll'),
+          }}
+          query={findQuery}
+          replaceMode={replaceMode}
+          replaceText={replaceText}
+          options={findOptions}
+          matchCount={matches.length}
+          activeMatch={activeMatch}
+          onQueryChange={setFindQuery}
+          onReplaceTextChange={setReplaceText}
+          onToggleReplaceMode={() => setReplaceMode((value) => !value)}
+          onOptionsChange={setFindOptions}
+          onNavigate={navigateFind}
+          onReplace={replaceCurrentMatch}
+          onReplaceAll={replaceAllMatches}
+          onClose={closeFind}
+        />
       )}
 
       <div
@@ -2957,49 +2834,15 @@ export function TextEditor({
               : t('notepad.characterCount', { count: text.length })}
           </span>
           {documentType === 'markdown' ? (
-            <DropdownMenu.Root modal={false}>
-              <DropdownMenu.Trigger asChild>
-                <button
-                  type="button"
-                  className="flex min-w-[70px] flex-[1_1_180px] cursor-default select-none items-center justify-center gap-1 border-l border-black/10 px-3 text-center outline-none hover:bg-black/[0.06] data-[state=open]:bg-black/[0.08] dark:border-white/10 dark:hover:bg-white/[0.08] dark:data-[state=open]:bg-white/[0.12]"
-                  aria-label={markdownView === 'formatted' ? t('notepad.formattedView') : t('notepad.syntaxView')}
-                  data-testid="notepad-status-view-mode"
-                >
-                  <span className="truncate">
-                    {markdownView === 'formatted' ? t('notepad.formattedView') : t('notepad.syntaxView')}
-                  </span>
-                  <ChevronDown className="h-3 w-3 opacity-60" />
-                </button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content sideOffset={4} align="center" className="z-[10000] min-w-[160px] rounded-md border border-black/10 bg-[#f9f9f9] p-1 text-[13px] shadow-xl dark:border-white/10 dark:bg-[#2c2c2c] dark:text-[#f5f5f5]">
-                  <DropdownMenu.CheckboxItem
-                    className="relative flex h-8 cursor-default select-none items-center rounded-[4px] px-2 pl-8 outline-none data-[highlighted]:bg-black/[0.07] dark:data-[highlighted]:bg-white/[0.08]"
-                    checked={markdownView === 'formatted'}
-                    onCheckedChange={() => {
-                      // 手动进入格式视图的纯文本会话不被表格恢复逻辑弹回语法视图
-                      keepPlainFormattedRef.current = true
-                      setMarkdownView('formatted')
-                    }}
-                  >
-                    <DropdownMenu.ItemIndicator className="absolute left-2">
-                      <Check className="h-4 w-4" />
-                    </DropdownMenu.ItemIndicator>
-                    {t('notepad.formattedView')}
-                  </DropdownMenu.CheckboxItem>
-                  <DropdownMenu.CheckboxItem
-                    className="relative flex h-8 cursor-default select-none items-center rounded-[4px] px-2 pl-8 outline-none data-[highlighted]:bg-black/[0.07] dark:data-[highlighted]:bg-white/[0.08]"
-                    checked={markdownView === 'syntax'}
-                    onCheckedChange={() => setMarkdownView('syntax')}
-                  >
-                    <DropdownMenu.ItemIndicator className="absolute left-2">
-                      <Check className="h-4 w-4" />
-                    </DropdownMenu.ItemIndicator>
-                    {t('notepad.syntaxView')}
-                  </DropdownMenu.CheckboxItem>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
+            <MarkdownViewModeSelect
+              view={markdownView}
+              formattedLabel={t('notepad.formattedView')}
+              syntaxLabel={t('notepad.syntaxView')}
+              onChange={(next) => {
+                if (next === 'formatted') keepPlainFormattedRef.current = true
+                setMarkdownView(next)
+              }}
+            />
           ) : (
             <span className="min-w-[56px] flex-[1_1_200px] truncate border-l border-black/10 px-3 text-center dark:border-white/10" title={t('notepad.plainText')}>{t('notepad.plainText')}</span>
           )}
@@ -3015,125 +2858,75 @@ export function TextEditor({
       <style>{`@page { size: ${printSize}; margin: ${printMargins}; }`}</style>
 
       {goToOpen && (
-        <Modal title={t('notepad.goToLine')} onClose={() => setGoToOpen(false)}>
-          <label className="mb-2 block text-[13px]" htmlFor="notepad-go-to-line">{t('notepad.lineNumber')}</label>
-          <input
-            id="notepad-go-to-line"
-            type="number"
-            min={1}
-            max={countLines(text)}
-            value={goToLine}
-            onChange={(event) => setGoToLine(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') goToRequestedLine()
-            }}
-            className={inputClass}
-            autoFocus
-          />
-          <p className="mt-2 text-[12px] opacity-60">{t('notepad.lineRange', { max: countLines(text) })}</p>
-          <div className="mt-5 flex justify-end gap-2">
-            <button type="button" className={dialogButtonClass} onClick={() => setGoToOpen(false)}>{t('agentConfig.cancel')}</button>
-            <button type="button" className={`${dialogButtonClass} border-[#0067c0] bg-[#0067c0] text-white hover:bg-[#005a9e] dark:bg-[#0067c0]`} onClick={goToRequestedLine}>{t('notepad.goToAction')}</button>
-          </div>
-        </Modal>
+        <GoToLineDialog
+          title={t('notepad.goToLine')}
+          cancelLabel={t('agentConfig.cancel')}
+          lineNumberLabel={t('notepad.lineNumber')}
+          goActionLabel={t('notepad.goToAction')}
+          lineRangeText={t('notepad.lineRange', { max: countLines(text) })}
+          lineCount={countLines(text)}
+          value={goToLine}
+          onChange={setGoToLine}
+          onClose={() => setGoToOpen(false)}
+          onConfirm={goToRequestedLine}
+        />
       )}
 
       {linkDialogOpen && (
-        <Modal title={t('notepad.link')} onClose={() => setLinkDialogOpen(false)}>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              confirmInsertLink()
-            }}
-          >
-            <label className="mb-1.5 block text-[13px]" htmlFor="notepad-link-text">{t('notepad.linkDisplayText')}</label>
-            <input
-              id="notepad-link-text"
-              className={inputClass}
-              value={linkText}
-              placeholder={t('notepad.linkTextPlaceholder')}
-              onChange={(event) => setLinkText(event.target.value)}
-            />
-            <label className="mb-1.5 mt-3 block text-[13px]" htmlFor="notepad-link-address">{t('notepad.linkAddressLabel')}</label>
-            <input
-              id="notepad-link-address"
-              className={inputClass}
-              value={linkUrl}
-              placeholder={t('notepad.linkAddressPlaceholder')}
-              onChange={(event) => setLinkUrl(event.target.value)}
-              autoFocus
-            />
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="submit"
-                className={`${dialogButtonClass} border-[#0067c0] bg-[#0067c0] text-white hover:bg-[#005a9e] disabled:opacity-45 dark:bg-[#0067c0]`}
-                disabled={!linkUrl.trim()}
-              >
-                {t('notepad.insertLinkAction')}
-              </button>
-              <button type="button" className={dialogButtonClass} onClick={() => setLinkDialogOpen(false)}>{t('agentConfig.cancel')}</button>
-            </div>
-          </form>
-        </Modal>
+        <InsertLinkDialog
+          title={t('notepad.link')}
+          cancelLabel={t('agentConfig.cancel')}
+          displayTextLabel={t('notepad.linkDisplayText')}
+          addressLabel={t('notepad.linkAddressLabel')}
+          textPlaceholder={t('notepad.linkTextPlaceholder')}
+          addressPlaceholder={t('notepad.linkAddressPlaceholder')}
+          insertActionLabel={t('notepad.insertLinkAction')}
+          linkText={linkText}
+          linkUrl={linkUrl}
+          onLinkTextChange={setLinkText}
+          onLinkUrlChange={setLinkUrl}
+          onClose={() => setLinkDialogOpen(false)}
+          onSubmit={confirmInsertLink}
+        />
       )}
 
       {pageSetupOpen && (
-        <Modal title={t('notepad.pageSetupTitle')} onClose={() => setPageSetupOpen(false)}>
-          <div className="grid grid-cols-[100px_1fr] items-center gap-3 text-[13px]">
-            <label htmlFor="notepad-page-size">{t('notepad.paperSize')}</label>
-            <select id="notepad-page-size" className={inputClass} value={pageSetup.size} onChange={(event) => setPageSetup((value) => ({ ...value, size: event.target.value as PageSetup['size'] }))}>
-              <option value="A4">A4</option>
-              <option value="Letter">Letter</option>
-            </select>
-            <label htmlFor="notepad-orientation">{t('notepad.orientation')}</label>
-            <select id="notepad-orientation" className={inputClass} value={pageSetup.orientation} onChange={(event) => setPageSetup((value) => ({ ...value, orientation: event.target.value as PageSetup['orientation'] }))}>
-              <option value="portrait">{t('notepad.portrait')}</option>
-              <option value="landscape">{t('notepad.landscape')}</option>
-            </select>
-            {(['top', 'bottom', 'left', 'right'] as const).map((side) => (
-              <Fragment key={side}>
-                <label htmlFor={`notepad-margin-${side}`}>{t(marginLabelKeys[side])}</label>
-                <input id={`notepad-margin-${side}`} type="number" min={5} max={50} className={inputClass} value={pageSetup.margins[side]} onChange={(event) => setPageSetup((value) => ({ ...value, margins: { ...value.margins, [side]: Math.max(5, Math.min(50, Number(event.target.value) || 5)) } }))} />
-              </Fragment>
-            ))}
-            <label htmlFor="notepad-print-header">{t('notepad.header')}</label>
-            <input id="notepad-print-header" className={inputClass} value={pageSetup.header} onChange={(event) => setPageSetup((value) => ({ ...value, header: event.target.value }))} />
-            <label htmlFor="notepad-print-footer">{t('notepad.footer')}</label>
-            <input id="notepad-print-footer" className={inputClass} value={pageSetup.footer} onChange={(event) => setPageSetup((value) => ({ ...value, footer: event.target.value }))} />
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <button type="button" className={dialogButtonClass} onClick={() => setPageSetupOpen(false)}>{t('agentConfig.cancel')}</button>
-            <button type="button" className={`${dialogButtonClass} border-[#0067c0] bg-[#0067c0] text-white hover:bg-[#005a9e] dark:bg-[#0067c0]`} onClick={() => setPageSetupOpen(false)}>{t('notepad.confirm')}</button>
-          </div>
-        </Modal>
+        <PageSetupDialog
+          title={t('notepad.pageSetupTitle')}
+          cancelLabel={t('agentConfig.cancel')}
+          confirmLabel={t('notepad.confirm')}
+          labels={{
+            paperSize: t('notepad.paperSize'),
+            orientation: t('notepad.orientation'),
+            portrait: t('notepad.portrait'),
+            landscape: t('notepad.landscape'),
+            marginTop: t('notepad.marginTop'),
+            marginBottom: t('notepad.marginBottom'),
+            marginLeft: t('notepad.marginLeft'),
+            marginRight: t('notepad.marginRight'),
+            header: t('notepad.header'),
+            footer: t('notepad.footer'),
+          }}
+          pageSetup={pageSetup}
+          onChange={setPageSetup}
+          onClose={() => setPageSetupOpen(false)}
+        />
       )}
 
       {saveAsOpen && (
-        <Modal title={t('notepad.saveAsTitle')} onClose={() => setSaveAsOpen(false)}>
-          <div className="space-y-3 text-[13px]">
-            <div>
-              <label className="mb-1.5 block" htmlFor="notepad-save-encoding">{t('notepad.encoding')}</label>
-              <select id="notepad-save-encoding" className={inputClass} value={saveAsEncoding} onChange={(event) => setSaveAsEncoding(event.target.value as TextEncoding)}>
-                <option value="utf-8">UTF-8</option>
-                <option value="utf-16le">UTF-16 LE</option>
-                <option value="utf-16be">UTF-16 BE</option>
-                <option value="ansi">ANSI</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1.5 block" htmlFor="notepad-save-line-ending">{t('notepad.lineEnding')}</label>
-              <select id="notepad-save-line-ending" className={inputClass} value={saveAsLineEnding} onChange={(event) => setSaveAsLineEnding(event.target.value as LineEnding)}>
-                <option value="crlf">Windows (CRLF)</option>
-                <option value="lf">Unix (LF)</option>
-                <option value="cr">Macintosh (CR)</option>
-              </select>
-            </div>
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <button type="button" className={dialogButtonClass} onClick={() => setSaveAsOpen(false)}>{t('agentConfig.cancel')}</button>
-            <button type="button" className={`${dialogButtonClass} border-[#0067c0] bg-[#0067c0] text-white hover:bg-[#005a9e] dark:bg-[#0067c0]`} onClick={() => void confirmSaveAs()}>{t('notepad.continue')}</button>
-          </div>
-        </Modal>
+        <SaveAsDialog
+          title={t('notepad.saveAsTitle')}
+          cancelLabel={t('agentConfig.cancel')}
+          continueLabel={t('notepad.continue')}
+          encodingLabel={t('notepad.encoding')}
+          lineEndingLabel={t('notepad.lineEnding')}
+          encoding={saveAsEncoding}
+          lineEnding={saveAsLineEnding}
+          onEncodingChange={setSaveAsEncoding}
+          onLineEndingChange={setSaveAsLineEnding}
+          onClose={() => setSaveAsOpen(false)}
+          onContinue={() => void confirmSaveAs()}
+        />
       )}
 
       {settingsOpen && (

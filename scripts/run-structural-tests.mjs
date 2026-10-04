@@ -7,9 +7,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 export const STRUCTURAL_TESTS = [
   'test-agent-config-dialog-scroll.mjs',
+  'test-code-file-tab-visuals.ts',
   'test-ctrl-w-close-tab.mjs',
   'test-document-tab-displacement.ts',
+  'test-document-tab-reorder.mjs',
   'test-excel-dark-color-preservation.mjs',
+  'test-excel-dirty-fingerprint.mjs',
   'test-excel-font-picker-search-pin.mjs',
   'test-excel-format-picker-width.mjs',
   'test-excel-frame-scroll.mjs',
@@ -17,14 +20,19 @@ export const STRUCTURAL_TESTS = [
   'test-excel-style-roundtrip.ts',
   'test-excel-toolbar-selected-theme.mjs',
   'test-excel-toolbar-shortcuts.mjs',
+  'test-file-hover-card-border.mjs',
+  'test-file-list-row-hover-border.mjs',
   'test-notepad-format-menu-compact.mjs',
+  'test-notepad-menubar.mjs',
   'test-notepad-menubar-narrow.mjs',
   'test-notepad-popup-center-fit.mjs',
   'test-notepad-remove-recent-updates.mjs',
   'test-notepad-settings-no-wheel-zoom.mjs',
   'test-notepad-table-delete-edit.mjs',
+  'test-notepad-table-newlines.mjs',
+  'test-notepad-toolbar-language.mjs',
   'test-notepad-toolbar-no-document-zoom.mjs',
-  // The two office-shortcuts scripts import extensionless TS modules, so they run under tsx.
+  // The scripts below import extensionless TS modules, so they run under tsx.
   'test-office-shortcuts-dispatch.mjs',
   'test-office-shortcuts-catalog.mjs',
   'test-panel-collapse-icons.mjs',
@@ -35,7 +43,15 @@ export const STRUCTURAL_TESTS = [
   'test-word-toolbar-overflow.mjs',
 ]
 
-const NEEDS_TSX = new Set(['test-office-shortcuts-dispatch.mjs', 'test-office-shortcuts-catalog.mjs'])
+const NEEDS_TSX = new Set([
+  'test-document-tab-reorder.mjs',
+  'test-excel-dirty-fingerprint.mjs',
+  'test-notepad-menubar.mjs',
+  'test-notepad-table-newlines.mjs',
+  'test-notepad-toolbar-language.mjs',
+  'test-office-shortcuts-dispatch.mjs',
+  'test-office-shortcuts-catalog.mjs',
+])
 const tsxCli = path.join(root, 'node_modules/tsx/dist/cli.mjs')
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

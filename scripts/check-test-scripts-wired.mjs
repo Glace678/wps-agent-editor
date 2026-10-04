@@ -9,23 +9,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const scriptsDir = path.join(root, 'scripts')
 const workflowsDir = path.join(root, '.github', 'workflows')
 
-// Known standalone/manual regression scripts. These currently have no
-// package.json, CI, structural-runner, or driver-script reference and are retained
-// as manually-invoked scripts (they previously passed only because they mentioned
-// their own filename in a header comment, which is no longer accepted as evidence).
-// They must be wired into a runner or removed in a follow-up. Any NEW test script
-// not referenced by package.json/CI/structural/driver and not listed here will
-// fail this check.
-const KNOWN_STANDALONE = new Set([
-  'test-code-file-tab-visuals.ts',
-  'test-document-tab-reorder.mjs',
-  'test-excel-dirty-fingerprint.mjs',
-  'test-file-hover-card-border.mjs',
-  'test-file-list-row-hover-border.mjs',
-  'test-notepad-menubar.mjs',
-  'test-notepad-table-newlines.mjs',
-  'test-notepad-toolbar-language.mjs',
-])
+// Known standalone/manual regression scripts. Every test-* script is wired into
+// run-structural-tests.mjs, package.json, CI, or a driver script; this list is
+// an empty allowlist kept so that a genuinely manual script requires explicit
+// review before being admitted.
+const KNOWN_STANDALONE = new Set()
 
 // 项16: a test script may end in .mjs, .ts, OR .js.
 const TEST_FILE = /^test-.*\.(mjs|ts|js)$/

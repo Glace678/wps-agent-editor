@@ -4205,9 +4205,7 @@ mod tests {
         .unwrap();
         assert_eq!(macos.source_path, backup);
         assert_eq!(macos.kind, GuardianKind::MacAppBundle);
-        assert!(macos
-            .launch_path
-            .ends_with("Contents/MacOS/office-agentic"));
+        assert!(macos.launch_path.ends_with("Contents/MacOS/office-agentic"));
     }
 
     #[test]

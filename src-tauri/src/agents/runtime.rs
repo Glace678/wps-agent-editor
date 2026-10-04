@@ -508,7 +508,8 @@ impl AgentRuntime {
         let entry_bytes = signature.len() + context.len();
         if entry_bytes <= MAX_ATTACHMENT_CACHE_SESSION_BYTES {
             let mut cache = self.attachment_cache.lock();
-            if cache.len() >= MAX_ATTACHMENT_CACHE_SESSIONS && !cache.contains_key(conversation_id) {
+            if cache.len() >= MAX_ATTACHMENT_CACHE_SESSIONS && !cache.contains_key(conversation_id)
+            {
                 if let Some(oldest) = cache
                     .iter()
                     .min_by_key(|(_, session)| session.touched_at)

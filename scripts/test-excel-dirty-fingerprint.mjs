@@ -6,13 +6,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import excelDirty from '../src/lightweight-office/utils/excel-dirty.ts'
-
-const {
+import {
   excelSheetsContentEqual,
   excelSheetsShareContentReferences,
   fingerprintExcelSheets,
-} = excelDirty
+} from '../src/lightweight-office/utils/excel-dirty.ts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const excelSrc = fs.readFileSync(

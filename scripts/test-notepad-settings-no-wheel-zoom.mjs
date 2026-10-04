@@ -9,10 +9,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const textEditor = fs.readFileSync(
-  path.join(root, 'src/lightweight-office/editors/TextEditor.tsx'),
-  'utf8',
-)
+const readSource = (relativePath) =>
+  fs.readFileSync(path.join(root, relativePath), 'utf8')
+const textEditor = readSource('src/lightweight-office/editors/TextEditor.tsx')
+const zoomModule = readSource('src/lightweight-office/editors/text-editor/zoom.ts')
+const findBarModule = readSource('src/lightweight-office/editors/text-editor/FindBar.tsx')
 
 let passed = 0
 function test(name, fn) {
@@ -51,9 +52,9 @@ test('normal wheel zoom is normalized and coalesced before live text reflow', ()
   assert.match(textEditor, /requestAnimationFrame\(flushWheelZoom\)/)
   assert.match(textEditor, /applyLiveZoom\(/)
   assert.match(
-    textEditor,
+    zoomModule,
     /setProperty\('--notepad-editor-font-size'/,
-    'each rendered zoom step must update the real font metrics',
+    'each rendered zoom step must update the real font metrics (applyNotepadTextZoom)',
   )
   assert.match(
     textEditor,

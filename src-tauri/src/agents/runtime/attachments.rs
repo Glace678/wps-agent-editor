@@ -466,7 +466,11 @@ pub(super) fn looks_like_text(bytes: &[u8]) -> bool {
     !sample.contains(&0) && controls.saturating_mul(100) < sample.len().saturating_mul(3)
 }
 
-pub(super) fn attachment_signature(owner: &str, message: &ChatMessage, maximum_chars: usize) -> String {
+pub(super) fn attachment_signature(
+    owner: &str,
+    message: &ChatMessage,
+    maximum_chars: usize,
+) -> String {
     let mut digest = Sha256::new();
     digest.update(owner.as_bytes());
     digest.update([0]);

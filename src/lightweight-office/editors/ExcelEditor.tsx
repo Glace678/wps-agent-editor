@@ -4,9 +4,8 @@ import '../../../node_modules/@fortune-sheet/react/dist/index.css'
 import '../fortune-sheet-theme.css'
 import { Workbook } from '@fortune-sheet/react'
 import type { WorkbookInstance } from '@fortune-sheet/react'
-import type { Cell, Sheet } from '@fortune-sheet/core'
+import type { Sheet } from '@fortune-sheet/core'
 import { useTranslation } from '@/lib/i18n/runtime'
-import type { LanguageCode } from '@/lib/i18n'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { useEditorStore } from '@/stores/editor.store'
 import { documentBridge } from '../agent/document-bridge'
@@ -23,8 +22,6 @@ import {
 } from '../utils/xlsx-convert'
 import {
   createFallbackSystemFontFaces,
-  getOrderedFontFamilyEntries,
-  isSymbolFontFamily,
   loadSystemFontFaces,
   normalizeSystemFontFamilyName,
   type SystemFontFace,
@@ -33,11 +30,44 @@ import { buildFontSearchTerms, normalizeFontSearchText } from '../utils/font-sea
 import { decorateExcelToolbarShortcuts } from '../utils/excel-toolbar-shortcuts'
 import { attachExcelLiveResize, type FortuneWorkbookApiLike } from '../utils/excel-live-resize'
 import { attachExcelFrameScroll } from '../utils/excel-frame-scroll'
-import {
-  attachExcelToolbarPopupBoundary,
-  EXCEL_TOOLBAR_POPUP_EDGE_INSET,
-} from '../utils/excel-toolbar-popup-boundary'
+import { attachExcelToolbarPopupBoundary } from '../utils/excel-toolbar-popup-boundary'
 import { mountExcelCircularColorPicker } from '../components/ExcelCircularColorPicker'
+import { EXCEL_FONT_SIZE_LABEL_RE } from '../utils/excel-picker-labels'
+import {
+  EXCEL_FONT_SIZE_MAX,
+  EXCEL_FONT_SIZE_MIN,
+  getExcelPickerCopyForPicker,
+} from '../utils/excel-picker-copy'
+import { getExcelToolbarPickerKindForPicker } from '../utils/excel-picker-kind'
+import {
+  collectSystemFontDisplayNames,
+  fitExcelToolbarPickerWidth,
+  orderExcelFontPickerOptions,
+} from '../utils/excel-picker-width'
+import {
+  applyExcelFontColorToSelection,
+  excelSelectionUsesFontColor,
+  getActiveExcelFontColorTarget,
+  getExcelCellFromSheet,
+  getExcelFontColorCombo,
+  getExcelFontColorCommand,
+  isExcelBgColorCombo,
+  isExcelColorCombo,
+  isExcelFontColorCombo,
+  isExcelFontColorPickerTrigger,
+  isExcelInlineStringCell,
+  resolveExcelCellEditorColors,
+  scheduleExcelCanvasRefresh,
+  type ExcelFontColorTarget,
+} from '../utils/excel-color'
+import {
+  applyExcelFontColorToEditorTextSelection,
+  captureExcelCellEditorTextRange,
+  getActiveExcelCellEditor,
+  restoreExcelCellEditorTextRange,
+  syncExcelCellEditorFontColor,
+  type ExcelCellEditorTextSelection,
+} from '../utils/excel-cell-editor'
 
 configureFortuneRendering()
 
@@ -49,466 +79,10 @@ interface ExcelEditorProps {
   onRegisterSave: (fn: (() => Promise<void>) | null) => void
 }
 
-type ExcelToolbarPickerKind = 'font' | 'font-size' | 'format'
-
-const EXCEL_FONT_SIZE_MIN = 1
-const EXCEL_FONT_SIZE_MAX = 409
 const DIRTY_CHECK_SETTLE_MS = 120
-
-// Localized Windows font names are what Excel displays, while users often
-// search with the corresponding pinyin or English internal name. The alias
-// table is shared with Word (utils/font-search.ts) so both pickers, which run
-// on the same system font inventory, always search identically.
-
-/** Fortune toolbar tips for font size (en / zh / es / ru / hi / zh-TW, plus app langs). */
-const EXCEL_FONT_SIZE_LABEL_RE =
-  /font\s*[- ]?\s*size|\btama[nñ]o\s*(de\s*)?fuente\b|\btama[nñ]o\s*fuente\b|размер\s*шрифта|шрифта\s*размер|फ़ॉन्ट\s*साइज़|\u5b57\u53f7|\u5b57\u865f|\u5b57\u4f53\u5927\u5c0f|\u5b57\u9ad4\u5927\u5c0f|\u5b57\u578b\u5927\u5c0f|schriftgr[oö]ße|taille\s*(de\s*)?(la\s*)?police|tamanho\s*(da\s*)?fonte|フォント\s*サイズ|حجم\s*الخط/
-
-/** Fortune toolbar tips for font family (size/color already filtered above).
- * JS \b is ASCII-only — a Cyrillic token wrapped in \b can never match, so
- * шрифт / формат must stay bare substrings. */
-const EXCEL_FONT_LABEL_RE =
-  /\bfont\b|\bfuente\b|шрифт|फ़ॉन्ट|\u5b57\u4f53|\u5b57\u9ad4|\bschriftart\b|\bpolice\b|\bfonte\b|フォント|الخط/
-
-const EXCEL_FONT_COLOR_LABEL_RE =
-  /font[\s-]*colou?r|text[\s-]*colou?r|\u6587\u672c\u989c\u8272|\u5b57\u4f53\u989c\u8272|\u6587\u5b57\u984f\u8272|\u5b57\u9ad4\u984f\u8272|color\s*(?:de\s*)?(?:texto|fuente)|цвет\s*шрифта/i
-
-const EXCEL_BG_COLOR_LABEL_RE =
-  /background|fill[\s-]*colou?r|cell[\s-]*colou?r|\u586b\u5145\u989c\u8272|\u5355\u5143\u683c\u989c\u8272|\u80cc\u666f\u989c\u8272|\u586b\u5145\u984f\u8272|\u55ae\u5143\u683c\u984f\u8272|\u80cc\u666f\u984f\u8272|color\s*(?:de\s*)?(?:fondo|relleno|celda)|цвет\s*(?:заливки|фона|ячейки)/i
-
-/** Fortune toolbar tips for cell number format (格式 / Format / …). */
-const EXCEL_FORMAT_LABEL_RE =
-  /\bformat(?:o|ear)?\b|\bformatear\b|формат|\u683c\u5f0f|प्रारूप|फॉर्मेट|書式|تنسيق/
-
-/** Typical format-list option labels (locale-independent heuristic).
- * Covers the Fortune workbook locales (en / zh / es / ru). */
-const EXCEL_FORMAT_OPTION_HINT_RE =
-  /automatic|general|plain\s*text|percent|scientific|accounting|currency|custom\s*format|date\s*time|number|\u0430\u0432\u0442\u043e\u043c\u0430\u0442|\u043e\u0431\u044b\u0447\u043d\u044b\u0439\s*\u0442\u0435\u043a\u0441\u0442|\u0447\u0438\u0441\u043b\u043e\u0432|\u043f\u0440\u043e\u0446\u0435\u043d\u0442|\u0432\u0430\u043b\u044e\u0442|\u0434\u0430\u0442\u0430|\u0432\u0440\u0435\u043c\u044f|\u0444\u0438\u043d\u0430\u043d\u0441\u043e\u0432|\u0431\u0443\u0445\u0433\u0430\u043b\u0442\u0435\u0440|\u0444\u043e\u0440\u043c\u0430\u0442|personalizado|contabilidad|moneda|fecha|porcentaje|cient[i\u00ed]fico|\u81ea\u52a8|\u5e38\u89c4|\u6587\u672c|\u6570\u5b57|\u767e\u5206\u6bd4|\u79d1\u5b66|\u4f1a\u8ba1|\u8d27\u5e01|\u65e5\u671f|\u65f6\u95f4|\u81ea\u5b9a\u4e49/
 
 function normalizeExcelPickerSearchText(value: string) {
   return normalizeFontSearchText(value)
-}
-
-interface ExcelPickerCopy {
-  placeholder: string
-  empty: string
-  invalid: string
-}
-
-const EXCEL_FONT_EMPTY_TEXTS: Record<LanguageCode, string> = {
-  'zh-CN': '没有匹配的字体，按 Enter 使用输入的字体',
-  en: 'No matching font. Press Enter to use the typed font.',
-  ja: '一致するフォントがありません。Enter を押して入力したフォントを使用します。',
-  es: 'No hay fuentes coincidentes. Presione Entrar para usar la fuente escrita.',
-  pt: 'Nenhuma fonte correspondente. Pressione Enter para usar a fonte digitada.',
-  de: 'Keine passende Schriftart. Drücken Sie die Eingabetaste, um die eingegebene Schriftart zu verwenden.',
-  fr: 'Aucune police correspondante. Appuyez sur Entrée pour utiliser la police saisie.',
-  ru: 'Шрифт не найден. Нажмите Enter, чтобы использовать введенный шрифт.',
-  ar: 'لا يوجد خط مطابق. اضغط على Enter لاستخدام الخط المكتوب.',
-}
-
-const EXCEL_FONT_SIZE_EMPTY_TEXTS: Record<LanguageCode, (min: number, max: number) => string> = {
-  'zh-CN': (min, max) => `请输入 ${min} 到 ${max} 之间的字号`,
-  en: (min, max) => `Enter a size from ${min} to ${max}.`,
-  ja: (min, max) => `${min} から ${max} までのサイズを入力してください。`,
-  es: (min, max) => `Introduzca un tamaño de ${min} a ${max}.`,
-  pt: (min, max) => `Insira um tamanho de ${min} a ${max}.`,
-  de: (min, max) => `Geben Sie eine Größe zwischen ${min} und ${max} ein.`,
-  fr: (min, max) => `Entrez une taille comprise entre ${min} et ${max}.`,
-  ru: (min, max) => `Введите размер от ${min} до ${max}.`,
-  ar: (min, max) => `أدخل حجمًا من ${min} إلى ${max}.`,
-}
-
-const EXCEL_FONT_SIZE_INVALID_TEXTS: Record<LanguageCode, (min: number, max: number) => string> = {
-  'zh-CN': (min, max) => `字号需介于 ${min} 和 ${max} 之间`,
-  en: (min, max) => `Font size must be from ${min} to ${max}.`,
-  ja: (min, max) => `フォントサイズは ${min} ～ ${max} の範囲内である必要があります。`,
-  es: (min, max) => `El tamaño de fuente debe estar entre ${min} y ${max}.`,
-  pt: (min, max) => `O tamanho da fonte deve estar entre ${min} e ${max}.`,
-  de: (min, max) => `Der Schriftgrad muss zwischen ${min} und ${max} liegen.`,
-  fr: (min, max) => `La taille de la police doit être comprise entre ${min} et ${max}.`,
-  ru: (min, max) => `Размер шрифта должен быть от ${min} до ${max}.`,
-  ar: (min, max) => `يجب أن يكون حجم الخط بين ${min} و ${max}.`,
-}
-
-const EXCEL_FORMAT_EMPTY_TEXTS: Record<LanguageCode, string> = {
-  'zh-CN': '没有匹配的格式',
-  en: 'No matching format.',
-  ja: '一致する書式がありません。',
-  es: 'No hay formato coincidente.',
-  pt: 'Nenhum formato correspondente.',
-  de: 'Kein passendes Format.',
-  fr: 'Aucun format correspondant.',
-  ru: 'Формат не найден.',
-  ar: 'لا يوجد تنسيق مطابق.',
-}
-
-function getExcelPickerCopyForPicker(
-  kind: ExcelToolbarPickerKind,
-  language: string,
-  placeholders: {
-    font: string
-    fontSize: string
-    format: string
-  },
-): ExcelPickerCopy {
-  const lang = (language in EXCEL_FONT_EMPTY_TEXTS ? language : 'en') as LanguageCode
-
-  if (kind === 'font') {
-    return {
-      placeholder: placeholders.font,
-      empty: EXCEL_FONT_EMPTY_TEXTS[lang],
-      invalid: '',
-    }
-  }
-
-  if (kind === 'font-size') {
-    return {
-      placeholder: placeholders.fontSize,
-      empty: EXCEL_FONT_SIZE_EMPTY_TEXTS[lang](EXCEL_FONT_SIZE_MIN, EXCEL_FONT_SIZE_MAX),
-      invalid: EXCEL_FONT_SIZE_INVALID_TEXTS[lang](EXCEL_FONT_SIZE_MIN, EXCEL_FONT_SIZE_MAX),
-    }
-  }
-
-  // format
-  return {
-    placeholder: placeholders.format,
-    empty: EXCEL_FORMAT_EMPTY_TEXTS[lang],
-    invalid: '',
-  }
-}
-
-/**
- * Identify font / font-size / format combo popups across Fortune locales.
- * Label match covers en/zh/es/ru/hi (+ app UI langs). Option heuristics
- * recover when aria-label is missing or localized in an unexpected form.
- */
-function getExcelToolbarPickerKindForPicker(
-  popup: HTMLElement,
-): ExcelToolbarPickerKind | null {
-  const container = popup.closest<HTMLElement>('.fortune-toobar-combo-container')
-  const button = container?.querySelector<HTMLElement>('.fortune-toolbar-combo-button')
-  const label = [button?.getAttribute('aria-label'), button?.dataset.tips]
-    .filter(Boolean)
-    .join(' ')
-    .toLocaleLowerCase()
-
-  // Font color / background color / non-list combos must not get a search field.
-  if (EXCEL_FONT_COLOR_LABEL_RE.test(label) || EXCEL_BG_COLOR_LABEL_RE.test(label)) {
-    return null
-  }
-
-  if (EXCEL_FONT_SIZE_LABEL_RE.test(label)) return 'font-size'
-  if (EXCEL_FORMAT_LABEL_RE.test(label)) return 'format'
-  if (EXCEL_FONT_LABEL_RE.test(label)) return 'font'
-
-  const options = [...popup.querySelectorAll<HTMLElement>('.fortune-toolbar-select-option')]
-  if (options.length === 0) return null
-
-  const texts = options.map((option) => option.textContent?.trim() || '').filter(Boolean)
-  if (texts.length === 0) return null
-
-  // Pure numeric lists are font sizes (8, 9, 10, 11…).
-  if (texts.every((text) => /^\d+(?:\.\d+)?$/.test(text))) return 'font-size'
-
-  // Number-format menus mix tokens like "Automatic" / "##0.00" / "Custom formats".
-  const looksLikeFormatList =
-    texts.length >= 6
-    && texts.length <= 40
-    && texts.some((text) => EXCEL_FORMAT_OPTION_HINT_RE.test(text.toLocaleLowerCase()))
-  if (looksLikeFormatList) return 'format'
-
-  // Font lists are long and mostly non-numeric family names (Arial, 微软雅黑…).
-  const nonNumeric = texts.filter((text) => !/^\d+(?:\.\d+)?%?$/.test(text))
-  const looksLikeFontList =
-    texts.length >= 8
-    && nonNumeric.length >= Math.max(6, Math.floor(texts.length * 0.7))
-    && nonNumeric.some((text) => /[A-Za-z\u4e00-\u9fff\u3040-\u30ff\u0400-\u04ff]/.test(text))
-
-  if (looksLikeFontList) return 'font'
-  return null
-}
-
-// Match CSS: .excel-toolbar-picker-search padding 10px L/R
-const EXCEL_PICKER_HEADER_PAD_X = 20
-// Match CSS: .excel-toolbar-picker-search-input padding 8px L/R + 1px border ×2
-const EXCEL_PICKER_INPUT_PAD_X = 16
-const EXCEL_PICKER_INPUT_BORDER_X = 2
-// Match Fortune: .fortune-toolbar-select-option padding 8px 12px → 12+12
-const EXCEL_PICKER_OPTION_PAD_X = 24
-// Font-size options are 1–2 digits; use tighter side pad for that column only.
-const EXCEL_FONT_SIZE_OPTION_PAD_X = 16
-// Submenu rows ("Custom formats ▸"): label plus the 14px flyout arrow + gap.
-const EXCEL_PICKER_SUBMENU_ARROW_X = 22
-// 1px safety against sub-pixel rounding — do NOT pad extra (causes trailing black strip).
-const EXCEL_PICKER_SNAP = 1
-
-/** Per-picker size clamps (font-size must stay compact). */
-const EXCEL_PICKER_WIDTH_LIMITS: Record<
-  ExcelToolbarPickerKind,
-  { min: number, max: number }
-> = {
-  font: { min: 160, max: 520 },
-  // Digits + short localized hint only — never as wide as the font menu.
-  'font-size': { min: 56, max: 168 },
-  // Real rows peak around ~260px (visible label metrics); 320 is a guard only.
-  format: { min: 120, max: 320 },
-}
-
-/**
- * Language + kind width strategy (not one global algorithm).
- *
- * - list:        drive width from the longest list label (short UI languages)
- * - placeholder: drive width from the search hint (long translated hints)
- * - max:         take the larger of the two (font inventory / mixed format lists)
- */
-type ExcelPickerWidthStrategy = 'list' | 'placeholder' | 'max'
-
-function isCjkUiLanguage(language: string): boolean {
-  return language === 'zh-CN' || language === 'ja'
-}
-
-function isLongHintLanguage(language: string): boolean {
-  return language === 'pt'
-    || language === 'es'
-    || language === 'fr'
-    || language === 'de'
-    || language === 'ru'
-    || language === 'ar'
-}
-
-function resolveExcelPickerWidthStrategy(
-  kind: ExcelToolbarPickerKind,
-  language: string,
-  placeholderWidth: number,
-  longestLabelWidth: number,
-): ExcelPickerWidthStrategy {
-  // --- Font size: options are only short numbers (9…72). ---
-  // Always hug the placeholder; list never expands the panel (digits << hint).
-  // CJK short hints ("字号" / "サイズ") → still placeholder-driven, stays narrow.
-  // Long-hint languages → placeholder-driven with a hard max clamp above.
-  if (kind === 'font-size') {
-    return 'placeholder'
-  }
-
-  // --- Format: short CJK labels → list; long Western hints → placeholder. ---
-  if (kind === 'format') {
-    if (isCjkUiLanguage(language)) {
-      return longestLabelWidth >= placeholderWidth ? 'list' : 'placeholder'
-    }
-    if (isLongHintLanguage(language) && placeholderWidth >= longestLabelWidth) {
-      return 'placeholder'
-    }
-    return 'max'
-  }
-
-  // --- Font family: list is the scanned system font inventory. ---
-  // (a) short placeholder (zh/ja/en-short) → longest font name
-  // (b) long placeholder (pt/es/fr/…) → placeholder text
-  if (isCjkUiLanguage(language)) {
-    return longestLabelWidth >= placeholderWidth ? 'list' : 'placeholder'
-  }
-  if (isLongHintLanguage(language) && placeholderWidth > longestLabelWidth) {
-    return 'placeholder'
-  }
-  // en and mixed: classic max so neither clips
-  return 'max'
-}
-
-/**
- * Collect display labels from the scanned system font inventory.
- * Prefer localized displayName (what the Excel list shows) over familyName.
- */
-function collectSystemFontDisplayNames(fontFaces: SystemFontFace[]): string[] {
-  const names = new Set<string>()
-  for (const face of fontFaces) {
-    const displayName = face.displayName.trim()
-    const familyName = face.familyName.trim()
-    if (displayName) names.add(displayName)
-    if (familyName) names.add(familyName)
-  }
-  return [...names]
-}
-
-/** Reorder only the picker DOM. Fortune keeps its default font at internal
- * index zero, while the visible catalog follows Word: Chinese first, then A-Z. */
-function orderExcelFontPickerOptions(
-  select: HTMLElement,
-  fontFaces: readonly SystemFontFace[],
-): void {
-  const rankByName = new Map<string, number>()
-  const familyByName = new Map<string, string>()
-  getOrderedFontFamilyEntries(fontFaces).forEach(({ familyName, displayName }, index) => {
-    for (const name of [familyName, displayName]) {
-      const key = normalizeSystemFontFamilyName(name)
-      if (!key) continue
-      rankByName.set(key, index)
-      familyByName.set(key, familyName)
-    }
-  })
-
-  const options = [...select.querySelectorAll<HTMLElement>(':scope > .fortune-toolbar-select-option')]
-  options
-    .map((option, originalIndex) => {
-      const label = option.textContent?.trim() || ''
-      const key = normalizeSystemFontFamilyName(label)
-      const familyName = familyByName.get(key) || label
-      option.classList.toggle('excel-font-picker-symbol-label', isSymbolFontFamily(familyName))
-      return {
-        option,
-        originalIndex,
-        rank: rankByName.get(key) ?? Number.MAX_SAFE_INTEGER,
-      }
-    })
-    .sort((left, right) => left.rank - right.rank || left.originalIndex - right.originalIndex)
-    .forEach(({ option }) => select.append(option))
-}
-
-/**
- * Measure text with a real DOM node using the same font metrics as the search
- * input / option list (more accurate than canvas for CJK / localized UI fonts).
- */
-function measureExcelPickerTextWidth(
-  text: string,
-  reference: HTMLElement,
-  fontSize = '12px',
-): number {
-  if (!text) return 0
-  const style = window.getComputedStyle(reference)
-  const probe = document.createElement('span')
-  probe.setAttribute('aria-hidden', 'true')
-  probe.textContent = text
-  probe.style.cssText = [
-    'position:absolute',
-    'left:-99999px',
-    'top:0',
-    'visibility:hidden',
-    'pointer-events:none',
-    'white-space:nowrap',
-    `font-style:${style.fontStyle || 'normal'}`,
-    `font-weight:${style.fontWeight || '400'}`,
-    `font-size:${fontSize}`,
-    `font-family:${style.fontFamily || "'Segoe UI','Microsoft YaHei UI',Arial,sans-serif"}`,
-    `letter-spacing:${style.letterSpacing || 'normal'}`,
-    'padding:0',
-    'margin:0',
-    'border:0',
-  ].join(';')
-  document.body.appendChild(probe)
-  const width = Math.ceil(probe.getBoundingClientRect().width)
-  probe.remove()
-  return width
-}
-
-/**
- * Size a toolbar search picker by kind + language strategy.
- * Text width is measured from the actual label strings — never from
- * option.scrollWidth (that inherits a bloated parent width and stretches
- * the font-size menu).
- */
-function fitExcelToolbarPickerWidth(
-  popup: HTMLElement,
-  select: HTMLElement,
-  input: HTMLInputElement,
-  placeholder: string,
-  kind: ExcelToolbarPickerKind,
-  language: string,
-  extraLabels: string[] = [],
-) {
-  const limits = EXCEL_PICKER_WIDTH_LIMITS[kind]
-  const optionPad = kind === 'font-size'
-    ? EXCEL_FONT_SIZE_OPTION_PAD_X
-    : EXCEL_PICKER_OPTION_PAD_X
-
-  const placeholderWidth = measureExcelPickerTextWidth(placeholder, input)
-
-  // Pure text metrics only (no scrollWidth — it mirrors the current panel width).
-  let longestLabelWidth = 0
-  let longestLabel = ''
-  const considerName = (name: string, trailingWidth = 0) => {
-    if (!name) return
-    const textWidth = measureExcelPickerTextWidth(name, input) + trailingWidth
-    if (textWidth > longestLabelWidth) {
-      longestLabelWidth = textWidth
-      longestLabel = name
-    }
-  }
-
-  for (const name of extraLabels) considerName(name)
-  for (const option of select.querySelectorAll<HTMLElement>('.fortune-toolbar-select-option')) {
-    // Options inside a collapsed flyout ("More formats") size that flyout, not
-    // this popup — and their host row's textContent would concatenate every
-    // nested label into one bogus extra-wide line.
-    if (option.closest('.toolbar-item-sub-menu')) continue
-    const menuLine = option.querySelector<HTMLElement>('.fortune-toolbar-menu-line')
-    if (menuLine) {
-      considerName(menuLine.textContent?.trim() || '', EXCEL_PICKER_SUBMENU_ARROW_X)
-      continue
-    }
-    considerName(option.textContent?.trim() || '')
-  }
-
-  const widthForPlaceholder =
-    placeholderWidth
-    + EXCEL_PICKER_INPUT_PAD_X
-    + EXCEL_PICKER_INPUT_BORDER_X
-    + EXCEL_PICKER_HEADER_PAD_X
-    + EXCEL_PICKER_SNAP
-
-  const widthForLongestLabel =
-    longestLabelWidth
-    + optionPad
-    + EXCEL_PICKER_SNAP
-
-  const strategy = resolveExcelPickerWidthStrategy(
-    kind,
-    language,
-    placeholderWidth,
-    longestLabelWidth,
-  )
-
-  let raw: number
-  if (strategy === 'placeholder') {
-    raw = widthForPlaceholder
-  } else if (strategy === 'list') {
-    // Still never clip the placeholder — list mode only means list is preferred
-    // when it is already the wider signal.
-    raw = Math.max(widthForLongestLabel, widthForPlaceholder)
-  } else {
-    raw = Math.max(widthForPlaceholder, widthForLongestLabel)
-  }
-
-  const preferredWidth = Math.max(limits.min, Math.min(raw, limits.max))
-  const shellWidth = popup.closest<HTMLElement>('.excel-editor-shell')
-    ?.getBoundingClientRect().width ?? window.innerWidth
-  const editorCap = Math.max(1, Math.floor(
-    shellWidth - EXCEL_TOOLBAR_POPUP_EDGE_INSET * 2,
-  ))
-  const width = Math.min(preferredWidth, editorCap)
-
-  // Override Fortune's nowrap expansion so our text-based width sticks.
-  popup.style.whiteSpace = 'normal'
-  popup.style.minWidth = `${width}px`
-  popup.style.width = `${width}px`
-  popup.style.maxWidth = `${width}px`
-  popup.style.boxSizing = 'border-box'
-  popup.style.overflow = 'hidden'
-  select.style.minWidth = '100%'
-  select.style.width = '100%'
-  select.style.maxWidth = '100%'
-  select.style.boxSizing = 'border-box'
-  input.style.width = '100%'
-  input.style.maxWidth = '100%'
-  input.style.boxSizing = 'border-box'
-
-  if (longestLabel) {
-    popup.dataset.excelPickerLongestLabel = longestLabel
-  }
-  popup.dataset.excelPickerWidthStrategy = strategy
-  popup.dataset.excelPickerWidthMode = strategy
-  popup.dataset.excelPickerContentWidth = String(width)
-  popup.dataset.excelPopupPreferredWidth = String(preferredWidth)
-  popup.dataset.excelPickerLanguage = language
 }
 
 function parseExcelFontSizeForPicker(value: string): number | null {
@@ -523,448 +97,8 @@ function parseExcelFontSizeForPicker(value: string): number | null {
   return Math.round(size * 100) / 100
 }
 
-function isAuthoredExcelCellColor(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0
-}
+// --- color logic moved to utils/excel-color.ts ---
 
-function isImplicitFortuneFontColor(value: unknown) {
-  if (!isAuthoredExcelCellColor(value)) return true
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, '')
-  return normalized === 'rgb(51,51,51)' || normalized === 'rgba(51,51,51,1)'
-}
-
-type ExcelSelection = NonNullable<ReturnType<WorkbookInstance['getSelection']>>
-type ExcelFontColorCommand = { color: string | undefined }
-
-type ExcelFontColorTarget = {
-  sheetId?: string
-  selection: ExcelSelection
-}
-
-function isExcelFontColorCombo(container: Element | null): boolean {
-  if (!(container instanceof HTMLElement)) return false
-  const button = container.querySelector<HTMLElement>('.fortune-toolbar-combo-button')
-  const icon = button?.querySelector('use')
-  const iconHref = icon?.getAttribute('href') || icon?.getAttribute('xlink:href') || ''
-  if (iconHref.endsWith('#font-color')) return true
-
-  const label = [button?.getAttribute('aria-label'), button?.dataset.tips]
-    .filter(Boolean)
-    .join(' ')
-    .toLocaleLowerCase()
-  return EXCEL_FONT_COLOR_LABEL_RE.test(label)
-}
-
-function isExcelBgColorCombo(container: Element | null): boolean {
-  if (!(container instanceof HTMLElement)) return false
-  const button = container.querySelector<HTMLElement>('.fortune-toolbar-combo-button')
-  const icon = button?.querySelector('use')
-  const iconHref = icon?.getAttribute('href') || icon?.getAttribute('xlink:href') || ''
-  if (iconHref.endsWith('#background')) return true
-
-  const label = [button?.getAttribute('aria-label'), button?.dataset.tips]
-    .filter(Boolean)
-    .join(' ')
-    .toLocaleLowerCase()
-  return EXCEL_BG_COLOR_LABEL_RE.test(label)
-}
-
-function isExcelColorCombo(container: Element | null): boolean {
-  return isExcelFontColorCombo(container) || isExcelBgColorCombo(container)
-}
-
-function getExcelFontColorCombo(target: Element): HTMLElement | null {
-  const container = target.closest<HTMLElement>('.fortune-toobar-combo-container')
-  return container && isExcelFontColorCombo(container) ? container : null
-}
-
-function isExcelFontColorPickerTrigger(target: Element) {
-  return getExcelFontColorCombo(target) !== null
-    && target.closest('.fortune-toolbar-combo-button, .fortune-toolbar-combo-arrow, .fortune-toolbar-combo') !== null
-}
-
-function normalizeExcelToolbarColor(value: string | null | undefined): string | undefined {
-  const color = value?.trim().toLowerCase()
-  if (!color) return undefined
-  if (/^#[0-9a-f]{6}$/.test(color)) return color
-  if (/^#[0-9a-f]{3}$/.test(color)) {
-    return `#${[...color.slice(1)].map((channel) => channel.repeat(2)).join('')}`
-  }
-
-  const channels = color.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number)
-  if (!channels || channels.length !== 3 || channels.some((channel) => !Number.isFinite(channel))) {
-    return undefined
-  }
-  return `#${channels
-    .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0'))
-    .join('')}`
-}
-
-function getExcelFontColorCommand(target: Element): ExcelFontColorCommand | null {
-  const combo = getExcelFontColorCombo(target)
-  const popup = target.closest('.fortune-toolbar-combo-popup')
-  if (!combo || !popup || !combo.contains(popup)) return null
-
-  const swatch = target.closest<HTMLElement>('.fortune-toolbar-color-picker-item')
-  if (swatch) {
-    const color = normalizeExcelToolbarColor(swatch.style.backgroundColor)
-    return color ? { color } : null
-  }
-  if (target.closest('#fortune-custom-color .color-reset, .excel-color-reset-btn')) return { color: undefined }
-  if (target.closest('#fortune-custom-color .button-primary, .excel-color-confirm-btn')) {
-    const customPicker = popup.querySelector<HTMLElement>('.excel-circular-color-picker')
-    const selectedColor = customPicker?.dataset.selectedColor
-    const input = popup.querySelector<HTMLInputElement>('#fortune-custom-color input[type="color"]')
-    const color = normalizeExcelToolbarColor(selectedColor || input?.value)
-    return color ? { color } : null
-  }
-  return null
-}
-
-function getActiveExcelCellEditor(shell: HTMLElement) {
-  const editor = shell.querySelector<HTMLElement>(
-    '.luckysheet-input-box .luckysheet-cell-input',
-  )
-  const box = editor?.closest<HTMLElement>('.luckysheet-input-box')
-  if (!editor || !box) return null
-  const style = getComputedStyle(box)
-  if (style.display === 'none' || style.visibility === 'hidden' || box.getClientRects().length === 0) {
-    return null
-  }
-  const editorZIndex = Number.parseInt(style.zIndex, 10)
-  if (!Number.isFinite(editorZIndex) || editorZIndex < 0) return null
-  return editor
-}
-
-type ExcelCellEditorTextSelection = {
-  range: Range
-  start: number
-  end: number
-}
-
-function captureExcelCellEditorTextRange(
-  shell: HTMLElement,
-): ExcelCellEditorTextSelection | null {
-  const editor = getActiveExcelCellEditor(shell)
-  const selection = window.getSelection()
-  if (!editor || !selection || selection.isCollapsed || selection.rangeCount === 0) return null
-
-  const range = selection.getRangeAt(0)
-  if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return null
-
-  const prefix = document.createRange()
-  prefix.selectNodeContents(editor)
-  prefix.setEnd(range.startContainer, range.startOffset)
-  const start = prefix.toString().length
-  prefix.setEnd(range.endContainer, range.endOffset)
-  const end = prefix.toString().length
-  if (start === end) return null
-  return { range: range.cloneRange(), start, end }
-}
-
-function restoreExcelCellEditorTextRange(
-  shell: HTMLElement,
-  snapshot: ExcelCellEditorTextSelection,
-): boolean {
-  const editor = getActiveExcelCellEditor(shell)
-  const selection = window.getSelection()
-  const { range } = snapshot
-  if (!editor || !selection
-    || !range.startContainer.isConnected
-    || !range.endContainer.isConnected
-    || !editor.contains(range.startContainer)
-    || !editor.contains(range.endContainer)) return false
-
-  try {
-    selection.removeAllRanges()
-    selection.addRange(range.cloneRange())
-    return true
-  } catch {
-    return false
-  }
-}
-
-function findExcelEditorTextPoint(editor: HTMLElement, offset: number) {
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
-  let consumed = 0
-  let lastNode: Text | null = null
-  let node: Node | null
-  while ((node = walker.nextNode())) {
-    const textNode = node as Text
-    const next = consumed + textNode.data.length
-    if (offset <= next) return { node: textNode, offset: offset - consumed }
-    consumed = next
-    lastNode = textNode
-  }
-  return lastNode && offset === consumed
-    ? { node: lastNode, offset: lastNode.data.length }
-    : null
-}
-
-function applyExcelFontColorToEditorTextSelection(
-  shell: HTMLElement,
-  snapshot: ExcelCellEditorTextSelection,
-  color: string | undefined,
-) {
-  const editor = getActiveExcelCellEditor(shell)
-  if (!editor || snapshot.start < 0 || snapshot.start >= snapshot.end) return false
-
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
-  const textNodes: Text[] = []
-  let node: Node | null
-  while ((node = walker.nextNode())) textNodes.push(node as Text)
-
-  type TextRun = { text: string; style: string }
-  const runs: TextRun[] = []
-  let consumed = 0
-  for (const textNode of textNodes) {
-    const text = textNode.data
-    const nodeStart = consumed
-    const nodeEnd = nodeStart + text.length
-    consumed = nodeEnd
-    if (!text) continue
-
-    const inheritedStyle = document.createElement('span').style
-    const ancestors: HTMLElement[] = []
-    let element = textNode.parentElement
-    while (element && element !== editor) {
-      ancestors.push(element)
-      element = element.parentElement
-    }
-    for (const ancestor of ancestors.reverse()) {
-      for (const property of Array.from(ancestor.style)) {
-        inheritedStyle.setProperty(
-          property,
-          ancestor.style.getPropertyValue(property),
-          ancestor.style.getPropertyPriority(property),
-        )
-      }
-    }
-
-    const cuts = [0, text.length]
-    if (snapshot.start > nodeStart && snapshot.start < nodeEnd) {
-      cuts.push(snapshot.start - nodeStart)
-    }
-    if (snapshot.end > nodeStart && snapshot.end < nodeEnd) {
-      cuts.push(snapshot.end - nodeStart)
-    }
-    cuts.sort((left, right) => left - right)
-
-    for (let index = 0; index < cuts.length - 1; index += 1) {
-      const from = cuts[index]
-      const to = cuts[index + 1]
-      if (from === to) continue
-      const style = document.createElement('span').style
-      style.cssText = inheritedStyle.cssText
-      const pieceStart = nodeStart + from
-      const pieceEnd = nodeStart + to
-      if (pieceStart >= snapshot.start && pieceEnd <= snapshot.end) {
-        if (color) style.color = color
-        else style.removeProperty('color')
-      }
-      const run = { text: text.slice(from, to), style: style.cssText }
-      const previous = runs[runs.length - 1]
-      if (previous?.style === run.style) previous.text += run.text
-      else runs.push(run)
-    }
-  }
-  if (snapshot.end > consumed || runs.length === 0) return false
-
-  editor.replaceChildren(...runs.map((run) => {
-    const span = document.createElement('span')
-    span.dir = 'auto'
-    span.style.cssText = run.style
-    span.textContent = run.text
-    return span
-  }))
-
-  const start = findExcelEditorTextPoint(editor, snapshot.start)
-  const end = findExcelEditorTextPoint(editor, snapshot.end)
-  const selection = window.getSelection()
-  if (start && end && selection) {
-    const range = document.createRange()
-    range.setStart(start.node, start.offset)
-    range.setEnd(end.node, end.offset)
-    selection.removeAllRanges()
-    selection.addRange(range)
-  }
-  return true
-}
-
-function cloneExcelSelection(selection: ExcelSelection): ExcelSelection {
-  return selection.map((range) => ({
-    row: [...range.row],
-    column: [...range.column],
-  }))
-}
-
-function excelSelectionsEqual(
-  left: ExcelSelection | undefined,
-  right: ExcelSelection | undefined,
-) {
-  if (!left || !right || left.length !== right.length) return false
-  return left.every((leftRange, index) => {
-    const rightRange = right[index]
-    return leftRange.row[0] === rightRange.row[0]
-      && leftRange.row[1] === rightRange.row[1]
-      && leftRange.column[0] === rightRange.column[0]
-      && leftRange.column[1] === rightRange.column[1]
-  })
-}
-
-function getExcelSheet(api: WorkbookInstance, sheetId?: string) {
-  try {
-    return api.getSheet(sheetId ? { id: sheetId } : undefined)
-  } catch {
-    return null
-  }
-}
-
-function getActiveExcelFontColorTarget(api: WorkbookInstance): ExcelFontColorTarget | null {
-  const selection = api.getSelection()
-  if (!selection?.length) return null
-  return {
-    sheetId: getExcelSheet(api)?.id,
-    selection: cloneExcelSelection(selection),
-  }
-}
-
-function comparableExcelColor(value: unknown): string | null {
-  if (!isAuthoredExcelCellColor(value)) return null
-  return normalizeExcelToolbarColor(value) ?? value.trim().toLowerCase()
-}
-
-function getExcelCellFromSheet(
-  api: WorkbookInstance,
-  row: number,
-  column: number,
-  sheetId?: string,
-) {
-  return getExcelSheet(api, sheetId)?.data?.[row]?.[column] ?? null
-}
-
-function excelSelectionUsesFontColor(
-  api: WorkbookInstance,
-  target: ExcelFontColorTarget,
-  color: string | undefined,
-) {
-  const expected = comparableExcelColor(color)
-  const { selection, sheetId } = target
-  for (const range of selection) {
-    for (let row = range.row[0]; row <= range.row[1]; row += 1) {
-      for (let column = range.column[0]; column <= range.column[1]; column += 1) {
-        const cell = getExcelCellFromSheet(api, row, column, sheetId)
-        if (comparableExcelColor(cell?.fc) !== expected) {
-          return false
-        }
-        const ct = cell?.ct
-        if (ct?.t === 'inlineStr' && Array.isArray(ct.s)) {
-          for (const run of ct.s) {
-            if (run && typeof run === 'object' && comparableExcelColor(run.fc) !== expected) {
-              return false
-            }
-          }
-        }
-      }
-    }
-  }
-  return true
-}
-
-function applyExcelFontColorToSelection(
-  api: WorkbookInstance,
-  target: ExcelFontColorTarget,
-  color: string | undefined,
-) {
-  const { selection, sheetId } = target
-  const sheetOption = sheetId ? { id: sheetId } : undefined
-  const calls: Parameters<WorkbookInstance['batchCallApis']>[0] = [{
-    name: 'setCellFormatByRange',
-    args: sheetOption
-      ? ['fc', color, selection, sheetOption]
-      : ['fc', color, selection],
-  }]
-
-  for (const range of selection) {
-    for (let row = range.row[0]; row <= range.row[1]; row += 1) {
-      for (let column = range.column[0]; column <= range.column[1]; column += 1) {
-        const ct = getExcelCellFromSheet(api, row, column, sheetId)?.ct
-        if (ct?.t !== 'inlineStr' || !Array.isArray(ct.s)) continue
-        calls.push({
-          name: 'setCellFormat',
-          args: [row, column, 'ct', {
-            ...ct,
-            fa: ct.fa || 'General',
-            s: ct.s.map((run: unknown) => (
-              run && typeof run === 'object' ? { ...run, fc: color } : run
-            )),
-          }, ...(sheetOption ? [sheetOption] : [])],
-        })
-      }
-    }
-  }
-
-  api.batchCallApis(calls)
-}
-
-function syncExcelCellEditorFontColor(
-  shell: HTMLElement,
-  api: WorkbookInstance,
-  target: ExcelFontColorTarget,
-  color: string | undefined,
-) {
-  const editor = getActiveExcelCellEditor(shell)
-  if (!excelSelectionsEqual(api.getSelection(), target.selection)) return false
-  const firstRange = target.selection[0]
-  if (!editor || !firstRange) return false
-
-  const cell = getExcelCellFromSheet(
-    api,
-    firstRange.row[0],
-    firstRange.column[0],
-    target.sheetId,
-  )
-  const foreground = color ?? resolveExcelCellEditorColors(
-    cell ? { bg: cell.bg, fc: undefined } : null,
-    document.documentElement.classList.contains('dark'),
-  ).foreground
-  editor.style.color = foreground
-  editor.dataset.excelCellForeground = foreground
-  editor.querySelectorAll<HTMLElement>('span').forEach((span) => {
-    span.style.color = foreground
-  })
-  return true
-}
-
-function isExcelInlineStringCell(cell: Cell | null | undefined) {
-  return cell?.ct?.t === 'inlineStr' && Array.isArray(cell.ct.s) && cell.ct.s.length > 0
-}
-
-function scheduleExcelCanvasRefresh() {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      window.dispatchEvent(new Event('resize'))
-    })
-  })
-}
-
-export function resolveExcelCellEditorColors(
-  cell: Pick<Cell, 'bg' | 'fc'> | null,
-  darkMode: boolean,
-) {
-  const hasBackground = isAuthoredExcelCellColor(cell?.bg)
-  const hasFontColor = !isImplicitFortuneFontColor(cell?.fc)
-  return {
-    background: hasBackground ? cell!.bg!.trim() : darkMode ? '#000000' : '#ffffff',
-    foreground: hasFontColor
-      ? cell!.fc!.trim()
-      : hasBackground
-        ? '#000000'
-        : darkMode
-          ? '#f5f5f5'
-          : '#000000',
-  }
-}
 
 export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegisterSave }: ExcelEditorProps) {
   const { language, t } = useTranslation()
@@ -1088,15 +222,15 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
     async function load() {
       try {
-        console.log('[ExcelEditor] 开始加载文件:', filePath)
+        console.log('[ExcelEditor] 开始加载文�?', filePath)
         const buffer = await readSpreadsheetBuffer(filePath)
-        console.log('[ExcelEditor] 文件读取成功，大小:', buffer.byteLength, 'bytes')
+        console.log('[ExcelEditor] 文件读取成功，大�?', buffer.byteLength, 'bytes')
         if (cancelled) return
         const loaded = await xlsxBufferToSheets(buffer)
         // The parse await can span a file switch; discard a stale result so it
         // cannot overwrite the newly requested workbook / baseline / state.
         if (cancelled) return
-        console.log('[ExcelEditor] 解析成功，工作表数:', loaded.length)
+        console.log('[ExcelEditor] 解析成功，工作表�?', loaded.length)
         sheetsRef.current = loaded
         lastContentSnapshotRef.current = loaded
         // Provisional baseline until Fortune expands the model after mount.
@@ -1769,7 +903,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     })
     decorateFortuneDialogs()
 
-    // Hover box under toolbar icons: 「撤销 (Ctrl+Z)」 — name + shortcut in parentheses.
+    // Hover box under toolbar icons: 「撤销 (Ctrl+Z)�?�?name + shortcut in parentheses.
     // Re-run after Fortune/React remounts toolbar items (undo enable/disable, overflow, etc.).
     let toolbarShortcutTimer: number | null = null
     const scheduleToolbarShortcutDecoration = () => {
@@ -2377,8 +1511,8 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     }
   }, [fontFaces, fontLibraryReady, language, sheets])
 
-  // Fortune Sheet 在 onChange 引用变化时会重新触发 effect；必须保持回调稳定。
-  // Only mark dirty when workbook *content* diverges from the saved baseline —
+  // Fortune Sheet �?onChange 引用变化时会重新触发 effect；必须保持回调稳定�?
+  // Only mark dirty when workbook *content* diverges from the saved baseline �?
   // selection / click / layout onChange must not light the tab dirty dot.
   const handleChange = useCallback((data: Sheet[]) => {
     sheetsRef.current = data
@@ -2399,7 +1533,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     readyRef.current = true
     documentBridge.setExcel(api, filePath)
     // Wait for Fortune's post-mount normalization, then lock the clean baseline.
-    // (Single rAF was too short — click/selection still looked "dirty".)
+    // (Single rAF was too short �?click/selection still looked "dirty".)
     cancelBaselineSettle()
     baselineSettleTimerRef.current = window.setTimeout(() => {
       baselineSettleTimerRef.current = null
@@ -2419,16 +1553,16 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
   /**
    * DPR 变化监听（窗口拖到不同缩放比的显示器）：
-   * Fortune 在初始化时读取一次 devicePixelRatio，之后不会自动更新。
-   * 拖到 2K→1K 或反之显示器后，canvas backing store 的尺寸仍然按旧
-   * DPR 计算，导致 CSS 尺寸 / 纹理尺寸不匹配 → 整屏发糊。
+   * Fortune 在初始化时读取一�?devicePixelRatio，之后不会自动更新�?
+   * 拖到 2K�?K 或反之显示器后，canvas backing store 的尺寸仍然按�?
+   * DPR 计算，导�?CSS 尺寸 / 纹理尺寸不匹�?�?整屏发糊�?
    *
-   * 修复：用 matchMedia 监听 DPR 变化，变化后：
-   *   1. 把 Fortune sheetCtx.devicePixelRatio 同步为当前值
-   *   2. 触发 resize 让 Fortune 重建 canvas（按新 DPR 重设 width/height）
-   *   3. snapCanvasCssSizeToBacking 在 draw 时自动对齐 CSS 尺寸
+   * 修复：用 matchMedia 监听 DPR 变化，变化后�?
+   *   1. �?Fortune sheetCtx.devicePixelRatio 同步为当前�?
+   *   2. 触发 resize �?Fortune 重建 canvas（按�?DPR 重设 width/height�?
+   *   3. snapCanvasCssSizeToBacking �?draw 时自动对�?CSS 尺寸
    *
-   * 此 effect 在 workbook 挂载后启动（通过 handleWorkbookRef 手动调度）。
+   * �?effect �?workbook 挂载后启动（通过 handleWorkbookRef 手动调度）�?
    */
   const startDprWatcher = useCallback((): (() => void) | null => {
     if (typeof window.matchMedia !== 'function') return null
@@ -2447,12 +1581,12 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
         if (ctx && typeof ctx === 'object') {
           const newDpr = window.devicePixelRatio || 1
           ctx.devicePixelRatio = newDpr
-          // 触发 Fortune 重建 canvas context 与 backing store
+          // 触发 Fortune 重建 canvas context �?backing store
           const evt = new UIEvent('resize', { bubbles: false, cancelable: false })
           window.dispatchEvent(evt)
         }
       } catch {
-        /* 内部结构变化时安全兜底 */
+        /* 内部结构变化时安全兜�?*/
       }
       attach()
     }
@@ -2471,7 +1605,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     }
   }, [])
 
-  // 启动 DPR 监听（组件卸载时清理）；必须放在所有 early return 之前
+  // 启动 DPR 监听（组件卸载时清理）；必须放在所�?early return 之前
   useEffect(() => {
     const stop = startDprWatcher()
     return () => stop?.()

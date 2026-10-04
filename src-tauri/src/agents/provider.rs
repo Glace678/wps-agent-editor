@@ -40,10 +40,7 @@ fn ephemeral_cache_control() -> Value {
 fn mark_anthropic_conversation_breakpoints(messages: &mut [Value], count: usize) {
     let start = messages.len().saturating_sub(count.min(messages.len()));
     for message in messages.iter_mut().skip(start) {
-        let Some(blocks) = message
-            .get_mut("content")
-            .and_then(Value::as_array_mut)
-        else {
+        let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) else {
             continue;
         };
         // A breakpoint is honoured on the block the prefix ends at; marking the
@@ -331,10 +328,7 @@ fn anthropic_request_body(
             })
         })
         .collect::<Vec<_>>();
-    mark_anthropic_conversation_breakpoints(
-        &mut conversation,
-        ANTHROPIC_CONVERSATION_BREAKPOINTS,
-    );
+    mark_anthropic_conversation_breakpoints(&mut conversation, ANTHROPIC_CONVERSATION_BREAKPOINTS);
     let mut body = json!({
         "model": model,
         "max_tokens": 8192,
@@ -1032,8 +1026,7 @@ fn prompt_cache_key(provider_id: &str, conversation_id: &str) -> String {
 /// hard 400 on strict OpenAI-compatible servers, so the hint is never sent
 /// speculatively.
 fn provider_supports_prompt_cache_key(provider: &ResolvedProvider) -> bool {
-    matches!(provider.protocol, ProviderProtocol::Openai)
-        || provider.api.contains("opencode.ai")
+    matches!(provider.protocol, ProviderProtocol::Openai) || provider.api.contains("opencode.ai")
 }
 
 fn append_endpoint(base: &str, endpoint: &str) -> String {
@@ -1398,7 +1391,7 @@ mod tests {
             .filter(|message| message["content"][0]["cache_control"].is_object())
             .count();
         assert_eq!(breakpoints, ANTHROPIC_CONVERSATION_BREAKPOINTS);
-        assert!(breakpoints + 1 <= ANTHROPIC_CACHE_BREAKPOINT_CAP);
+        assert!(breakpoints < ANTHROPIC_CACHE_BREAKPOINT_CAP);
         assert!(conversation[0]["content"][0]["cache_control"].is_null());
         assert!(conversation[1]["content"][0]["cache_control"].is_null());
         assert!(conversation[3]["content"][0]["cache_control"].is_object());
@@ -1407,12 +1400,10 @@ mod tests {
 
     #[test]
     fn anthropic_body_marks_every_conversation_turn_below_the_cap() {
-        let messages = vec![
-            ProviderMessage {
-                role: "user".to_owned(),
-                content: "only".to_owned(),
-            },
-        ];
+        let messages = vec![ProviderMessage {
+            role: "user".to_owned(),
+            content: "only".to_owned(),
+        }];
         let body = anthropic_request_body("claude", &None, &messages);
         let conversation = body["messages"].as_array().unwrap();
         assert!(conversation

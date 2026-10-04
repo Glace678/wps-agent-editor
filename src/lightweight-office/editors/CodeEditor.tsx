@@ -9,11 +9,6 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import * as monaco from 'monaco-editor'
-import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
-import CssWorker from 'monaco-editor/languages/features/css/css.worker.js?worker'
-import HtmlWorker from 'monaco-editor/languages/features/html/html.worker.js?worker'
-import JsonWorker from 'monaco-editor/languages/features/json/json.worker.js?worker'
-import TypeScriptWorker from 'monaco-editor/languages/features/typescript/ts.worker.js?worker'
 import {
   Bug,
   ChevronRight,
@@ -45,288 +40,25 @@ import type { DocumentEvent } from '@/types/document'
 import { documentBridge } from '../agent/document-bridge'
 import { readFileBytes } from '../utils/file-io'
 import './code-debug.css'
+import { configureMonacoEnvironment } from '../utils/code-monaco-environment'
+import {
+  clampCodeFontSize,
+  CODE_FONT_LINE_HEIGHT_RATIO,
+  CODE_FONT_SIZE_DEFAULT,
+  DEBUGGER_EXTENSIONS,
+  decodeSource,
+  escapeRegExp,
+  getDarkTheme,
+  isSameFile,
+  LEGACY_CODE_FONT_SIZE_KEY,
+  NO_BREAKPOINTS,
+} from '../utils/code-editor-constants'
+import { installFixedVerticalScrollbar } from '../utils/code-fixed-scrollbar'
+import { configureMonaco } from '../utils/code-monaco-setup'
 
-type MonacoEnvironmentGlobal = typeof globalThis & {
-  MonacoEnvironment?: {
-    getWorker: (moduleId: string, label: string) => Worker
-  }
-}
-
-;(globalThis as MonacoEnvironmentGlobal).MonacoEnvironment = {
-  getWorker(_moduleId, label) {
-    if (label === 'json') return new JsonWorker()
-    if (label === 'css' || label === 'scss' || label === 'less') return new CssWorker()
-    if (label === 'html' || label === 'handlebars' || label === 'razor') return new HtmlWorker()
-    if (label === 'typescript' || label === 'javascript') return new TypeScriptWorker()
-    return new EditorWorker()
-  },
-}
+configureMonacoEnvironment()
 
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>()
-let themesRegistered = false
-let languageDefaultsConfigured = false
-
-const LEGACY_CODE_FONT_SIZE_KEY = 'officeagentic-code-editor-font-size'
-const CODE_FONT_SIZE_MIN = 8
-const CODE_FONT_SIZE_MAX = 32
-const CODE_FONT_SIZE_DEFAULT = 14
-const CODE_FONT_LINE_HEIGHT_RATIO = 22 / 14
-const CODE_SCROLLBAR_THUMB_HEIGHT = 48
-const IMMEDIATE_SCROLL_TYPE = 1 as monaco.editor.ScrollType
-
-const DEBUGGER_EXTENSIONS = new Set(['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'py', 'pyw'])
-const NO_BREAKPOINTS: number[] = []
-
-function clampCodeFontSize(value: number): number {
-  return Math.min(CODE_FONT_SIZE_MAX, Math.max(CODE_FONT_SIZE_MIN, value))
-}
-
-function installFixedVerticalScrollbar(
-  editor: monaco.editor.IStandaloneCodeEditor,
-  host: HTMLElement,
-): monaco.IDisposable {
-  const editorRoot = editor.getDomNode()
-  if (!editorRoot) return { dispose() {} }
-
-  const track = document.createElement('div')
-  const thumb = document.createElement('div')
-  track.className = 'officeagentic-code-fixed-scrollbar'
-  track.dataset.testid = 'code-fixed-scrollbar'
-  track.setAttribute('role', 'presentation')
-  track.setAttribute('aria-hidden', 'true')
-  thumb.className = 'officeagentic-code-fixed-scrollbar-thumb'
-  thumb.dataset.testid = 'code-fixed-scrollbar-thumb'
-  track.appendChild(thumb)
-  editorRoot.appendChild(track)
-
-  let disposed = false
-  let frame = 0
-  const hiddenNativeThumbs = new Set<HTMLElement>()
-
-  const getMetrics = () => {
-    const trackHeight = track.clientHeight
-    const scale = editorRoot.offsetHeight > 0
-      ? editorRoot.getBoundingClientRect().height / editorRoot.offsetHeight
-      : Number(host.dataset.codeZoom) || 1
-    const thumbHeight = Math.min(trackHeight, CODE_SCROLLBAR_THUMB_HEIGHT / Math.max(scale, 0.01))
-    const maxScrollTop = Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height)
-    return {
-      maxScrollTop,
-      thumbHeight,
-      travel: Math.max(0, trackHeight - thumbHeight),
-    }
-  }
-
-  const sync = () => {
-    frame = 0
-    if (disposed) return
-
-    const verticalScrollbars = Array.from(
-      editorRoot.querySelectorAll<HTMLElement>('.monaco-scrollable-element > .scrollbar.vertical'),
-    )
-    const nativeScrollbar = verticalScrollbars.reduce<HTMLElement | null>(
-      (largest, candidate) => !largest || candidate.clientHeight > largest.clientHeight ? candidate : largest,
-      null,
-    )
-    const nativeThumb = nativeScrollbar?.querySelector<HTMLElement>(':scope > .slider')
-    if (nativeThumb && !hiddenNativeThumbs.has(nativeThumb)) {
-      nativeThumb.classList.add('officeagentic-code-native-scrollbar-thumb')
-      hiddenNativeThumbs.add(nativeThumb)
-    }
-
-    const { maxScrollTop, thumbHeight, travel } = getMetrics()
-    track.hidden = maxScrollTop <= 0 || track.clientHeight <= 0
-    thumb.style.height = `${thumbHeight}px`
-    const ratio = maxScrollTop > 0 ? Math.min(1, Math.max(0, editor.getScrollTop() / maxScrollTop)) : 0
-    thumb.style.top = `${ratio * travel}px`
-  }
-
-  const scheduleSync = () => {
-    if (disposed || frame) return
-    frame = requestAnimationFrame(sync)
-  }
-
-  const setScrollRatio = (ratio: number) => {
-    const { maxScrollTop } = getMetrics()
-    editor.setScrollTop(Math.min(1, Math.max(0, ratio)) * maxScrollTop, IMMEDIATE_SCROLL_TYPE)
-    scheduleSync()
-  }
-
-  const onTrackPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 || event.target === thumb) return
-    event.preventDefault()
-    const rect = track.getBoundingClientRect()
-    const physicalThumbHeight = thumb.getBoundingClientRect().height
-    const travel = Math.max(0, rect.height - physicalThumbHeight)
-    setScrollRatio(travel > 0 ? (event.clientY - rect.top - physicalThumbHeight / 2) / travel : 0)
-  }
-
-  const onThumbPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    const startY = event.clientY
-    const { maxScrollTop } = getMetrics()
-    const startScrollTop = editor.getScrollTop()
-    const physicalTravel = Math.max(
-      0,
-      track.getBoundingClientRect().height - thumb.getBoundingClientRect().height,
-    )
-    thumb.classList.add('active')
-    thumb.setPointerCapture(event.pointerId)
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      if (physicalTravel <= 0) return
-      editor.setScrollTop(
-        startScrollTop + (moveEvent.clientY - startY) / physicalTravel * maxScrollTop,
-        IMMEDIATE_SCROLL_TYPE,
-      )
-      scheduleSync()
-    }
-    const finishDrag = () => {
-      thumb.classList.remove('active')
-      thumb.removeEventListener('pointermove', onPointerMove)
-      thumb.removeEventListener('pointerup', finishDrag)
-      thumb.removeEventListener('pointercancel', finishDrag)
-    }
-    thumb.addEventListener('pointermove', onPointerMove)
-    thumb.addEventListener('pointerup', finishDrag)
-    thumb.addEventListener('pointercancel', finishDrag)
-  }
-
-  const onWheel = (event: WheelEvent) => {
-    if (event.ctrlKey || event.metaKey) return
-    event.preventDefault()
-    const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight)
-    const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
-      ? event.deltaY * lineHeight
-      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-        ? event.deltaY * editor.getLayoutInfo().height
-        : event.deltaY
-    editor.setScrollTop(editor.getScrollTop() + delta, IMMEDIATE_SCROLL_TYPE)
-    scheduleSync()
-  }
-
-  track.addEventListener('pointerdown', onTrackPointerDown)
-  thumb.addEventListener('pointerdown', onThumbPointerDown)
-  track.addEventListener('wheel', onWheel, { passive: false })
-  const scrollDisposable = editor.onDidScrollChange(scheduleSync)
-  const layoutDisposable = editor.onDidLayoutChange(scheduleSync)
-  const contentDisposable = editor.onDidChangeModelContent(scheduleSync)
-  const resizeObserver = new ResizeObserver(scheduleSync)
-  resizeObserver.observe(editorRoot)
-  const zoomObserver = new MutationObserver(scheduleSync)
-  zoomObserver.observe(host, { attributes: true, attributeFilter: ['data-code-zoom', 'style'] })
-  scheduleSync()
-
-  return {
-    dispose() {
-      disposed = true
-      if (frame) cancelAnimationFrame(frame)
-      scrollDisposable.dispose()
-      layoutDisposable.dispose()
-      contentDisposable.dispose()
-      resizeObserver.disconnect()
-      zoomObserver.disconnect()
-      track.removeEventListener('pointerdown', onTrackPointerDown)
-      thumb.removeEventListener('pointerdown', onThumbPointerDown)
-      track.removeEventListener('wheel', onWheel)
-      hiddenNativeThumbs.forEach((element) => element.classList.remove('officeagentic-code-native-scrollbar-thumb'))
-      track.remove()
-    },
-  }
-}
-
-function configureMonaco(): void {
-  if (!themesRegistered) {
-    monaco.editor.defineTheme('officeagentic-code-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [
-        { token: 'keyword', foreground: '075DB7', fontStyle: 'bold' },
-        { token: 'type', foreground: '087E8B' },
-        { token: 'type.identifier', foreground: '087E8B' },
-        { token: 'string', foreground: '187A2F' },
-        { token: 'number', foreground: 'B24A00' },
-        { token: 'comment', foreground: '6A737D', fontStyle: 'italic' },
-        { token: 'regexp', foreground: 'A31575' },
-      ],
-      colors: {
-        'editor.background': '#FFFFFF',
-        'editor.foreground': '#202124',
-        'editor.lineHighlightBackground': '#F3F6F8',
-        'editor.selectionBackground': '#ADD6FF',
-        'editor.inactiveSelectionBackground': '#DCEBFA',
-        'editorGutter.background': '#F8F9FA',
-        'editorLineNumber.foreground': '#7A818A',
-        'editorLineNumber.activeForeground': '#202124',
-        'editorIndentGuide.background1': '#D9DEE3',
-      },
-    })
-    monaco.editor.defineTheme('officeagentic-code-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [
-        { token: 'keyword', foreground: '65A9FF', fontStyle: 'bold' },
-        { token: 'type', foreground: '4EC9B0' },
-        { token: 'type.identifier', foreground: '4EC9B0' },
-        { token: 'string', foreground: '9CDC8C' },
-        { token: 'number', foreground: 'F2A65A' },
-        { token: 'comment', foreground: '8B949E', fontStyle: 'italic' },
-        { token: 'regexp', foreground: 'D16D9E' },
-      ],
-      colors: {
-        'editor.background': '#181A1F',
-        'editor.foreground': '#DDE1E6',
-        'editor.lineHighlightBackground': '#22252B',
-        'editor.selectionBackground': '#264F78',
-        'editor.inactiveSelectionBackground': '#303A46',
-        'editorGutter.background': '#15171B',
-        'editorLineNumber.foreground': '#7D8590',
-        'editorLineNumber.activeForeground': '#E6EDF3',
-        'editorIndentGuide.background1': '#30343B',
-      },
-    })
-    themesRegistered = true
-  }
-
-  if (!languageDefaultsConfigured) {
-    const options: monaco.typescript.CompilerOptions = {
-      allowNonTsExtensions: true,
-      allowJs: true,
-      checkJs: false,
-      target: monaco.typescript.ScriptTarget.ESNext,
-      module: monaco.typescript.ModuleKind.ESNext,
-      moduleResolution: monaco.typescript.ModuleResolutionKind.NodeJs,
-      jsx: monaco.typescript.JsxEmit.ReactJSX,
-      noEmit: true,
-    }
-    monaco.typescript.typescriptDefaults.setCompilerOptions(options)
-    monaco.typescript.javascriptDefaults.setCompilerOptions(options)
-    monaco.typescript.typescriptDefaults.setEagerModelSync(true)
-    monaco.typescript.javascriptDefaults.setEagerModelSync(true)
-    languageDefaultsConfigured = true
-  }
-}
-
-function decodeSource(bytes: Uint8Array): string {
-  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-    return new TextDecoder('utf-8').decode(bytes.subarray(3))
-  }
-  return new TextDecoder('utf-8').decode(bytes)
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function getDarkTheme(): boolean {
-  return document.documentElement.classList.contains('dark')
-}
-
-function isSameFile(left: string, right: string): boolean {
-  return left.replace(/\\/g, '/').toLowerCase() === right.replace(/\\/g, '/').toLowerCase()
-}
 
 type CodeCommand =
   | 'run'

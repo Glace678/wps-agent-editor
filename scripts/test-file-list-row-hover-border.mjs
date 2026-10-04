@@ -48,13 +48,12 @@ test('shipped hover border class draws full rectangle with transparent default',
   const cls = loadShippedHoverBorderClass()
   assert.match(cls, /\bborder\b/, 'must set border width for full rectangular outline')
   assert.match(cls, /\bborder-transparent\b/, 'default state must not show a colored box')
-  assert.doesNotMatch(cls, /hover:bg-/, 'border token must not own background fill')
 })
 
-test('light mode hover uses black border; dark mode hover uses white border', () => {
+test('hover uses theme border token plus subtle accent fill', () => {
   const cls = loadShippedHoverBorderClass()
-  assert.match(cls, /\bhover:border-black\b/, 'light/day mode: black hover box')
-  assert.match(cls, /\bdark:hover:border-white\b/, 'dark/night mode: white hover box')
+  assert.match(cls, /\bhover:border-border\/80\b/, 'hover box follows the theme border token')
+  assert.match(cls, /\bhover:bg-accent\/60\b/, 'hover adds a subtle accent fill')
 })
 
 test('FileTree (浏览) imports and applies FILE_LIST_ROW_HOVER_BORDER on dir and file rows', () => {
@@ -87,8 +86,6 @@ test('shared styles module file exists at shipped path', () => {
   assert.ok(
     fs.existsSync(path.join(root, 'src/components/file-manager/file-list-row-styles.ts')),
   )
-  // unused require keep for createRequire pattern stability
-  void require
 })
 
 console.log(`\nShipped hover border class: "${loadShippedHoverBorderClass()}"`)

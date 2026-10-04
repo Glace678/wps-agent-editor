@@ -132,68 +132,86 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
 
   const handleSend = useCallback(async (content: string, attachments: AgentAttachment[]) => {
     if (!activeAgentId) return
+    const runId = crypto.randomUUID()
     const userMessage: ChatMessage = { role: 'user', content, attachments, timestamp: Date.now() }
     addMessage(activeAgentId, userMessage)
     clearCollaborationEvents()
     setIsRunning(true)
-    const runId = crypto.randomUUID()
     setActiveRunId(runId)
     setIsStopping(false)
     setTaskStatus(t('agentUi.processing'))
 
     const history = [...(messages[activeAgentId] || []), userMessage]
     const conversationId = ensureConversationId(activeAgentId)
+
+    interface ResolvedTurn {
+      message: ChatMessage
+      toolCalls: number
+      failed: boolean
+    }
+
+    // Resolves the final assistant turn, or null when the user stopped the run
+    // (stopping takes precedence over error/success text).
+    const resolveTurn = async (): Promise<ResolvedTurn | null> => {
+      try {
+        const { result } = await desktopApi.agents.chat({
+          agentId: activeAgentId,
+          messages: history,
+          conversationId,
+          runId,
+          onEvent: handleAgentEvent,
+        })
+        if ('error' in result) {
+          return useAgentStore.getState().isStopping
+            ? null
+            : {
+                failed: true,
+                toolCalls: 0,
+                message: { role: 'assistant', content: t('agentUi.error', { error: result.error }), timestamp: Date.now() },
+              }
+        }
+        return {
+          failed: false,
+          toolCalls: result.toolCalls.length,
+          message: {
+            role: 'assistant',
+            content: result.response,
+            cacheUsage: result.cacheUsage,
+            timestamp: Date.now(),
+          },
+        }
+      } catch (err) {
+        console.error('[AgentSidebar] chat request failed:', err)
+        if (useAgentStore.getState().isStopping) return null
+        return {
+          failed: true,
+          toolCalls: 0,
+          message: { role: 'assistant', content: t('agentUi.requestFailedGeneric'), timestamp: Date.now() },
+        }
+      }
+    }
+
     try {
       await persistConversation(conversationId, history)
-      const { result } = await desktopApi.agents.chat({
-        agentId: activeAgentId,
-        messages: history,
-        conversationId,
-        runId,
-        onEvent: handleAgentEvent,
-      })
-
-      if ('error' in result) {
-        if (useAgentStore.getState().isStopping) {
-          setTaskStatus(t('codeEditor.stopDebug'))
-        } else {
-          const assistantMessage: ChatMessage = {
-            role: 'assistant',
-            content: t('agentUi.error', { error: result.error }),
-            timestamp: Date.now(),
-          }
-          completeAssistantStream(activeAgentId, runId, assistantMessage)
-          await persistConversation(conversationId, [...history, assistantMessage])
-        }
-      } else {
-        const assistantMessage: ChatMessage = {
-          role: 'assistant',
-          content: result.response,
-          cacheUsage: result.cacheUsage,
-          timestamp: Date.now(),
-        }
-        completeAssistantStream(activeAgentId, runId, assistantMessage)
-        await persistConversation(conversationId, [...history, assistantMessage])
-        if (result.toolCalls.length > 0) {
-          setTaskStatus(t('agentUi.documentOperationsCompleted', { count: result.toolCalls.length }))
+      const turn = await resolveTurn()
+      if (useAgentStore.getState().isStopping) {
+        setTaskStatus(t('codeEditor.stopDebug'))
+      } else if (turn) {
+        completeAssistantStream(activeAgentId, runId, turn.message)
+        await persistConversation(conversationId, [...history, turn.message])
+        if (turn.failed) {
+          setTaskStatus(t('agentUi.failed'))
+        } else if (turn.toolCalls > 0) {
+          setTaskStatus(t('agentUi.documentOperationsCompleted', { count: turn.toolCalls }))
         } else {
           setTaskStatus(t('agentUi.completed'))
         }
       }
     } catch (err) {
-      console.error('[AgentSidebar] chat request failed:', err)
+      console.error('[AgentSidebar] chat send failed:', err)
       if (useAgentStore.getState().isStopping) {
         setTaskStatus(t('codeEditor.stopDebug'))
       } else {
-        const assistantMessage: ChatMessage = {
-          role: 'assistant',
-          content: t('agentUi.requestFailedGeneric'),
-          timestamp: Date.now(),
-        }
-        completeAssistantStream(activeAgentId, runId, assistantMessage)
-        void persistConversation(conversationId, [...history, assistantMessage]).catch((error) => {
-          console.error('[AgentSidebar] Failed to persist failed conversation:', error)
-        })
         setTaskStatus(t('agentUi.failed'))
       }
     } finally {

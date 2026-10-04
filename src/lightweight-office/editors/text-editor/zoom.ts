@@ -4,6 +4,16 @@ export const NOTEPAD_ZOOM_STEP = 10
 export const NOTEPAD_WHEEL_ZOOM_IDLE_MS = 160
 export const NOTEPAD_FONT_POINT_TO_PIXEL = 96 / 72
 
+export function applyNotepadTextZoom(
+  root: HTMLElement | null,
+  fontSizePoints: number,
+  percent: number,
+): void {
+  if (!root) return
+  const pixels = fontSizePoints * NOTEPAD_FONT_POINT_TO_PIXEL * (percent / 100)
+  root.style.setProperty('--notepad-editor-font-size', `${pixels}px`)
+}
+
 export function clampNotepadZoom(value: number): number {
   if (!Number.isFinite(value)) return NOTEPAD_MIN_ZOOM
   const stepped = Math.round(value / NOTEPAD_ZOOM_STEP) * NOTEPAD_ZOOM_STEP

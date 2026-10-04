@@ -95,9 +95,8 @@ fn open_url_with_windows_shell(url: &str) -> AppResult<()> {
 
 #[tauri::command]
 pub fn app_open_url(url: String) -> AppResult<SuccessResult> {
-    let parsed = url::Url::parse(&url).map_err(|error| {
-        AppError::new("invalid-argument", format!("Invalid URL: {error}"))
-    })?;
+    let parsed = url::Url::parse(&url)
+        .map_err(|error| AppError::new("invalid-argument", format!("Invalid URL: {error}")))?;
     // The scheme allowlist is defense in depth, not the only injection barrier.
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err(AppError::new(
@@ -114,7 +113,9 @@ pub fn app_open_url(url: String) -> AppResult<SuccessResult> {
     #[cfg(not(target_os = "windows"))]
     {
         let status = if cfg!(target_os = "macos") {
-            std::process::Command::new("open").arg(parsed.as_str()).status()
+            std::process::Command::new("open")
+                .arg(parsed.as_str())
+                .status()
         } else {
             std::process::Command::new("xdg-open")
                 .arg(parsed.as_str())

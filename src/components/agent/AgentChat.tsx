@@ -5,11 +5,9 @@ import {
   ArrowUp,
   Bot,
   Clock,
-  Database,
   Loader2,
   Plus,
   Square,
-  Wrench,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -31,7 +29,11 @@ import { selectAgentAttachmentPaths } from '@/lib/agent-attachment-picker'
 import { AgentModelPicker } from './AgentModelPicker'
 import { AgentReasoningPicker } from './AgentReasoningPicker'
 import { AgentChatHistory } from './AgentChatHistory'
-import { STARTER_PROMPTS, type StarterPrompt } from './starter-prompts'
+import { AgentWelcomeCard } from './AgentWelcomeCard'
+import { AgentMessageList } from './AgentMessageList'
+import { STARTER_PROMPTS } from './starter-prompts'
+
+const STARTER_PROMPTS_LOOKUP = new Map(STARTER_PROMPTS.map((item) => [item.id, item]))
 
 const EMPTY_AGENT_ATTACHMENTS: AgentAttachment[] = []
 
@@ -123,9 +125,11 @@ export function AgentChat({
     clearDraftAttachments(agentId)
   }
 
-  const handleStarterPrompt = (promptItem: StarterPrompt) => {
+  const handleStarterPrompt = (id: string) => {
     if (!agentId || isRunning) return
-    const text = (promptItem.defaultText as Record<string, string>)[language] ?? promptItem.defaultText.en
+    const item = STARTER_PROMPTS_LOOKUP.get(id)
+    if (!item) return
+    const text = (item.defaultText as Record<string, string>)[language] ?? item.defaultText.en
     setDraft(agentId, text)
     textareaRef.current?.focus()
   }
@@ -211,144 +215,21 @@ export function AgentChat({
           <div className="space-y-4 py-2">
             {/* Empty State Welcome Card with Starter Prompts */}
             {messages.length === 0 && (
-              <div className="my-auto flex flex-col items-center justify-center px-1 py-4 text-center">
-                <div
-                  className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-border/50 shadow-sm transition-transform hover:scale-105"
-                  style={{
-                    backgroundColor: (currentAgent?.color || '#3b82f6') + '18',
-                    borderColor: (currentAgent?.color || '#3b82f6') + '40',
-                  }}
-                >
-                  <Bot className="h-6 w-6" style={{ color: currentAgent?.color || '#3b82f6' }} />
-                </div>
-                <h3 className="text-sm font-semibold tracking-tight text-foreground">
-                  {agentName || t('agents.agent')}
-                </h3>
-                <p className="mt-1 max-w-[240px] text-xs text-muted-foreground">
-                  {currentAgent?.role || t('agentUi.emptyStateHint')}
-                </p>
-
-                {/* Quick Starter Prompt Chips */}
-                <div className="mt-5 w-full space-y-1.5 text-left">
-                  <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                    {t('agentUi.quickPrompts')}
-                  </span>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {STARTER_PROMPTS.map((item) => {
-                      const Icon = item.icon
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => handleStarterPrompt(item)}
-                          disabled={isRunning}
-                          className="flex items-center gap-2 rounded-xl border border-border/60 bg-card/80 p-2 text-left text-xs transition-all hover:border-primary/40 hover:bg-accent/60 hover:shadow-xs active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
-                        >
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
-                            <Icon className="h-3 w-3" />
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
-                            {t(item.labelKey)}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
+              <AgentWelcomeCard
+                agentName={agentName}
+                agentColor={currentAgent?.color || '#3b82f6'}
+                agentRole={currentAgent?.role}
+                disabled={isRunning}
+                onSelectPrompt={handleStarterPrompt}
+              />
             )}
 
             {/* Chat Message List */}
-            {messages.map((msg, i) => {
-              const isUser = msg.role === 'user'
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    'group flex flex-col',
-                    isUser ? 'items-end' : 'items-start',
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'relative max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed transition-all shadow-xs',
-                      isUser
-                        ? 'rounded-tr-xs bg-primary text-primary-foreground font-normal'
-                        : 'rounded-tl-xs border border-border/80 bg-card text-card-foreground',
-                    )}
-                  >
-                    {!isUser && (
-                      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-                        <span
-                          className="flex h-3.5 w-3.5 items-center justify-center rounded-sm"
-                          style={{
-                            backgroundColor: (currentAgent?.color || '#3b82f6') + '22',
-                            color: currentAgent?.color || '#3b82f6',
-                          }}
-                        >
-                          <Bot className="h-2.5 w-2.5" />
-                        </span>
-                        <span>{agentName || t('agents.agent')}</span>
-                      </div>
-                    )}
-
-                    {msg.content && (
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    )}
-
-                    {/* Attachments within message */}
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className={cn('flex flex-wrap gap-1.5', msg.content && 'mt-2')}>
-                        {msg.attachments.map((attachment) => (
-                          <span
-                            key={attachment.path}
-                            className={cn(
-                              'flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 py-0.5 text-[11px]',
-                              isUser
-                                ? 'bg-primary-foreground/15 text-primary-foreground'
-                                : 'border border-border bg-muted/60 text-foreground',
-                            )}
-                            title={attachment.path}
-                          >
-                            <FileIcon filePath={attachment.path} className="h-3.5 w-3.5" />
-                            <span className="truncate">{attachment.name}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Document operation badge */}
-                    {!isUser && msg.content.includes('```tool') && (
-                      <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
-                        <Wrench className="h-3 w-3 text-amber-500" />
-                        <span>{t('agentUi.documentOperationExecuted')}</span>
-                      </div>
-                    )}
-
-                    {/* Token cache hit rate badge */}
-                    {!isUser && msg.cacheUsage?.measured && (
-                      <div
-                        className="mt-2 inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400"
-                        title={t('agentUi.cacheRate', {
-                          rate: `${(msg.cacheUsage.hitRate * 100).toFixed(1)}%`,
-                          read: msg.cacheUsage.cacheReadTokens,
-                          total: msg.cacheUsage.cacheReadTokens + msg.cacheUsage.cacheMissTokens,
-                        })}
-                        aria-label={t('agentUi.cacheRate', {
-                          rate: `${(msg.cacheUsage.hitRate * 100).toFixed(1)}%`,
-                          read: msg.cacheUsage.cacheReadTokens,
-                          total: msg.cacheUsage.cacheReadTokens + msg.cacheUsage.cacheMissTokens,
-                        })}
-                        data-testid="agent-cache-rate"
-                      >
-                        <Database className="h-2.5 w-2.5" />
-                        <span>{(msg.cacheUsage.hitRate * 100).toFixed(1)}% Cache</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+            <AgentMessageList
+              messages={messages}
+              agentName={agentName}
+              agentColor={currentAgent?.color || '#3b82f6'}
+            />
 
             {/* Live Thinking Status */}
             {isRunning && (

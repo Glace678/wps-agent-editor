@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from 'react'
 import { desktopApi } from '@/platform'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
@@ -25,6 +24,34 @@ import {
 } from '../utils/system-fonts'
 import { MuPdfClientError, MuPdfWorkerClient } from '../pdf/mupdf-client'
 import { pdfTextBaselineShift, pdfTextFontFamily } from '../pdf/pdf-text-layout'
+import {
+  detectImageMime,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_PIXELS,
+  readImageDimensions,
+} from '../pdf/pdf-image-header'
+import {
+  PDF_BASE_FONT,
+  PDF_BASE_FONTS,
+  pdfMessage,
+} from '../pdf/pdf-messages'
+import {
+  canonicalLayerStyle,
+  clampZoom,
+  editedPdfName,
+  errorMessage,
+  fontDescriptor,
+  isDigitKey,
+  isEditableTarget,
+  isPdfEmbeddableFont,
+  RESIZE_HANDLE_STYLES,
+  isZoomInKey,
+  isZoomOutKey,
+  isZoomResetKey,
+  sameNumberArray,
+  samePath,
+  standaloneBuffer,
+} from '../pdf/pdf-viewer-utils'
 import { PDF_TEXT_WRAP_TOLERANCE } from '../pdf/pdf-text-paragraphs'
 import {
   normalizePdfRect,
@@ -49,8 +76,6 @@ import type {
 const MAX_PAGE_CSS_WIDTH = 896
 const CONTAINER_H_PADDING = 32
 const PAGE_GAP = 16
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024
-const MAX_IMAGE_PIXELS = 40_000_000
 
 interface PdfViewerProps {
   filePath: string
@@ -82,284 +107,8 @@ interface DragState {
   moved: boolean
 }
 
-const RESIZE_HANDLE_STYLES: Record<string, CSSProperties> = {
-  nw: { top: -4, left: -4, cursor: 'nwse-resize' },
-  n: { top: -4, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
-  ne: { top: -4, right: -4, cursor: 'nesw-resize' },
-  e: { top: '50%', right: -4, transform: 'translateY(-50%)', cursor: 'ew-resize' },
-  se: { bottom: -4, right: -4, cursor: 'nwse-resize' },
-  s: { bottom: -4, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
-  sw: { bottom: -4, left: -4, cursor: 'nesw-resize' },
-  w: { top: '50%', left: -4, transform: 'translateY(-50%)', cursor: 'ew-resize' },
-}
-
-function pdfBaseFont(
-  fontId: string,
-  faceName: string,
-  weight: number,
-  style: SystemFontFace['style'],
-): SystemFontFace {
-  return {
-    fontId,
-    familyName: 'Helvetica',
-    displayName: `Helvetica ${faceName}`,
-    faceName,
-    faceIndex: 0,
-    weight,
-    style,
-    stretch: 5,
-    embedding: 'installable',
-    subsetAllowed: true,
-    outlineEmbeddingAllowed: true,
-  }
-}
-
-const PDF_BASE_FONTS = [
-  pdfBaseFont('builtin:Helvetica', 'Regular', 400, 'normal'),
-  pdfBaseFont('builtin:Helvetica-Bold', 'Bold', 700, 'normal'),
-  pdfBaseFont('builtin:Helvetica-Oblique', 'Oblique', 400, 'oblique'),
-  pdfBaseFont('builtin:Helvetica-BoldOblique', 'Bold Oblique', 700, 'oblique'),
-]
-
-const PDF_BASE_FONT = PDF_BASE_FONTS[0]
-
-const PDF_MESSAGES = {
-  en: {
-    encryptedPrompt: 'This PDF is encrypted. Enter its password to continue.',
-    passwordRetry: 'The password was not accepted. Try again.',
-    passwordCancelled: 'The encrypted PDF was not opened because no password was provided.',
-    readOnly: 'This PDF can be viewed, but its permissions do not allow annotations.',
-    signed: 'This PDF contains signature fields. Changes can only be saved to a new file and may change signature verification status.',
-    conflict: 'The file changed outside Office Agentic. Select OK to reload it and discard these edits, or Cancel to save the edits as a new PDF.',
-    invalidImage: 'Choose a PNG, JPEG, or WebP image whose MIME type matches its file contents.',
-    imageTooLarge: 'Images are limited to 25 MiB and 40 million pixels.',
-    saveCancelled: 'Save As was cancelled.',
-  },
-  zh: {
-    encryptedPrompt: '此 PDF 已加密。请输入密码以继续。',
-    passwordRetry: '密码不正确，请重试。',
-    passwordCancelled: '未提供密码，已取消打开加密 PDF。',
-    readOnly: '此 PDF 可以查看，但其权限不允许添加或修改注释。',
-    signed: '此 PDF 包含签名字段，只能另存为新文件；后续修改可能改变签名验证状态。',
-    conflict: '文件已被外部程序修改。选择“确定”将重新加载并放弃当前编辑；选择“取消”将把当前编辑另存为新 PDF。',
-    invalidImage: '请选择 MIME 类型与文件内容一致的 PNG、JPEG 或 WebP 图片。',
-    imageTooLarge: '图片不得超过 25 MiB 或 4000 万像素。',
-    saveCancelled: '已取消另存为。',
-  },
-} as const
-
-function pdfMessage(language: string, key: keyof typeof PDF_MESSAGES.en): string {
-  return (language.toLowerCase().startsWith('zh') ? PDF_MESSAGES.zh : PDF_MESSAGES.en)[key]
-}
-
 function basePageWidth(clientWidth: number): number {
   return Math.max(64, Math.min(MAX_PAGE_CSS_WIDTH, clientWidth - CONTAINER_H_PADDING))
-}
-
-function clampZoom(value: number): number {
-  return Math.min(Math.max(value, 0.1), 5)
-}
-
-function samePath(left: string, right: string): boolean {
-  return desktopApi.app.platform === 'win32'
-    ? left.toLowerCase() === right.toLowerCase()
-    : left === right
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return target.isContentEditable
-    || target.tagName === 'INPUT'
-    || target.tagName === 'TEXTAREA'
-    || target.tagName === 'SELECT'
-}
-
-function isZoomInKey(event: KeyboardEvent): boolean {
-  return event.key === '+' || event.key === '=' || event.code === 'NumpadAdd'
-}
-
-function isZoomOutKey(event: KeyboardEvent): boolean {
-  return event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract'
-}
-
-function isZoomResetKey(event: KeyboardEvent): boolean {
-  return event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0'
-}
-
-function isDigitKey(event: KeyboardEvent, digit: 1 | 2): boolean {
-  return event.key === String(digit)
-    || event.code === `Digit${digit}`
-    || event.code === `Numpad${digit}`
-}
-
-function standaloneBuffer(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength)
-  copy.set(bytes)
-  return copy.buffer
-}
-
-function sameNumberArray(left: number[], right: number[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index])
-}
-
-function fontDescriptor(face: SystemFontFace): PdfFontDescriptor {
-  return {
-    fontId: face.fontId,
-    familyName: face.familyName,
-    faceIndex: face.faceIndex,
-    weight: face.weight,
-    style: face.style,
-  }
-}
-
-function isPdfEmbeddableFont(face: SystemFontFace): boolean {
-  return Boolean(face.fontId)
-    && (face.embedding === 'installable' || face.embedding === 'editable')
-    && face.subsetAllowed
-    && face.outlineEmbeddingAllowed
-}
-
-function detectImageMime(bytes: Uint8Array): PdfImageAnnotationRecord['mimeType'] | null {
-  if (
-    bytes.length >= 8
-    && bytes[0] === 0x89
-    && bytes[1] === 0x50
-    && bytes[2] === 0x4e
-    && bytes[3] === 0x47
-    && bytes[4] === 0x0d
-    && bytes[5] === 0x0a
-    && bytes[6] === 0x1a
-    && bytes[7] === 0x0a
-  ) return 'image/png'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return 'image/jpeg'
-  }
-  if (
-    bytes.length >= 12
-    && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF'
-    && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP'
-  ) return 'image/webp'
-  return null
-}
-
-/**
- * Read pixel dimensions straight from the image header without decoding pixels.
- * This lets callers reject decompression-bomb-sized images before the expensive
- * createImageBitmap decode ever runs. Returns null when the header can't be parsed.
- */
-function readImageHeaderDimensions(
-  bytes: Uint8Array,
-  mimeType: string,
-): { width: number; height: number } | null {
-  try {
-    if (mimeType === 'image/png') {
-      // 8-byte signature | 4-byte length | "IHDR" | 4-byte width (BE) | 4-byte height (BE)
-      if (bytes.length < 24) return null
-      if (bytes[12] !== 0x49 || bytes[13] !== 0x48 || bytes[14] !== 0x44 || bytes[15] !== 0x52) return null
-      const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19]
-      const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]
-      return { width, height }
-    }
-    if (mimeType === 'image/jpeg') {
-      let offset = 2 // skip SOI marker
-      while (offset + 9 < bytes.length) {
-        if (bytes[offset] !== 0xff) return null
-        const marker = bytes[offset + 1]
-        // SOF markers (exclude DHT/C4, JPG/C8, DAC/CC) carry the frame dimensions.
-        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-          const height = (bytes[offset + 5] << 8) | bytes[offset + 6]
-          const width = (bytes[offset + 7] << 8) | bytes[offset + 8]
-          return { width, height }
-        }
-        const segLen = (bytes[offset + 2] << 8) | bytes[offset + 3]
-        if (segLen < 2) return null
-        offset += 2 + segLen
-      }
-      return null
-    }
-    if (mimeType === 'image/webp') {
-      if (bytes.length < 16) return null
-      const fourcc = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15])
-      if (fourcc === 'VP8X') {
-        if (bytes.length < 30) return null
-        const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16)
-        const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16)
-        return { width, height }
-      }
-      if (fourcc === 'VP8L') {
-        if (bytes.length < 25) return null
-        const b1 = bytes[21], b2 = bytes[22], b3 = bytes[23], b4 = bytes[24]
-        const width = 1 + (((b2 & 0x3f) << 8) | b1)
-        const height = 1 + (((b4 & 0x0f) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6))
-        return { width, height }
-      }
-      if (fourcc === 'VP8 ') {
-        if (bytes.length < 30) return null
-        const width = bytes[26] | ((bytes[27] & 0x3f) << 8)
-        const height = bytes[28] | ((bytes[29] & 0x3f) << 8)
-        return { width, height }
-      }
-      return null
-    }
-  } catch {
-    return null
-  }
-  return null
-}
-
-async function readImageDimensions(data: ArrayBuffer, mimeType: string): Promise<{ width: number; height: number }> {
-  // Prefer cheap header parsing so oversized images are rejected before decoding.
-  const header = readImageHeaderDimensions(new Uint8Array(data), mimeType)
-  if (header && header.width > 0 && header.height > 0) return header
-  const blob = new Blob([data], { type: mimeType })
-  if (typeof createImageBitmap === 'function') {
-    const bitmap = await createImageBitmap(blob)
-    try {
-      return { width: bitmap.width, height: bitmap.height }
-    } finally {
-      bitmap.close()
-    }
-  }
-  const url = URL.createObjectURL(blob)
-  try {
-    return await new Promise((resolve, reject) => {
-      const image = new Image()
-      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
-      image.onerror = () => reject(new Error('Could not decode the image'))
-      image.src = url
-    })
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
-function canonicalLayerStyle(
-  rotation: PdfRotation,
-  viewWidth: number,
-  viewHeight: number,
-): CSSProperties {
-  const swapped = rotation === 90 || rotation === 270
-  const width = swapped ? viewHeight : viewWidth
-  const height = swapped ? viewWidth : viewHeight
-  if (rotation === 90) {
-    return { width, height, transform: `translateX(${viewWidth}px) rotate(90deg)`, transformOrigin: 'top left' }
-  }
-  if (rotation === 180) {
-    return { width, height, transform: `translate(${viewWidth}px, ${viewHeight}px) rotate(180deg)`, transformOrigin: 'top left' }
-  }
-  if (rotation === 270) {
-    return { width, height, transform: `translateY(${viewHeight}px) rotate(-90deg)`, transformOrigin: 'top left' }
-  }
-  return { width, height }
-}
-
-function editedPdfName(path: string): string {
-  const name = path.split(/[/\\]/).pop() || 'document.pdf'
-  return /\.pdf$/i.test(name) ? name.replace(/\.pdf$/i, '-edited.pdf') : `${name}-edited.pdf`
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 export function PdfViewer({

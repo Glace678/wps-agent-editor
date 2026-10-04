@@ -4,7 +4,6 @@ import {
   PptxViewer,
   RECOMMENDED_ZIP_LIMITS,
   type SlideHandle,
-  type PresentationData,
   type TextIndexEntry,
 } from '@aiden0z/pptx-renderer'
 import {
@@ -50,7 +49,6 @@ import { useEditorStore } from '@/stores/editor.store'
 import type {
   PresentationEditOperation,
   PresentationEditResult,
-  PresentationSlideText,
 } from '@/types/presentation'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readPresentationBuffer, saveFileBuffer } from '../utils/file-io'
@@ -66,27 +64,38 @@ import {
 } from './presentation-animation'
 import './presentation-viewer.css'
 
-const MIN_ZOOM = 50
-const MAX_ZOOM = 250
-const ZOOM_STEP = 25
-const DEFAULT_ASPECT_RATIO = 16 / 9
-const PRESENTATION_CONTROLS_HIDE_MS = 1_800
-const MIN_THUMBNAIL_PANE_WIDTH = 168
-const DEFAULT_THUMBNAIL_PANE_WIDTH = 194
-const MAX_THUMBNAIL_PANE_WIDTH = 420
-const MIN_PRESENTATION_STAGE_WIDTH = 360
-const THUMBNAIL_RESIZER_WIDTH = 6
-const THUMBNAIL_RENDER_WIDTH = 372
-const THUMBNAIL_ROW_CHROME_WIDTH = 40
-const THUMBNAIL_PANE_STORAGE_KEY = 'presentation-thumbnail-pane-width'
-const WHEEL_NAVIGATION_THRESHOLD = 32
-const WHEEL_NAVIGATION_IDLE_MS = 160
-const MAX_OUTLINE_SLIDES = 100
-
-const presentationMenuContentClass =
-  'z-[10000] min-w-[210px] rounded-[4px] border border-black/15 bg-[#f9f9f9] p-1 text-[12px] text-[#202020] shadow-xl dark:border-white/15 dark:bg-[#2c2c2c] dark:text-[#f4f4f4]'
-const presentationMenuItemClass =
-  'flex h-8 cursor-default select-none items-center gap-2 rounded-[3px] px-2 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-black/[0.07] dark:data-[highlighted]:bg-white/[0.1]'
+import {
+  DEFAULT_ASPECT_RATIO,
+  DEFAULT_THUMBNAIL_PANE_WIDTH,
+  MAX_THUMBNAIL_PANE_WIDTH,
+  MAX_ZOOM,
+  MIN_PRESENTATION_STAGE_WIDTH,
+  MIN_THUMBNAIL_PANE_WIDTH,
+  MIN_ZOOM,
+  NON_EDITABLE_PLACEHOLDER_TYPES,
+  PRESENTATION_CONTROLS_HIDE_MS,
+  THUMBNAIL_PANE_STORAGE_KEY,
+  THUMBNAIL_RENDER_WIDTH,
+  THUMBNAIL_RESIZER_WIDTH,
+  THUMBNAIL_ROW_CHROME_WIDTH,
+  WHEEL_NAVIGATION_IDLE_MS,
+  WHEEL_NAVIGATION_THRESHOLD,
+  ZOOM_STEP,
+  clamp,
+  copyBinaryData,
+  estimatedThumbnailScale,
+  isEditableTarget,
+  presentationMenuContentClass,
+  presentationMenuItemClass,
+  readStoredThumbnailPaneWidth,
+  resolvePresentationSavePath,
+} from '../utils/presentation-viewer-constants'
+import {
+  buildPresentationOutline,
+  mainSlideElement,
+  parseOutlineSlides,
+} from '../utils/presentation-outline'
+import { normalizeRenderedPresentationSpaces } from '../utils/presentation-spaces'
 
 interface PresentationViewerProps {
   filePath: string
@@ -121,200 +130,6 @@ interface InlineTextEdit {
   slideIndex: number
   entry: TextIndexEntry
   text: string
-}
-
-const NON_EDITABLE_PLACEHOLDER_TYPES = new Set(['dt', 'ftr', 'sldNum'])
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
-}
-
-function readStoredThumbnailPaneWidth(): number {
-  if (typeof window === 'undefined') return DEFAULT_THUMBNAIL_PANE_WIDTH
-  const stored = Number.parseFloat(window.localStorage.getItem(THUMBNAIL_PANE_STORAGE_KEY) ?? '')
-  return Number.isFinite(stored)
-    ? clamp(stored, MIN_THUMBNAIL_PANE_WIDTH, MAX_THUMBNAIL_PANE_WIDTH)
-    : DEFAULT_THUMBNAIL_PANE_WIDTH
-}
-
-function estimatedThumbnailScale(paneWidth: number): number {
-  return Math.max(0.1, (paneWidth - THUMBNAIL_ROW_CHROME_WIDTH) / THUMBNAIL_RENDER_WIDTH)
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
-}
-
-function copyBinaryData(data: Uint8Array | ArrayBuffer): ArrayBuffer {
-  if (data instanceof ArrayBuffer) return data.slice(0)
-  const copy = new Uint8Array(data.byteLength)
-  copy.set(data)
-  return copy.buffer
-}
-
-function resolvePresentationSavePath(filePath: string): string {
-  return ['ppt', 'odp'].includes(getExtension(filePath))
-    ? filePath.replace(/\.(?:ppt|odp)$/i, '.pptx')
-    : filePath
-}
-
-function parseOutlineSlides(outline: string): PresentationSlideText[] {
-  const slides: PresentationSlideText[] = []
-  let current: PresentationSlideText | null = null
-
-  for (const rawLine of outline.replace(/\r\n?/g, '\n').split('\n')) {
-    if (!rawLine.trim()) continue
-    const trimmed = rawLine.trim()
-    const isBody = /^\s+/.test(rawLine) || /^[-*+]\s+/.test(trimmed)
-    const value = trimmed.replace(/^#{1,6}\s+/, '').replace(/^[-*+]\s+/, '').trim()
-    if (!value) continue
-
-    if (!isBody || !current) {
-      current = { title: value, body: '' }
-      slides.push(current)
-      if (slides.length >= MAX_OUTLINE_SLIDES) break
-    } else {
-      current.body = current.body ? `${current.body}\n${value}` : value
-    }
-  }
-  return slides
-}
-
-function normalizeOutlineText(value: string): string {
-  return value
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map((line) => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n')
-}
-
-function buildPresentationOutline(presentation: PresentationData | null): PresentationOutlineSlide[] {
-  if (!presentation) return []
-
-  try {
-    const textIndex = buildTextIndex(presentation)
-
-    return presentation.slides.map((slide, slideIndex) => {
-      const slidePathPrefix = `slides/${slideIndex}/nodes/`
-      const titleNodeIds = new Set(
-        slide.nodes
-          .filter((node) => ['title', 'ctrTitle'].includes(node.placeholder?.type ?? ''))
-          .map((node) => node.id),
-      )
-      const excludedNodeIds = new Set(
-        slide.nodes
-          .filter((node) => ['dt', 'ftr', 'sldNum'].includes(node.placeholder?.type ?? ''))
-          .map((node) => node.id),
-      )
-      const entries = textIndex
-        .filter((entry) => (
-          entry.slideIndex === slideIndex
-          && entry.nodePath.startsWith(slidePathPrefix)
-          && !excludedNodeIds.has(entry.nodeId)
-        ))
-        .map((entry) => ({ ...entry, text: normalizeOutlineText(entry.text) }))
-        .filter((entry) => entry.text)
-
-      const titleEntry = entries.find((entry) => titleNodeIds.has(entry.nodeId))
-      if (titleEntry) {
-        return {
-          title: titleEntry.text.replace(/\n+/g, ' '),
-          body: entries
-            .filter((entry) => entry.nodePath !== titleEntry.nodePath)
-            .map((entry) => entry.text)
-            .join('\n'),
-        }
-      }
-
-      const [fallbackTitleEntry, ...remainingEntries] = entries
-      const [title = '', ...fallbackBody] = fallbackTitleEntry?.text.split('\n') ?? []
-      return {
-        title,
-        body: [...fallbackBody, ...remainingEntries.map((entry) => entry.text)]
-          .filter(Boolean)
-          .join('\n'),
-      }
-    })
-  } catch (error) {
-    console.warn('[PresentationViewer] Unable to build presentation outline:', error)
-    return presentation.slides.map(() => ({ title: '', body: '' }))
-  }
-}
-
-function mainSlideElement(host: HTMLElement | null): HTMLElement | null {
-  const wrapper = host?.firstElementChild
-  const slide = wrapper?.firstElementChild
-  return slide instanceof HTMLElement ? slide : null
-}
-
-const RENDERER_PRESERVED_SPACE_PAIR = / \u00a0/g
-const LEADING_CJK_SPACE = /^ +(?=[\u3400-\u9fff\uf900-\ufaff])/
-const PRESENTATION_SPACE_SEQUENCE = / {2,}|^ (?=[\u3400-\u9fff\uf900-\ufaff])/g
-
-function normalizeRenderedPresentationSpaces(root: HTMLElement): void {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  const textNodes: Array<{ node: Text; normalizedText: string }> = []
-  let node = walker.nextNode()
-
-  while (node) {
-    const textNode = node as Text
-    const normalizedText = textNode.data.replace(RENDERER_PRESERVED_SPACE_PAIR, '  ')
-    if (normalizedText !== textNode.data || LEADING_CJK_SPACE.test(normalizedText)) {
-      textNodes.push({ node: textNode, normalizedText })
-    }
-    node = walker.nextNode()
-  }
-
-  for (const { node: textNode, normalizedText } of textNodes) {
-    const fragment = document.createDocumentFragment()
-    let cursor = 0
-
-    for (const match of normalizedText.matchAll(PRESENTATION_SPACE_SEQUENCE)) {
-      const index = match.index ?? 0
-      if (index > cursor) fragment.append(normalizedText.slice(cursor, index))
-      const spaces = document.createElement('span')
-      spaces.className = 'presentation-preserved-spaces'
-      spaces.textContent = ' '.repeat(match[0].length)
-      fragment.append(spaces)
-      cursor = index + match[0].length
-    }
-
-    if (cursor < normalizedText.length) fragment.append(normalizedText.slice(cursor))
-    textNode.replaceWith(fragment)
-  }
-
-  // Some producers often write a paragraph's indentation as a run
-  // containing only a single space, split from the CJK text. A lone space run
-  // collapses to zero width under white-space: normal (the renderer only
-  // preserves runs of two or more spaces), so wrap space-only runs that sit at
-  // the start of a paragraph line just like the other preserved spaces above.
-  const leadingSpaceOnlyNode = /^ +$/
-  const spaceWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  const leadingSpaceNodes: Text[] = []
-  let spaceNode = spaceWalker.nextNode()
-  while (spaceNode) {
-    const spaceTextNode = spaceNode as Text
-    const parent = spaceTextNode.parentElement
-    if (
-      leadingSpaceOnlyNode.test(spaceTextNode.data)
-      && parent
-      && !parent.classList.contains('presentation-preserved-spaces')
-      && parent.childNodes.length === 1
-      && parent.parentElement
-      && parent.parentElement.firstElementChild === parent
-    ) {
-      leadingSpaceNodes.push(spaceTextNode)
-    }
-    spaceNode = spaceWalker.nextNode()
-  }
-  for (const spaceTextNode of leadingSpaceNodes) {
-    const spaces = document.createElement('span')
-    spaces.className = 'presentation-preserved-spaces'
-    spaces.textContent = spaceTextNode.data
-    spaceTextNode.replaceWith(spaces)
-  }
 }
 
 function PresentationToolbarTooltip({ label, children }: { label: string; children: ReactNode }) {

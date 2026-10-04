@@ -15,10 +15,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const src = fs.readFileSync(
-  path.join(root, 'src/lightweight-office/editors/ExcelEditor.tsx'),
-  'utf8',
-)
+const read = (relativePath) =>
+  fs.readFileSync(path.join(root, relativePath), 'utf8')
+const src = read('src/lightweight-office/editors/ExcelEditor.tsx')
+const labelSource = read('src/lightweight-office/utils/excel-picker-labels.ts')
+const widthSource = read('src/lightweight-office/utils/excel-picker-width.ts')
+const allSources = `${src}\n${labelSource}\n${widthSource}`
 
 let passed = 0
 function test(name, fn) {
@@ -34,30 +36,30 @@ function test(name, fn) {
 }
 
 test('no ASCII-\\b around Cyrillic tokens (they can never match)', () => {
-  assert.doesNotMatch(src, /\\bформат\\b/)
-  assert.doesNotMatch(src, /\\bшрифт\\b/)
-  assert.match(src, /формат/, 'format label regex must still cover Russian')
-  assert.match(src, /шрифт/, 'font label regex must still cover Russian')
+  assert.doesNotMatch(allSources, /\\bформат\\b/)
+  assert.doesNotMatch(allSources, /\\bшрифт\\b/)
+  assert.match(allSources, /формат/, 'format label regex must still cover Russian')
+  assert.match(allSources, /шрифт/, 'font label regex must still cover Russian')
 })
 
 test('width fit skips options inside a collapsed flyout submenu', () => {
-  assert.match(src, /option\.closest\('\.toolbar-item-sub-menu'\)/)
+  assert.match(widthSource, /option\.closest\('\.toolbar-item-sub-menu'\)/)
 })
 
 test('submenu host rows measure their own menu-line label + arrow allowance', () => {
-  assert.match(src, /\.fortune-toolbar-menu-line/)
-  assert.match(src, /EXCEL_PICKER_SUBMENU_ARROW_X = 22/)
-  assert.match(src, /considerName\(menuLine\.textContent\?\.trim\(\) \|\| '', EXCEL_PICKER_SUBMENU_ARROW_X\)/)
+  assert.match(widthSource, /\.fortune-toolbar-menu-line/)
+  assert.match(widthSource, /EXCEL_PICKER_SUBMENU_ARROW_X = 22/)
+  assert.match(widthSource, /considerName\(menuLine\.textContent\?\.trim\(\) \|\| '', EXCEL_PICKER_SUBMENU_ARROW_X\)/)
 })
 
 test('format popup caps at 320 (content peaks ~260)', () => {
-  assert.match(src, /format:\s*\{\s*min:\s*120,\s*max:\s*320\s*\}/)
+  assert.match(widthSource, /format:\s*\{\s*min:\s*120,\s*max:\s*320\s*\}/)
 })
 
 test('format option heuristic covers ru and es workbook locales', () => {
-  const hasRu = /автомат/.test(src) || src.includes('\\u0430\\u0432\\u0442\\u043e\\u043c\\u0430\\u0442')
+  const hasRu = /автомат/.test(labelSource) || labelSource.includes('\\u0430\\u0432\\u0442\\u043e\\u043c\\u0430\\u0442')
   assert.ok(hasRu, 'hint regex must include a Russian token (автомат…)')
-  assert.match(src, /personalizado/, 'hint regex must include Spanish tokens')
+  assert.match(labelSource, /personalizado/, 'hint regex must include Spanish tokens')
 })
 
 if (process.exitCode) {

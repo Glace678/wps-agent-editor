@@ -250,6 +250,50 @@ test('hides the cache readout when no provider measured caching', async ({ page 
   await expect(page.getByTestId('collaboration-cache-rate')).toHaveCount(0)
 })
 
+test('root-agent dropdown supports full keyboard navigation', async ({ page }) => {
+  const pageErrors: Error[] = []
+  page.on('pageerror', (error) => pageErrors.push(error))
+  await page.goto('/')
+  await page.getByTestId('collaboration-open').click()
+
+  const trigger = page.getByTestId('collaboration-root-agent')
+  const menu = page.getByTestId('collaboration-root-agent-menu')
+  const search = page.getByTestId('collaboration-root-agent-search')
+  const directorOption = page.getByTestId('collaboration-root-agent-option-director')
+  const peerOption = page.getByTestId('collaboration-root-agent-option-peer')
+
+  await expect(menu).toHaveCount(0)
+
+  await trigger.press('ArrowDown')
+  await expect(menu).toBeVisible()
+  await expect(search).toBeFocused()
+
+  // ArrowDown moves focus into the option list; Home/End jump to the edges.
+  await search.press('ArrowDown')
+  await expect(directorOption).toBeFocused()
+  await directorOption.press('End')
+  await expect(peerOption).toBeFocused()
+  await peerOption.press('Home')
+  await expect(directorOption).toBeFocused()
+
+  // ArrowUp from the first option returns focus to the search box.
+  await directorOption.press('ArrowUp')
+  await expect(search).toBeFocused()
+
+  // Escape closes and restores focus to the trigger.
+  await search.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+
+  // Outside click while open dismisses the popover.
+  await trigger.press('ArrowDown')
+  await expect(menu).toBeVisible()
+  await page.locator('body').click({ position: { x: 10, y: 10 } })
+  await expect(menu).toHaveCount(0)
+
+  expect(pageErrors).toEqual([])
+})
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     let callbackId = 0
