@@ -61,6 +61,9 @@ export function FileHoverCard({
   const cardRef = useRef<HTMLDivElement>(null)
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 滚轮滚动后暂时屏蔽悬停，避免弹层跟着滚动内容停在视口顶部/底部
+  const wheelSuppressedRef = useRef(false)
+  const wheelTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cardId = useId()
 
   const [open, setOpen] = useState(false)
@@ -114,10 +117,22 @@ export function FileHoverCard({
   }, [])
 
   const show = useCallback(() => {
-    if (disabled) return
+    if (disabled || wheelSuppressedRef.current) return
     clearTimers()
     openTimer.current = setTimeout(() => setOpen(true), openDelay)
   }, [clearTimers, disabled, openDelay])
+
+  const dismissOnWheel = useCallback(() => {
+    wheelSuppressedRef.current = true
+    if (wheelTimer.current) clearTimeout(wheelTimer.current)
+    wheelTimer.current = setTimeout(() => {
+      wheelSuppressedRef.current = false
+      wheelTimer.current = null
+    }, 240)
+    clearTimers()
+    setOpen(false)
+    setCoords(null)
+  }, [clearTimers])
 
   const hide = useCallback(() => {
     clearTimers()
@@ -146,7 +161,10 @@ export function FileHoverCard({
     }
   }, [open, measure])
 
-  useEffect(() => () => clearTimers(), [clearTimers])
+  useEffect(() => () => {
+    clearTimers()
+    if (wheelTimer.current) clearTimeout(wheelTimer.current)
+  }, [clearTimers])
 
   useEffect(() => {
     if (!disabled) return
@@ -219,6 +237,7 @@ export function FileHoverCard({
         className={className}
         onMouseEnter={show}
         onMouseLeave={hide}
+        onWheel={dismissOnWheel}
         onFocus={show}
         onBlur={hide}
         aria-describedby={open ? cardId : undefined}

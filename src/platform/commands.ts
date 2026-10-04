@@ -81,6 +81,7 @@ export const DESKTOP_COMMANDS = {
     minimize: 'app_window_minimize',
     maximize: 'app_window_toggle_maximize',
     newWindow: 'app_window_new',
+    openUrl: 'app_open_url',
     toggleFullscreen: 'app_window_toggle_fullscreen',
     close: 'app_window_close',
     quit: 'app_quit',

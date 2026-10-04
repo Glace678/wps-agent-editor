@@ -15,6 +15,7 @@ export const REGISTERED_DESKTOP_COMMANDS = [
   'agents_save',
   'app_i18n_set_language',
   'app_menu_perform',
+  'app_open_url',
   'app_quit',
   'app_startup_healthy',
   'app_take_recovery_notices',

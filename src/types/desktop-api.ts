@@ -305,6 +305,7 @@ export interface AppApi {
   minimize: () => Promise<void>
   maximize: () => Promise<void>
   newWindow: (filePath?: string) => Promise<void>
+  openUrl: (url: string) => Promise<{ success: boolean }>
   toggleFullscreen: () => Promise<void>
   close: () => Promise<void>
   quit: () => Promise<void>

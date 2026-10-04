@@ -52,6 +52,35 @@ struct UpdateProgress {
 }
 
 #[tauri::command]
+pub fn app_open_url(url: String) -> AppResult<SuccessResult> {
+    let parsed = url::Url::parse(&url).map_err(|error| {
+        AppError::new("invalid-argument", format!("Invalid URL: {error}"))
+    })?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err(AppError::new(
+            "invalid-argument",
+            "Only http(s) URLs can be opened externally",
+        ));
+    }
+
+    let status = if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd.exe")
+            .args(["/C", "start", "", parsed.as_str()])
+            .status()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(parsed.as_str()).status()
+    } else {
+        std::process::Command::new("xdg-open")
+            .arg(parsed.as_str())
+            .status()
+    };
+    status.map_err(|error| {
+        AppError::new("open-failed", format!("Failed to open URL: {error}"))
+    })?;
+    Ok(SuccessResult { success: true })
+}
+
+#[tauri::command]
 pub fn app_window_minimize(window: WebviewWindow) -> AppResult<SuccessResult> {
     window
         .minimize()

@@ -621,9 +621,11 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                     <a
                       data-testid="provider-documentation"
                       href={providerLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 inline-flex max-w-full items-start gap-1.5 text-xs text-primary hover:underline"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        void desktopApi.app.openUrl(providerLink)
+                      }}
+                      className="mt-2 inline-flex max-w-full cursor-pointer items-start gap-1.5 text-xs text-primary hover:underline"
                       title={t('providerSettings.apiDocumentation')}
                     >
                       <svg

@@ -61,7 +61,7 @@ function AgentAvatar({
     <ProviderLogo
       providerId={identity.providerId ?? ''}
       providerName={providerName}
-      className={cn('rounded-lg border border-border/30', size)}
+      className={cn(size)}
       decorative
     />
   )

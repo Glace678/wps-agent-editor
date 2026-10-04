@@ -155,6 +155,7 @@ pub fn run() {
             commands::process::process_terminal_resize,
             commands::process::process_terminal_kill,
             commands::app::app_window_new,
+            commands::app::app_open_url,
             commands::app::app_window_minimize,
             commands::app::app_window_toggle_maximize,
             commands::app::app_window_toggle_fullscreen,

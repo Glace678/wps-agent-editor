@@ -15,8 +15,6 @@ import { RecentFiles } from './RecentFiles'
 import { FileSearch } from './FileSearch'
 import { isImageFile } from '@/lightweight-office/utils/file-io'
 
-const DIRECTORY_BACK_HISTORY_MAX = 100
-
 // 鼠标侧键中的「后退」键（X1）。X2（前进）为 4。
 const MOUSE_BACK_BUTTON = 3
 
@@ -50,8 +48,6 @@ export function FileManager({ onCollapse }: FileManagerProps) {
   const setSessionMainDirectory = useFileSessionStore((state) => state.setMainDirectory)
   const visitSessionDirectory = useFileSessionStore((state) => state.visitDirectory)
   const loadRequestRef = useRef(0)
-  const dirBackStackRef = useRef<string[]>([])
-  const lastBackInputRef = useRef<{ source: 'native' | 'dom'; at: number } | null>(null)
   const [activeTab, setActiveTab] = useState<'browse' | 'recent'>('browse')
   const [systemHome, setSystemHome] = useState<string | null>(null)
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
@@ -66,21 +62,10 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     }
   }, [])
 
-  const loadDir = useCallback(async (dir: string, options?: { recordHistory?: boolean }) => {
+  const loadDir = useCallback(async (dir: string) => {
     const requestId = ++loadRequestRef.current
     const list = await desktopApi.files.list(dir)
     if (requestId !== loadRequestRef.current) return
-    const previousDir = useFileStore.getState().currentDir
-    if (
-      options?.recordHistory !== false
-      && previousDir
-      && !sameDirectoryPath(previousDir, dir)
-    ) {
-      dirBackStackRef.current.push(previousDir)
-      if (dirBackStackRef.current.length > DIRECTORY_BACK_HISTORY_MAX) {
-        dirBackStackRef.current.shift()
-      }
-    }
     setEntries(list)
     setCurrentDir(dir)
     visitSessionDirectory(dir)
@@ -122,7 +107,7 @@ export function FileManager({ onCollapse }: FileManagerProps) {
         .find((directory): directory is string => (
           Boolean(directory && desktopApi.files.getGrantId(directory))
         )) ?? home.path
-      await loadDir(targetDir, { recordHistory: false })
+      await loadDir(targetDir)
     }
     void init()
     return () => {
@@ -147,43 +132,34 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     return () => clearTimeout(timer)
   }, [searchQuery, currentDir, setSearchResults, setIsSearching])
 
-  const goUp = () => {
+  const goUp = useCallback(() => {
+    const dir = useFileStore.getState().currentDir
+    if (!dir) return
     const sep = desktopApi.app.platform === 'win32' ? '\\' : '/'
-    const parts = currentDir.split(sep)
+    const parts = dir.split(sep)
     if (parts.length > 1) {
       parts.pop()
       const parent = parts.join(sep) || sep
       if (desktopApi.files.getGrantId(parent)) void loadDir(parent)
     }
-  }
-
-  const goBackToPreviousDir = useCallback((source: 'native' | 'dom') => {
-    const now = performance.now()
-    const lastInput = lastBackInputRef.current
-    if (lastInput && lastInput.source !== source && now - lastInput.at < 200) return
-    lastBackInputRef.current = { source, at: now }
-
-    const current = useFileStore.getState().currentDir
-    let previousDir = dirBackStackRef.current.pop()
-    while (previousDir && sameDirectoryPath(previousDir, current)) {
-      previousDir = dirBackStackRef.current.pop()
-    }
-    if (!previousDir) return
-    void loadDir(previousDir, { recordHistory: false })
   }, [loadDir])
 
   useEffect(() => {
     if (activeTab !== 'browse') return
-    return desktopApi.files.onNavigateBack(() => goBackToPreviousDir('native'))
-  }, [activeTab, goBackToPreviousDir])
+    return desktopApi.files.onNavigateBack(() => goUp())
+  }, [activeTab, goUp])
 
-  // DOM auxclick covers platforms/drivers which expose X1 as the fourth button.
+  // mousedown 覆盖不派发 auxclick 的 WebView；auxclick 兜底其余平台/驱动。
   // 侧键在浏览区块任意位置按下都回到上一级目录。
-  const handleBrowseTabAuxClick = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+  const lastSideBackRef = useRef(0)
+  const handleBrowseSideBack = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     if (event.button !== MOUSE_BACK_BUTTON) return
     event.preventDefault()
+    const now = performance.now()
+    if (now - lastSideBackRef.current < 300) return
+    lastSideBackRef.current = now
     goUp()
-  }, [])
+  }, [goUp])
 
   const effectiveMainDirectory = mainDirectory ?? systemHome
 
@@ -212,7 +188,8 @@ export function FileManager({ onCollapse }: FileManagerProps) {
     <TooltipProvider delayDuration={450}>
       <aside
         className="flex h-full min-h-0 w-full flex-col"
-        onAuxClick={activeTab === 'browse' ? handleBrowseTabAuxClick : undefined}
+        onMouseDown={activeTab === 'browse' ? handleBrowseSideBack : undefined}
+        onAuxClick={activeTab === 'browse' ? handleBrowseSideBack : undefined}
       >
         <div className="flex items-center justify-between gap-1 px-1.5 py-1.5">
           <div className="flex min-w-0 items-center gap-0.5">

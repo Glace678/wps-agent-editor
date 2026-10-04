@@ -1476,6 +1476,14 @@
       "pageUrl": "https://www.volcengine.com/product/ark",
       "sourceType": "official-site-logo",
       "officialColor": true
+    },
+    "amd": {
+      "name": "AMD",
+      "assetFile": "amd.svg",
+      "sourceUrl": "https://www.amd.com/",
+      "pageUrl": "https://www.amd.com/",
+      "sourceType": "official-site-logo",
+      "officialColor": true
     }
   }
 }

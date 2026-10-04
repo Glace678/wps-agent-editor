@@ -1,4 +1,4 @@
-import { getProviderLogoPresentationColor, resolveProviderLogoAsset } from '@/lib/provider-logos'
+import { resolveProviderLogoAsset } from '@/lib/provider-logos'
 
 export interface ProviderLogoProps {
   providerId: string
@@ -23,28 +23,18 @@ export function ProviderLogo({
   decorative = false,
 }: ProviderLogoProps) {
   const asset = resolveProviderLogoAsset(providerId, providerName)
-  const presentationColor = getProviderLogoPresentationColor(providerId)
   const label = title || providerName
-
-  const wrapperProps = {
-    'aria-hidden': decorative || undefined,
-    'aria-label': decorative ? undefined : label,
-    className: `inline-flex shrink-0 items-center justify-center overflow-hidden ${presentationColor ? 'p-px' : ''} ${className}`,
-    role: decorative ? undefined : 'img',
-    style: presentationColor ? { backgroundColor: presentationColor } : undefined,
-    title,
-  }
 
   if (asset?.kind === 'image') {
     return (
-      <span {...wrapperProps}>
-        <img
-          alt=""
-          aria-hidden="true"
-          className="block h-full w-full object-contain"
-          src={asset.url}
-        />
-      </span>
+      <img
+        alt={decorative ? '' : label}
+        aria-hidden={decorative || undefined}
+        className={`block shrink-0 object-contain ${className}`}
+        role={decorative ? undefined : 'img'}
+        src={asset.url}
+        title={title}
+      />
     )
   }
 

@@ -744,6 +744,13 @@ const app: AppApi = {
     DESKTOP_COMMANDS.app.newWindow,
     filePath ? accessArgs(filePath) : undefined,
   ),
+  async openUrl(url) {
+    await invokeDesktop(
+      DESKTOP_COMMANDS.app.openUrl,
+      { url },
+    )
+    return { success: true }
+  },
   toggleFullscreen: () => appVoid(DESKTOP_COMMANDS.app.toggleFullscreen),
   close: () => appVoid(DESKTOP_COMMANDS.app.close),
   quit: () => appVoid(DESKTOP_COMMANDS.app.quit),
