@@ -18,7 +18,7 @@ import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readWordBuffer, saveFileBuffer } from '../utils/file-io'
 import { prepareWordBytes, resolveSavePathForWord, resolveUniqueWordSavePath } from '../utils/doc-compat'
-import { desktopApi } from '@/platform/desktop'
+import { desktopApi } from '@/platform'
 import { loadSystemFontFaces, type SystemFontFace } from '../utils/system-fonts'
 import { createFullWordEditorModules } from '../word-toolbar'
 import { installWordToolbarTooltipLocalization } from '../word-toolbar-i18n'
@@ -289,18 +289,8 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       const isLegacy = getExtension(filePath) === 'doc'
       try {
         setLoadingMode(isLegacy ? 'legacy' : 'word')
-        console.log('[WordEditor] 开始加载文件:', filePath)
         const wordFile = await readWordBuffer(filePath)
         const { buffer } = wordFile
-        console.log('[WordEditor] 文件读取成功:', {
-          bytes: buffer.byteLength,
-          convertedFromLegacy: wordFile.convertedFromLegacy,
-          converter: wordFile.converter,
-          nativeConversionFailed: wordFile.nativeConversionFailed,
-          normalizedLegacyImageCount: wordFile.normalizedLegacyImageCount,
-          normalizedTableCount: wordFile.normalizedTableCount,
-          removedUnderlineRunCount: wordFile.removedUnderlineRunCount,
-        })
         if (cancelled) return
 
         const prepared = await prepareWordBytes(filePath, buffer, wordFile.convertedFromLegacy)

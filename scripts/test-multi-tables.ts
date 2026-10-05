@@ -5,7 +5,6 @@ import {
   replaceTableInSource,
   removeTableFromSource,
   renderPlainTextTableDocument,
-  buildHtmlTable,
   shouldRecoverSyntaxEditMode,
 } from '../src/lightweight-office/editors/notepad-tables';
 

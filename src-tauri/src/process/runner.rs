@@ -1,4 +1,7 @@
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::{codes, AppError, AppResult},
+    process::reaper::{self, OUTPUT_LIMIT_BYTES},
+};
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
@@ -8,7 +11,11 @@ use std::{
 use tempfile::TempDir;
 use tokio::{io::AsyncReadExt, process::Command};
 
-const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+/// Time budget for a compile step. Cold `kotlinc` / large `javac` / first
+/// `go build` / `swift` runs routinely exceed 30 s, so compilation gets its
+/// own, longer budget; `RUN_TIMEOUT` only applies once the built binary
+/// actually executes (review report P4).
+const COMPILE_TIMEOUT: Duration = Duration::from_secs(120);
 const RUN_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,7 +62,7 @@ pub async fn run_file(file_path: &Path) -> AppResult<CodeRunResult> {
     }
     if metadata.len() > 10 * 1024 * 1024 {
         return Err(AppError::new(
-            "file-too-large",
+            codes::FILE_TOO_LARGE,
             "Code runner source files are limited to 10 MiB",
         ));
     }
@@ -72,10 +79,18 @@ pub async fn run_file(file_path: &Path) -> AppResult<CodeRunResult> {
 
     if let Some(spec) = plan.compile {
         display.push(display_command(&spec));
-        let result = execute(&spec, cwd).await;
+        // Compilation uses the longer COMPILE_TIMEOUT budget; run steps below
+        // use RUN_TIMEOUT.
+        let result = execute(&spec, cwd, COMPILE_TIMEOUT).await;
         stdout.push_str(&result.stdout);
         stderr.push_str(&result.stderr);
         if !result.success {
+            // P9 note: this early return does NOT route stdout/stderr through
+            // truncate_output(). Each stream was already capped individually by
+            // read_capped (per-stream drain limit), so the *merged* strings
+            // below share a single OUTPUT_LIMIT_BYTES truncation budget rather
+            // than the per-stream one. This is intentional: compile output is
+            // normally small, and merging keeps the error display complete.
             return Ok(CodeRunResult {
                 success: false,
                 exit_code: result.exit_code,
@@ -91,7 +106,7 @@ pub async fn run_file(file_path: &Path) -> AppResult<CodeRunResult> {
     let mut last_missing = None;
     for spec in plan.run {
         display.push(display_command(&spec));
-        let result = execute(&spec, cwd).await;
+        let result = execute(&spec, cwd, RUN_TIMEOUT).await;
         if result.error_code == Some("runtime-missing") {
             last_missing = Some(result);
             continue;
@@ -289,7 +304,7 @@ pub(crate) fn bundled_esbuild_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(file_name))
 }
 
-async fn execute(spec: &CommandSpec, cwd: &Path) -> CommandOutput {
+async fn execute(spec: &CommandSpec, cwd: &Path, timeout: Duration) -> CommandOutput {
     let mut command = Command::new(&spec.executable);
     command
         .args(&spec.args)
@@ -298,7 +313,7 @@ async fn execute(spec: &CommandSpec, cwd: &Path) -> CommandOutput {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    configure_process_group(&mut command);
+    reaper::configure_process_group(&mut command);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -329,11 +344,13 @@ async fn execute(spec: &CommandSpec, cwd: &Path) -> CommandOutput {
         .stderr
         .take()
         .map(|stream| tokio::spawn(read_capped(stream)));
-    let status = match tokio::time::timeout(RUN_TIMEOUT, child.wait()).await {
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
         Ok(Ok(status)) => Some(status),
         Ok(Err(error)) => {
-            terminate_process_tree(pid).await;
+            reaper::terminate_process_tree(pid).await;
             let _ = child.kill().await;
+            // P3: drain the zombie on error branches too, not just on timeout.
+            let _ = child.wait().await;
             return output_from_tasks(
                 stdout_task,
                 stderr_task,
@@ -344,14 +361,17 @@ async fn execute(spec: &CommandSpec, cwd: &Path) -> CommandOutput {
             .await;
         }
         Err(_) => {
-            terminate_process_tree(pid).await;
+            reaper::terminate_process_tree(pid).await;
             let _ = child.kill().await;
             let _ = child.wait().await;
             return output_from_tasks(
                 stdout_task,
                 stderr_task,
                 None,
-                Some("Process timed out after 30 seconds".into()),
+                Some(format!(
+                    "Process timed out after {} seconds",
+                    timeout.as_secs()
+                )),
                 "timeout",
             )
             .await;
@@ -375,7 +395,7 @@ async fn read_capped<R: tokio::io::AsyncRead + Unpin>(mut reader: R) -> (Vec<u8>
         match reader.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
             Ok(count) => {
-                let remaining = MAX_OUTPUT_BYTES.saturating_sub(kept.len());
+                let remaining = OUTPUT_LIMIT_BYTES.saturating_sub(kept.len());
                 kept.extend_from_slice(&buffer[..count.min(remaining)]);
                 truncated |= count > remaining;
             }
@@ -402,7 +422,10 @@ async fn output_from_tasks(
         stderr.push_str(&extra);
     }
     if stdout_truncated || stderr_truncated {
-        stderr.push_str("\n[output truncated at 4 MiB]");
+        stderr.push_str(&format!(
+            "\n[output truncated at {} MiB]",
+            OUTPUT_LIMIT_BYTES / (1024 * 1024)
+        ));
     }
     let success = exit_code == Some(0) && !has_extra_error;
     CommandOutput {
@@ -418,44 +441,6 @@ async fn join_output(task: Option<tokio::task::JoinHandle<(Vec<u8>, bool)>>) -> 
     match task {
         Some(task) => task.await.unwrap_or_default(),
         None => (Vec::new(), false),
-    }
-}
-
-#[cfg(unix)]
-fn configure_process_group(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    command.as_std_mut().process_group(0);
-}
-
-#[cfg(windows)]
-fn configure_process_group(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    command
-        .as_std_mut()
-        .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
-}
-
-#[cfg(unix)]
-async fn terminate_process_tree(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        unsafe {
-            libc::kill(-(pid as i32), libc::SIGKILL);
-        }
-    }
-}
-
-#[cfg(windows)]
-async fn terminate_process_tree(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await;
     }
 }
 
@@ -480,12 +465,27 @@ fn java_package(source: &str) -> Option<&str> {
     })
 }
 
-fn truncate_output(mut value: String) -> String {
-    if value.len() <= MAX_OUTPUT_BYTES {
+/// Truncate merged output to OUTPUT_LIMIT_BYTES. `String::truncate` panics
+/// when the cut lands inside a multi-byte UTF-8 sequence (Chinese output hits
+/// 4 MiB constantly), so walk back to the nearest char boundary first
+/// (review report P5).
+fn truncate_output(value: String) -> String {
+    truncate_to_limit(value, OUTPUT_LIMIT_BYTES)
+}
+
+fn truncate_to_limit(mut value: String, limit: usize) -> String {
+    if value.len() <= limit {
         return value;
     }
-    value.truncate(MAX_OUTPUT_BYTES);
-    value.push_str("\n[output truncated at 4 MiB]");
+    let mut kept = limit;
+    while !value.is_char_boundary(kept) {
+        kept -= 1;
+    }
+    value.truncate(kept);
+    value.push_str(&format!(
+        "\n[output truncated at {} MiB]",
+        OUTPUT_LIMIT_BYTES / (1024 * 1024)
+    ));
     value
 }
 
@@ -529,5 +529,19 @@ mod tests {
                 "esbuild"
             }
         );
+    }
+
+    #[test]
+    fn truncate_never_cuts_inside_a_multibyte_character() {
+        // '中' is 3 bytes; limits 2 and 3 must walk back to the 1-byte boundary
+        // instead of panicking like `String::truncate` would.
+        let mut input = String::from("a");
+        input.push('中');
+        input.push('中');
+        input.push('中');
+        for limit in 1..=input.len() {
+            let out = truncate_to_limit(input.clone(), limit);
+            assert!(std::str::from_utf8(out.as_bytes()).is_ok());
+        }
     }
 }

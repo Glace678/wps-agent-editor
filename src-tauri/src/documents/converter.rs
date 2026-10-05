@@ -4,7 +4,7 @@ use crate::documents::presentation::{
     validate_rasterized_png,
 };
 use crate::{
-    documents::word,
+    documents::{limits::MAX_DOCUMENT_INPUT_BYTES, word},
     error::{AppError, AppResult},
     process::dependencies::resolve_executable,
 };
@@ -28,7 +28,6 @@ use tokio::{
     time::Instant,
 };
 
-const MAX_DOCUMENT_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES: usize = 64 * 1024;
 const CONVERSION_TIMEOUT: Duration = Duration::from_secs(90);
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -409,7 +408,7 @@ pub(crate) async fn normalize_presentation_media(data: Vec<u8>) -> AppResult<(Ve
         OsString::from("-MaxImageBytes"),
         OsString::from(MAX_RASTERIZED_IMAGE_BYTES.to_string()),
         OsString::from("-MaxTotalBytes"),
-        OsString::from(MAX_DOCUMENT_BYTES.to_string()),
+        OsString::from(MAX_DOCUMENT_INPUT_BYTES.to_string()),
         OsString::from("-MaxDimension"),
         OsString::from(MAX_RASTERIZED_IMAGE_DIMENSION.to_string()),
         OsString::from("-MaxPixels"),
@@ -431,7 +430,7 @@ pub(crate) async fn normalize_presentation_media(data: Vec<u8>) -> AppResult<(Ve
         };
         if !metadata.is_file()
             || metadata.len() > MAX_RASTERIZED_IMAGE_BYTES
-            || total_bytes.saturating_add(metadata.len()) > MAX_DOCUMENT_BYTES
+            || total_bytes.saturating_add(metadata.len()) > MAX_DOCUMENT_INPUT_BYTES
         {
             continue;
         }
@@ -624,7 +623,7 @@ async fn convert(source: &Path, target: ConversionTarget) -> AppResult<Converted
         "targetFormat": target.extension,
         "attempts": attempts,
         "timeLimitSeconds": CONVERSION_TIMEOUT.as_secs(),
-        "outputLimitBytes": MAX_DOCUMENT_BYTES,
+        "outputLimitBytes": MAX_DOCUMENT_INPUT_BYTES,
     })))
 }
 
@@ -773,7 +772,7 @@ async fn convert_with_backend(
             None,
         );
         error["actualBytes"] = Value::from(actual_bytes);
-        error["limitBytes"] = Value::from(MAX_DOCUMENT_BYTES);
+        error["limitBytes"] = Value::from(MAX_DOCUMENT_INPUT_BYTES);
         return Err(error);
     }
     if !result.status.is_some_and(|status| status.success()) {
@@ -864,8 +863,8 @@ fn dependency_missing_error(source_extension: &str, target: ConversionTarget) ->
         "targetFormat": target.extension,
         "acceptedDependencies": dependencies,
         "timeLimitSeconds": CONVERSION_TIMEOUT.as_secs(),
-        "inputLimitBytes": MAX_DOCUMENT_BYTES,
-        "outputLimitBytes": MAX_DOCUMENT_BYTES,
+        "inputLimitBytes": MAX_DOCUMENT_INPUT_BYTES,
+        "outputLimitBytes": MAX_DOCUMENT_INPUT_BYTES,
     }))
 }
 
@@ -940,7 +939,7 @@ async fn validate_source(path: &Path) -> AppResult<()> {
     if !metadata.is_file() {
         return Err(AppError::invalid("Document source must be a regular file"));
     }
-    if metadata.len() > MAX_DOCUMENT_BYTES {
+    if metadata.len() > MAX_DOCUMENT_INPUT_BYTES {
         return Err(file_too_large_error("input", metadata.len()));
     }
     Ok(())
@@ -953,16 +952,16 @@ async fn read_limited(path: &Path, stage: &str) -> AppResult<Vec<u8>> {
             "Document path must point to a regular file",
         ));
     }
-    if metadata.len() > MAX_DOCUMENT_BYTES {
+    if metadata.len() > MAX_DOCUMENT_INPUT_BYTES {
         return Err(file_too_large_error(stage, metadata.len()));
     }
 
     let file = tokio::fs::File::open(path).await?;
-    let mut data = Vec::with_capacity(metadata.len().min(MAX_DOCUMENT_BYTES) as usize);
-    file.take(MAX_DOCUMENT_BYTES + 1)
+    let mut data = Vec::with_capacity(metadata.len().min(MAX_DOCUMENT_INPUT_BYTES) as usize);
+    file.take(MAX_DOCUMENT_INPUT_BYTES + 1)
         .read_to_end(&mut data)
         .await?;
-    if data.len() as u64 > MAX_DOCUMENT_BYTES {
+    if data.len() as u64 > MAX_DOCUMENT_INPUT_BYTES {
         return Err(file_too_large_error(stage, data.len() as u64));
     }
     Ok(data)
@@ -976,7 +975,7 @@ fn file_too_large_error(stage: &str, actual_bytes: u64) -> AppError {
     .with_details(json!({
         "stage": stage,
         "actualBytes": actual_bytes,
-        "limitBytes": MAX_DOCUMENT_BYTES,
+        "limitBytes": MAX_DOCUMENT_INPUT_BYTES,
     }))
 }
 
@@ -1021,7 +1020,7 @@ async fn run_process(
                 if let Some(length) = output_path
                     .and_then(|path| std::fs::metadata(path).ok())
                     .map(|metadata| metadata.len())
-                    .filter(|length| *length > MAX_DOCUMENT_BYTES)
+                    .filter(|length| *length > MAX_DOCUMENT_INPUT_BYTES)
                 {
                     break (None, false, Some(length));
                 }
@@ -1127,8 +1126,18 @@ fn configure_process_group(command: &mut Command) {
 #[cfg(unix)]
 async fn terminate_process_tree(pid: Option<u32>) {
     if let Some(pid) = pid {
+        // Defensive: `pid` comes from `child.id()` and is positive, but refuse to
+        // send a signal if it would wrap when cast to `i32` (otherwise `-pid`
+        // could address an unrelated process group on hosts with a large PID space).
+        let Ok(pgid) = i32::try_from(pid) else {
+            return;
+        };
+        // SAFETY: `pgid` is a real, positive child PID (from `tokio::process::Child::id`)
+        // validated to fit in `i32` above; negating it targets the process group created
+        // by `configure_process_group` (`process_group(0)`). The return value is ignored
+        // deliberately: `ESRCH` simply means the group already exited.
         unsafe {
-            libc::kill(-(pid as i32), libc::SIGKILL);
+            libc::kill(-pgid, libc::SIGKILL);
         }
     }
 }
@@ -1233,19 +1242,41 @@ fn registered_app_path(executable: &str) -> Option<PathBuf> {
     .chain(Some(0))
     .collect::<Vec<_>>();
 
+    /// RAII wrapper around an open registry key so the handle is closed exactly once,
+    /// on every exit path (including an early return inside the query closure below).
+    struct KeyGuard(Hkey);
+    impl Drop for KeyGuard {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` was returned by a successful `RegOpenKeyExW` and has not been
+            // closed yet; `KeyGuard` is the single owner of the handle, so closing it here
+            // cannot double-free.
+            unsafe {
+                RegCloseKey(self.0);
+            }
+        }
+    }
+
     for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
         for view in [0, KEY_WOW64_64KEY, KEY_WOW64_32KEY] {
             let mut key = ptr::null_mut();
+            // SAFETY: `hive` is a predefined root handle, `sub_key` is a NUL-terminated wide
+            // buffer owned by this function for the duration of the call, and `&mut key`
+            // outlives the call. On success `key` receives a handle that must be closed; it is
+            // immediately wrapped in `KeyGuard`.
             let opened = unsafe {
                 RegOpenKeyExW(hive, sub_key.as_ptr(), 0, KEY_QUERY_VALUE | view, &mut key)
             };
             if opened != ERROR_SUCCESS {
                 continue;
             }
+            let _guard = KeyGuard(key);
 
             let value = (|| {
                 let mut value_type = 0_u32;
                 let mut byte_count = 0_u32;
+                // SAFETY: `key` is still open (guard alive); the default value name is NULL, and
+                // we pass NULL data / a size pointer only to probe the required byte count
+                // without writing. `&mut value_type` and `&mut byte_count` outlive the call.
                 let queried = unsafe {
                     RegQueryValueExW(
                         key,
@@ -1260,7 +1291,13 @@ fn registered_app_path(executable: &str) -> Option<PathBuf> {
                     return None;
                 }
 
-                let mut value = vec![0_u16; (byte_count as usize).div_ceil(2)];
+                // Allocate one extra `u16` unit: if the registry value grew between this probe
+                // and the next read (TOCTOU), we still have slack, and we re-verify the reported
+                // size against the buffer immediately after the read below.
+                let mut value = vec![0_u16; (byte_count as usize).div_ceil(2) + 1];
+                // SAFETY: `key` remains open; `value.as_mut_ptr()` points into a buffer of
+                // `value.len() * 2` bytes, and `&mut byte_count` / `&mut value_type` outlive the
+                // call. We never interpret more than `value` after the call (size check below).
                 let queried = unsafe {
                     RegQueryValueExW(
                         key,
@@ -1274,16 +1311,20 @@ fn registered_app_path(executable: &str) -> Option<PathBuf> {
                 if queried != ERROR_SUCCESS || value_type != REG_SZ {
                     return None;
                 }
-                let length = value
+                // TOCTOU guard: only trust bytes that actually fit our buffer. If the value grew
+                // beyond what we allocated, bail rather than interpreting an over-large length.
+                let written_bytes = byte_count as usize;
+                if written_bytes > value.len() * 2 {
+                    return None;
+                }
+                let written_units = written_bytes / 2;
+                let length = value[..written_units]
                     .iter()
                     .position(|unit| *unit == 0)
-                    .unwrap_or(value.len());
+                    .unwrap_or(written_units);
                 let path = PathBuf::from(OsString::from_wide(&value[..length]));
                 path.is_file().then_some(path)
             })();
-            unsafe {
-                RegCloseKey(key);
-            }
             if value.is_some() {
                 return value;
             }
@@ -1680,7 +1721,7 @@ mod tests {
         assert_eq!(details["capability"], "presentation-convert");
         assert_eq!(details["sourceFormat"], "ppt");
         assert_eq!(details["targetFormat"], "pptx");
-        assert_eq!(details["outputLimitBytes"], MAX_DOCUMENT_BYTES);
+        assert_eq!(details["outputLimitBytes"], MAX_DOCUMENT_INPUT_BYTES);
     }
 
     #[tokio::test]
@@ -1772,7 +1813,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("oversized.doc");
         let file = std::fs::File::create(&path).unwrap();
-        file.set_len(MAX_DOCUMENT_BYTES + 1).unwrap();
+        file.set_len(MAX_DOCUMENT_INPUT_BYTES + 1).unwrap();
         let error = prepare_word(&path).await.unwrap_err();
         assert_eq!(error.code, "file-too-large");
         assert_eq!(error.details.unwrap()["stage"], "input");
@@ -1809,7 +1850,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let output_path = temp.path().join("oversized-output.bin");
         let file = std::fs::File::create(&output_path).unwrap();
-        file.set_len(MAX_DOCUMENT_BYTES + 1).unwrap();
+        file.set_len(MAX_DOCUMENT_INPUT_BYTES + 1).unwrap();
         let (executable, args) = long_running_command();
         let result = run_process(
             &executable,
@@ -1819,7 +1860,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(result.output_limit_bytes, Some(MAX_DOCUMENT_BYTES + 1));
+        assert_eq!(
+            result.output_limit_bytes,
+            Some(MAX_DOCUMENT_INPUT_BYTES + 1)
+        );
         assert!(!result.timed_out);
         assert!(result.status.is_none());
     }

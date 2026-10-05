@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { STRUCTURAL_TESTS } from './run-structural-tests.mjs'
+import { stripComments as stripJsComments } from './lib/comment-utils.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const scriptsDir = path.join(root, 'scripts')
@@ -37,11 +38,6 @@ function collectWorkflowCommands() {
 // a mention in a comment is not mistaken for an invocation. The checked test
 // files themselves are excluded, so a script cannot wire itself by referencing
 // its own filename (项17).
-function stripJsComments(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
-}
 const driverCommands = fs.readdirSync(scriptsDir, { withFileTypes: true })
   .filter((entry) => entry.isFile() && /\.(mjs|cjs|js|ts)$/.test(entry.name) && !TEST_FILE.test(entry.name))
   .map((entry) => stripJsComments(fs.readFileSync(path.join(scriptsDir, entry.name), 'utf8')))

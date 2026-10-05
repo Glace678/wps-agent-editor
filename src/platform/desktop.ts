@@ -5,8 +5,12 @@ import type {
   DesktopApi,
   DesktopPlatform,
   DocumentsApi,
+  FileClipboardResult,
   FileMutationResult,
+  FileRevealResult,
   FileSessionState,
+  FileStatInfo,
+  FileVersion,
   FilesApi,
   GrantedPath,
   InvokeBody,
@@ -15,12 +19,16 @@ import type {
   PreparedWordDocument,
   ProcessApi,
   ProvidersApi,
+  SystemFontFace,
 } from '@/types/desktop-api'
 import type { AgentConfig } from '@/types/agent'
 import type {
   CustomProviderConnectionTestResult,
 } from '@/types/provider'
 import type {
+  CodexImportResult,
+  ConversationRecord,
+  ConversationSummary,
   PresentationEditMetadata,
   PresentationEditResponseMetadata,
 } from '@/types/generated'
@@ -39,6 +47,7 @@ import {
   getFileGrantId,
   registerFileGrant,
 } from './grants'
+import { subscribeDesktopEvent } from './subscription'
 import { desktopTransport } from './transport'
 
 type UnknownRecord = Record<string, unknown>
@@ -46,6 +55,11 @@ type UnknownRecord = Record<string, unknown>
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null
 }
+
+// Mirrors MAX_IMAGE_BYTES in lightweight-office/pdf/worker/wae-limits and the
+// MAX_PNG_BYTES ceiling in commands/documents.rs; kept local because platform
+// must not import the lightweight-office layer.
+const MAX_PNG_DATA_URL_BYTES = 25 * 1024 * 1024
 
 async function invokeDesktop<T>(
   command: string,
@@ -149,25 +163,41 @@ function sessionState(value: unknown): FileSessionState {
 }
 
 function successResult(value: unknown): { success: boolean } {
-  if (isRecord(value) && typeof value.success === 'boolean') return { success: value.success }
-  return { success: value !== false }
+  // Review E3: tightened from the old `value !== false` rule, which reported
+  // undefined / null / strings as success whenever the backend forgot to return.
+  // Accepted wire shapes (verified against the Rust command signatures):
+  //  - `{ success: boolean, ... }` envelope — providers_set_base_url →
+  //    ProviderBaseUrlResult
+  //  - bare `true` boolean — providers_auth_set / providers_auth_remove →
+  //    AppResult<bool>
+  // Anything else (including a command that forgot to return) is now failure.
+  if (isRecord(value)) return { success: value.success === true }
+  return { success: value === true }
 }
 
-function eventSubscription(
-  channel: string,
-  callback: (...args: unknown[]) => void,
-): () => void {
-  let disposed = false
-  let unlisten: (() => void) | undefined
-  void desktopTransport.listen<unknown>(channel, (payload) => callback(payload)).then((dispose) => {
-    if (disposed) dispose()
-    else unlisten = dispose
-  }).catch((error: unknown) => {
-    console.error(`[desktop-api] Failed to listen to ${channel}`, AppError.from(error))
+/**
+ * Build a streaming channel that forwards only events matching `predicate`
+ * (review R3). The chat / runTask / debugStart / terminalStart channel blocks
+ * used to repeat this filter + cast shape; the predicate keeps the per-call
+ * correlation key inline and removes the per-site `as unknown` (D7).
+ */
+function filteredChannel<T>(
+  predicate: (event: unknown) => boolean,
+  onEvent: (event: T) => void,
+) {
+  return desktopTransport.channel<T>((event: unknown) => {
+    if (predicate(event)) onEvent(event as T)
   })
-  return () => {
-    disposed = true
-    unlisten?.()
+}
+
+/** Minimal guard for the { summary, messages } conversation record shape. */
+function assertConversationRecord(value: unknown, capability: string): asserts value is ConversationRecord {
+  if (!isRecord(value) || !isRecord(value.summary) || !Array.isArray(value.messages)) {
+    throw new AppError({
+      code: 'invalid-response',
+      message: `${capability} returned an invalid conversation record`,
+      details: value,
+    })
   }
 }
 
@@ -267,8 +297,17 @@ const files: FilesApi = {
     )
     return optionalGrantedPath(value, 'files.selectSaveFile')
   },
-  stat(filePath) {
-    return invokeDesktop(DESKTOP_COMMANDS.files.stat, accessArgs(filePath))
+  async stat(filePath) {
+    const value = await invokeDesktop<unknown>(DESKTOP_COMMANDS.files.stat, accessArgs(filePath))
+    if (!isRecord(value)
+      || typeof value.exists !== 'boolean'
+      || typeof value.size !== 'number'
+      || typeof value.modifiedAt !== 'number'
+      || typeof value.createdAt !== 'number'
+      || typeof value.extension !== 'string') {
+      throw new AppError({ code: 'invalid-response', message: 'files.stat returned invalid data', details: value })
+    }
+    return value as unknown as FileStatInfo
   },
   async rename(filePath, newName) {
     const result = await invokeDesktop<FileMutationResult>(
@@ -286,11 +325,15 @@ const files: FilesApi = {
     if (result.success) forgetFileGrant(filePath)
     return fileMutationResult(result, 'files.delete')
   },
-  showInFolder(filePath) {
-    return invokeDesktop(
+  async showInFolder(filePath) {
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.files.showInFolder,
       accessArgs(filePath),
     )
+    if (!isRecord(value) || typeof value.success !== 'boolean') {
+      throw new AppError({ code: 'invalid-response', message: 'files.showInFolder returned invalid data', details: value })
+    }
+    return value as unknown as FileRevealResult
   },
   async removeRecent(filePath) {
     const value = await invokeDesktop<unknown>(
@@ -299,30 +342,51 @@ const files: FilesApi = {
     )
     return grantedItems(value, 'files.removeRecent')
   },
-  copyToClipboard(filePaths) {
+  async copyToClipboard(filePaths) {
     const paths = Array.isArray(filePaths) ? filePaths : [filePaths]
-    return invokeDesktop(
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.files.copyToClipboard,
       { files: paths.map(accessArgs) },
     )
+    if (!isRecord(value) || typeof value.success !== 'boolean') {
+      throw new AppError({ code: 'invalid-response', message: 'files.copyToClipboard returned invalid data', details: value })
+    }
+    return value as unknown as FileClipboardResult
   },
-  historyList(filePath) {
-    return invokeDesktop(
+  async historyList(filePath) {
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.files.historyList,
       accessArgs(filePath),
     )
+    if (!Array.isArray(value)) {
+      throw new AppError({ code: 'invalid-response', message: 'files.historyList returned invalid data', details: value })
+    }
+    for (const entry of value) {
+      if (!isRecord(entry)
+        || typeof entry.id !== 'string'
+        || typeof entry.savedAt !== 'number'
+        || typeof entry.size !== 'number') {
+        throw new AppError({ code: 'invalid-response', message: 'files.historyList returned an invalid version entry', details: entry })
+      }
+    }
+    return value as FileVersion[]
   },
-  historyRestore(filePath, versionId) {
-    return invokeDesktop(
+  async historyRestore(filePath, versionId) {
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.files.historyRestore,
       { ...accessArgs(filePath), versionId },
     )
+    if (!isRecord(value) || typeof value.success !== 'boolean') {
+      throw new AppError({ code: 'invalid-response', message: 'files.historyRestore returned invalid data', details: value })
+    }
+    return value as unknown as FileRevealResult
   },
   getGrantId: getFileGrantId,
   registerGrant: registerFileGrant,
   forgetGrant: forgetFileGrant,
   onNavigateBack(callback) {
-    return eventSubscription('file:navigate-back', callback)
+    // Subscription adapter lives in platform/subscription.ts (review R1).
+    return subscribeDesktopEvent<unknown>('file:navigate-back', callback)
   },
 }
 
@@ -397,12 +461,11 @@ async function saveBinary(filePath: string, data: Parameters<DocumentsApi['saveB
 }
 
 function pngDataUrlBytes(dataUrl: string): Uint8Array {
-  const maxPngBytes = 25 * 1024 * 1024
   const match = /^data:image\/png;base64,(.+)$/i.exec(dataUrl)
   if (!match) {
     throw new AppError({ code: 'invalid-argument', message: 'Expected a base64 PNG data URL' })
   }
-  return base64ToBytes(match[1], maxPngBytes)
+  return base64ToBytes(match[1], MAX_PNG_DATA_URL_BYTES)
 }
 
 const documents: DocumentsApi = {
@@ -460,17 +523,34 @@ const documents: DocumentsApi = {
       data: metadata.hasData === true ? payload : undefined,
     } as Awaited<ReturnType<DocumentsApi['editPresentation']>>
   },
-  saveText(filePath, text, encoding) {
-    return invokeDesktop(
+  async saveText(filePath, text, encoding) {
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.documents.saveText,
       { ...accessArgs(filePath), text, encoding },
     )
+    // Backend resolves to `{ success: true }` (commands/documents.rs).
+    if (!isRecord(value) || typeof value.success !== 'boolean') {
+      throw new AppError({ code: 'invalid-response', message: 'documents.saveText returned invalid data', details: value })
+    }
+    return { success: value.success }
   },
-  listFonts(language) {
-    return invokeDesktop(
+  async listFonts(language) {
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.documents.listFonts,
       language ? { language } : undefined,
     )
+    if (!Array.isArray(value)) {
+      throw new AppError({ code: 'invalid-response', message: 'documents.listFonts returned invalid data', details: value })
+    }
+    for (const entry of value) {
+      if (!isRecord(entry)
+        || typeof entry.fontId !== 'string'
+        || typeof entry.familyName !== 'string'
+        || typeof entry.weight !== 'number') {
+        throw new AppError({ code: 'invalid-response', message: 'documents.listFonts returned an invalid font entry', details: entry })
+      }
+    }
+    return value as SystemFontFace[]
   },
   async readFont(fontId) {
     const value = await desktopTransport.invoke<unknown>(
@@ -485,16 +565,31 @@ const documents: DocumentsApi = {
       pngDataUrlBytes(dataUrl),
     )
   },
-  setCurrentFile(filePath) {
-    return invokeDesktop(
+  async setCurrentFile(filePath) {
+    const value = await invokeDesktop<unknown>(
       DESKTOP_COMMANDS.documents.setCurrentFile,
       filePath ? accessArgs(filePath) : { path: null },
     )
+    if (!isRecord(value) || typeof value.success !== 'boolean') {
+      throw new AppError({ code: 'invalid-response', message: 'documents.setCurrentFile returned invalid data', details: value })
+    }
+    return { success: value.success }
   },
 }
 
 const agents: AgentsApi = {
-  list: () => invokeDesktop(DESKTOP_COMMANDS.agents.list, undefined),
+  list: async () => {
+    const value = await invokeDesktop<unknown>(DESKTOP_COMMANDS.agents.list, undefined)
+    if (!Array.isArray(value)) {
+      throw new AppError({ code: 'invalid-response', message: 'agents.list returned invalid data', details: value })
+    }
+    for (const entry of value) {
+      if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string') {
+        throw new AppError({ code: 'invalid-response', message: 'agents.list returned an invalid agent entry', details: entry })
+      }
+    }
+    return value as AgentConfig[]
+  },
   async save(agent) {
     await desktopTransport.invoke<AgentConfig>(DESKTOP_COMMANDS.agents.save, { config: agent })
     return agents.list()
@@ -504,39 +599,73 @@ const agents: AgentsApi = {
     return agents.list()
   },
   conversations: {
-    list: () => invokeDesktop(DESKTOP_COMMANDS.agents.conversationsList, undefined),
-    get: (conversationId) => invokeDesktop(
-      DESKTOP_COMMANDS.agents.conversationsGet,
-      { id: conversationId },
-    ),
-    save: (request) => invokeDesktop(
-      DESKTOP_COMMANDS.agents.conversationsSave,
-      { request },
-    ),
-    delete: (conversationId) => invokeDesktop(
-      DESKTOP_COMMANDS.agents.conversationsDelete,
-      { id: conversationId },
-    ),
-    importCodex: () => invokeDesktop(
-      DESKTOP_COMMANDS.agents.conversationsImportCodex,
-      undefined,
-    ),
+    list: async () => {
+      const value = await invokeDesktop<unknown>(
+        DESKTOP_COMMANDS.agents.conversationsList,
+        undefined,
+      )
+      if (!Array.isArray(value)) {
+        throw new AppError({ code: 'invalid-response', message: 'agents.conversations.list returned invalid data', details: value })
+      }
+      return value as ConversationSummary[]
+    },
+    get: async (conversationId) => {
+      const value = await invokeDesktop<unknown>(
+        DESKTOP_COMMANDS.agents.conversationsGet,
+        { id: conversationId },
+      )
+      assertConversationRecord(value, 'agents.conversations.get')
+      return value
+    },
+    save: async (request) => {
+      const value = await invokeDesktop<unknown>(
+        DESKTOP_COMMANDS.agents.conversationsSave,
+        { request },
+      )
+      assertConversationRecord(value, 'agents.conversations.save')
+      return value
+    },
+    delete: async (conversationId) => {
+      const value = await invokeDesktop<unknown>(
+        DESKTOP_COMMANDS.agents.conversationsDelete,
+        { id: conversationId },
+      )
+      if (typeof value !== 'boolean') {
+        throw new AppError({ code: 'invalid-response', message: 'agents.conversations.delete returned invalid data', details: value })
+      }
+      return value
+    },
+    importCodex: async () => {
+      const value = await invokeDesktop<unknown>(
+        DESKTOP_COMMANDS.agents.conversationsImportCodex,
+        undefined,
+      )
+      if (!isRecord(value)
+        || typeof value.discovered !== 'number'
+        || typeof value.imported !== 'number'
+        || typeof value.messages !== 'number') {
+        throw new AppError({ code: 'invalid-response', message: 'agents.conversations.importCodex returned invalid data', details: value })
+      }
+      return value as CodexImportResult
+    },
   },
   async chat({ agentId, messages, conversationId, runId, onEvent }) {
     const result = await desktopTransport.invoke<AgentTaskResult | { error: string }>(DESKTOP_COMMANDS.agents.chat, {
       request: { agentId, messages, conversationId, runId },
-      onEvent: desktopTransport.channel<AgentCollaborationEvent>((event) => {
-        if (event.runId === runId) onEvent(event)
-      }) as unknown,
+      onEvent: filteredChannel<AgentCollaborationEvent>(
+        (event) => isRecord(event) && event.runId === runId,
+        onEvent,
+      ),
     })
     return { runId, result }
   },
   async runTask({ agentIds, task, runId, rootAgentId, mode, onEvent }) {
     const result = await desktopTransport.invoke<AgentTaskResult[] | { error: string }>(DESKTOP_COMMANDS.agents.runTask, {
       request: { agentIds, task, runId, rootAgentId, mode },
-      onEvent: desktopTransport.channel<AgentCollaborationEvent>((event) => {
-        if (event.runId === runId) onEvent(event)
-      }) as unknown,
+      onEvent: filteredChannel<AgentCollaborationEvent>(
+        (event) => isRecord(event) && event.runId === runId,
+        onEvent,
+      ),
     })
     return { runId, result }
   },
@@ -659,11 +788,10 @@ const processApi: ProcessApi = {
   debugStart(sessionId, filePath, breakpoints, onEvent) {
     return desktopTransport.invoke(DESKTOP_COMMANDS.process.debugStart, {
       request: { sessionId, ...accessArgs(filePath), breakpoints },
-      onEvent: desktopTransport.channel((event) => {
-        if (isRecord(event) && event.sessionId === sessionId) {
-          onEvent(event as unknown as Parameters<typeof onEvent>[0])
-        }
-      }) as unknown,
+      onEvent: filteredChannel(
+        (event) => isRecord(event) && event.sessionId === sessionId,
+        onEvent,
+      ),
     })
   },
   debugStop: (sessionId) => invokeDesktop(
@@ -687,11 +815,10 @@ const processApi: ProcessApi = {
         rows: options?.rows,
         ...(cwd ? { cwd: cwd.path, grantId: cwd.grantId } : {}),
       },
-      onEvent: desktopTransport.channel((event) => {
-        if (isRecord(event) && event.sessionId === sessionId) {
-          onEvent(event as unknown as Parameters<typeof onEvent>[0])
-        }
-      }) as unknown,
+      onEvent: filteredChannel(
+        (event) => isRecord(event) && event.sessionId === sessionId,
+        onEvent,
+      ),
     })
   },
   terminalWrite: (sessionId, data) => invokeDesktop(
@@ -722,23 +849,28 @@ async function appVoid(
 // (the backend check made the candidate non-triggerable).
 function assertSafeExternalUrl(url: string): void {
   if (typeof url !== 'string' || url.length === 0) {
-    throw new Error('openUrl requires a non-empty URL')
+    throw new AppError({ code: 'invalid-argument', message: 'openUrl requires a non-empty URL' })
   }
   // Reject embedded control characters before any URL parsing.
   if (/[\u0000-\u001f\u007f]/.test(url)) {
-    throw new Error('openUrl rejected: URL contains control characters')
+    throw new AppError({ code: 'invalid-argument', message: 'openUrl rejected: URL contains control characters' })
   }
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
-    throw new Error('openUrl rejected: malformed URL')
+    throw new AppError({ code: 'invalid-argument', message: 'openUrl rejected: malformed URL' })
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`openUrl rejected: unsupported scheme "${parsed.protocol}"`)
+    throw new AppError({ code: 'invalid-argument', message: `openUrl rejected: unsupported scheme "${parsed.protocol}"` })
   }
 }
 
+// setLanguage / setTheme / performMenuAction / openUrl resolve here as a
+// constant `{ success: true }`: these fire-and-forget mutating commands reject
+// on the Rust side (AppError transport), so a resolved call already means the
+// native action was acknowledged. Deliberately not routed through successResult
+// (review D2 tracks surfacing backend SuccessResult envelopes for these).
 const app: AppApi = {
   platform,
   async setLanguage(language) {
@@ -779,7 +911,15 @@ const app: AppApi = {
   toggleFullscreen: () => appVoid(DESKTOP_COMMANDS.app.toggleFullscreen),
   close: () => appVoid(DESKTOP_COMMANDS.app.close),
   quit: () => appVoid(DESKTOP_COMMANDS.app.quit),
-  checkForUpdate: () => desktopTransport.invoke(DESKTOP_COMMANDS.app.checkForUpdate),
+  checkForUpdate: async () => {
+    const value = await desktopTransport.invoke<unknown>(DESKTOP_COMMANDS.app.checkForUpdate)
+    if (!isRecord(value)
+      || typeof value.available !== 'boolean'
+      || typeof value.currentVersion !== 'string') {
+      throw new AppError({ code: 'invalid-response', message: 'app.checkForUpdate returned invalid data', details: value })
+    }
+    return value as Awaited<ReturnType<AppApi['checkForUpdate']>>
+  },
   installUpdate: () => desktopTransport.invoke(DESKTOP_COMMANDS.app.installUpdate),
   markStartupHealthy: () => desktopTransport.invoke(DESKTOP_COMMANDS.app.markStartupHealthy),
   async takeStartupFiles() {

@@ -254,7 +254,7 @@ async fn complete_openai(
     }
     let mut request = store.client.post(url).json(&body);
     if !provider.is_local {
-        request = request.bearer_auth(store.api_key(&provider.id)?);
+        request = request.bearer_auth(store.api_key(&provider.id).await?);
     }
     let observe = |_: &str, value: &Value| {
         if let Some(observer) = context.on_delta {
@@ -360,10 +360,11 @@ async fn complete_anthropic(
         append_endpoint(&provider.api, "v1/messages")
     };
     let body = anthropic_request_body(model, reasoning, messages);
+    let api_key = store.api_key(&provider.id).await?;
     let request = store
         .client
         .post(url)
-        .header("x-api-key", store.api_key(&provider.id)?)
+        .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .json(&body);
     let observe = |event_name: &str, value: &Value| {
@@ -434,10 +435,11 @@ async fn complete_google(
     if let Some(config) = google_thinking_config(reasoning) {
         body["generationConfig"] = json!({ "thinkingConfig": config });
     }
+    let api_key = store.api_key(&provider.id).await?;
     let request = store
         .client
         .post(url)
-        .header("x-goog-api-key", store.api_key(&provider.id)?)
+        .header("x-goog-api-key", api_key)
         .json(&body);
     let observe = |_: &str, value: &Value| {
         if let Some(observer) = context.on_delta {

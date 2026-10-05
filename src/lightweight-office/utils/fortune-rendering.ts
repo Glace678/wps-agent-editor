@@ -565,10 +565,7 @@ function polyfillFortuneLocaleGaps() {
   for (const lang of FORTUNE_LANGUAGES) {
     if (lang === 'en') continue
     const localeData = locale({ lang } as unknown as Context) as unknown as Record<string, unknown>
-    const filled = fillMissingLocaleKeys(localeData, english)
-    if (filled > 0) {
-      console.log(`[fortune-rendering] backfilled ${filled} missing '${lang}' locale keys from en`)
-    }
+    fillMissingLocaleKeys(localeData, english)
   }
 }
 

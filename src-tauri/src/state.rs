@@ -1,6 +1,6 @@
 use crate::{
     agents::{conversations::ConversationStore, runtime::AgentRuntime, store::AgentStore},
-    error::{AppError, AppResult},
+    error::{codes, AppError, AppResult},
     files::FileServices,
     providers::store::ProviderStore,
 };
@@ -148,7 +148,7 @@ where
     match std::fs::read(path) {
         Ok(bytes) => match decode_versioned_json(&bytes, resource) {
             Ok(value) => Ok(value),
-            Err(error) if error.code == "unsupported-data-version" => Err(error),
+            Err(error) if error.code == codes::UNSUPPORTED_DATA_VERSION => Err(error),
             Err(primary_error) => recover_versioned_json(path, resource, notices, primary_error),
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
@@ -165,7 +165,12 @@ pub(crate) fn decode_versioned_json<T: DeserializeOwned>(
         .get("version")
         .and_then(Value::as_u64)
         .and_then(|version| u32::try_from(version).ok())
-        .ok_or_else(|| AppError::new("invalid-data", format!("{resource} has no valid version")))?;
+        .ok_or_else(|| {
+            AppError::new(
+                codes::INVALID_DATA,
+                format!("{resource} has no valid version"),
+            )
+        })?;
     ensure_data_version(resource, version)?;
     serde_json::from_value(value).map_err(Into::into)
 }
@@ -191,7 +196,7 @@ fn recover_versioned_json<T: DeserializeOwned + Default>(
                 );
                 return Ok(value);
             }
-            Err(error) if error.code == "unsupported-data-version" => return Err(error),
+            Err(error) if error.code == codes::UNSUPPORTED_DATA_VERSION => return Err(error),
             Err(_) => {}
         }
     }
@@ -269,7 +274,7 @@ pub(crate) fn ensure_data_version(resource: &str, actual: u32) -> AppResult<()> 
         return Ok(());
     }
     Err(AppError::new(
-        "unsupported-data-version",
+        codes::UNSUPPORTED_DATA_VERSION,
         format!("Unsupported {resource} data version {actual}; expected {DATA_SCHEMA_VERSION}"),
     )
     .with_details(serde_json::json!({
@@ -368,7 +373,7 @@ mod tests {
         std::fs::write(&path, br#"{"version":2,"value":"future"}"#).unwrap();
         let notices = new_recovery_notices();
         let error = read_versioned_json::<TestFile>(&path, "test state", &notices).unwrap_err();
-        assert_eq!(error.code, "unsupported-data-version");
+        assert_eq!(error.code, codes::UNSUPPORTED_DATA_VERSION);
         assert!(path.exists());
         assert!(notices.lock().is_empty());
     }

@@ -32,6 +32,9 @@ import { tabIndexByOffset } from './document-tabs'
 import { DocumentTabBar } from './components/DocumentTabBar'
 import { SaveConfirmDialog } from './components/SaveConfirmDialog'
 
+// 关闭标签时轮询等待 save handler 注册的节奏（配合上方 5s 截止时间）。
+const SAVE_HANDLER_POLL_INTERVAL_MS = 25
+
 const WordEditor = lazy(async () => {
   const module = await import('./editors/WordEditor')
   return { default: module.WordEditor }
@@ -443,7 +446,7 @@ export function LightweightDocumentEditor() {
 
     const deadline = Date.now() + 5_000
     while (!saveRef.current && Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 25))
+      await new Promise((resolve) => window.setTimeout(resolve, SAVE_HANDLER_POLL_INTERVAL_MS))
     }
     const save = saveRef.current
     if (!save) {

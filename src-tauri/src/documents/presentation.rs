@@ -1,3 +1,4 @@
+use crate::documents::limits::{MAX_EXPANDED_BYTES, MAX_PART_BYTES, MAX_XML_BYTES};
 use crate::error::{AppError, AppResult};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 use quick_xml::{
@@ -29,10 +30,9 @@ const PRESENTATION_NS: &str = "http://schemas.openxmlformats.org/presentationml/
 const DRAWING_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const OFFICE_RELATIONSHIPS_NS: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const MAX_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
-const MAX_EXPANDED_BYTES: u64 = 256 * 1024 * 1024;
-const MAX_PART_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_XML_BYTES: usize = 16 * 1024 * 1024;
+/// 100 MiB input/archive cap. Local `usize` alias over the shared value so existing call
+/// sites (`source.len() > MAX_ARCHIVE_BYTES`) keep their name and type.
+const MAX_ARCHIVE_BYTES: usize = super::limits::MAX_DOCUMENT_INPUT_BYTES as usize;
 const MAX_XML_DEPTH: usize = 256;
 const MAX_XML_EVENTS: usize = 500_000;
 const MAX_PART_NAME_BYTES: usize = 512;

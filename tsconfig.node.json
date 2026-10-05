@@ -9,8 +9,17 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "outDir": "out",
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "tests/e2e/**/*.ts"]
+  "include": [
+    "vite.config.ts",
+    "playwright.config.ts",
+    "tests/e2e/**/*.ts",
+    "scripts/**/*.ts",
+    "src/lib/i18n/**/*"
+  ]
 }

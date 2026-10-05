@@ -4,6 +4,7 @@ import { Bug, ChevronRight } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { useDebugStore } from '@/stores/debug.store'
 import { usePanelStore } from '@/stores/panel.store'
+import { isSamePath } from '@/lib/path'
 
 export function DebugConsoleView() {
   const { t } = useTranslation()
@@ -74,7 +75,7 @@ export function DebugConsoleView() {
                   <p className="px-3 py-1 text-[11px] text-muted-foreground">{t('bottomPanel.noFrames')}</p>
                 )}
                 {frames.map((frame) => {
-                  const sameFile = sessionFile && frame.file && frame.file.replace(/\\/g, '/') === sessionFile.replace(/\\/g, '/')
+                  const sameFile = sessionFile && frame.file && isSamePath(frame.file, sessionFile)
                   const fileName = frame.file.split(/[/\\]/).pop() || frame.file
                   return (
                     <button

@@ -1,3 +1,4 @@
+use super::SuccessResult;
 use crate::{
     error::{AppError, AppResult},
     files::{access::GrantSource, ensure_file_can_be_opened, models::GrantedPath},
@@ -17,12 +18,6 @@ use tauri::{Emitter, Manager, State, Theme, WebviewUrl, WebviewWindow, WebviewWi
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::UpdaterExt;
 use uuid::Uuid;
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SuccessResult {
-    pub success: bool,
-}
 
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

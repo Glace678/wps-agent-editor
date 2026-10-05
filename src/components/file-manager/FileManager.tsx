@@ -443,7 +443,6 @@ export function FileManager({ onCollapse }: FileManagerProps) {
           <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
             <FileTree
               entries={entries}
-              currentDir={currentDir}
               onOpenFile={openFile}
               onOpenDir={loadDir}
             />

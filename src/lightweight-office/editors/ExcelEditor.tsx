@@ -222,15 +222,12 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
 
     async function load() {
       try {
-        console.log('[ExcelEditor] 开始加载文�?', filePath)
         const buffer = await readSpreadsheetBuffer(filePath)
-        console.log('[ExcelEditor] 文件读取成功，大�?', buffer.byteLength, 'bytes')
         if (cancelled) return
         const loaded = await xlsxBufferToSheets(buffer)
         // The parse await can span a file switch; discard a stale result so it
         // cannot overwrite the newly requested workbook / baseline / state.
         if (cancelled) return
-        console.log('[ExcelEditor] 解析成功，工作表�?', loaded.length)
         sheetsRef.current = loaded
         lastContentSnapshotRef.current = loaded
         // Provisional baseline until Fortune expands the model after mount.

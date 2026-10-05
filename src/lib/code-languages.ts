@@ -1,3 +1,5 @@
+import { baseName } from '@/lib/path'
+
 export interface CodeLanguageDefinition {
   language: string
   label: string
@@ -137,7 +139,7 @@ export const CODE_FILE_FILTER_GROUPS = Object.freeze({
 })
 
 function fileNameOf(filePath: string): string {
-  return filePath.split(/[/\\]/).pop()?.toLowerCase() ?? ''
+  return baseName(filePath).toLowerCase()
 }
 
 export function getCodeLanguage(filePath: string): CodeLanguageDefinition | null {

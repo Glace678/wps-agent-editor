@@ -108,23 +108,25 @@ impl AccessRegistry {
         }
         let metadata = std::fs::metadata(&canonical)
             .map_err(|error| io_error("grant-child", &canonical, error))?;
-        // Reuse an existing child grant for this owner and canonical path so that
-        // repeatedly listing the same directory returns stable grant ids instead
-        // of minting an unbounded number of new UUID grants.
-        {
-            let grants = self.grants.read().map_err(lock_error)?;
-            if let Some((existing_id, _)) = grants.iter().find(|(_, grant)| {
-                grant.owner == owner
-                    && grant.source == GrantSource::Child
-                    && path_key(&grant.path) == path_key(&canonical)
-            }) {
-                return Ok(GrantedPath {
-                    path: path_string(&canonical)?,
-                    grant_id: existing_id.clone(),
-                });
-            }
+        // Reuse an existing child grant for this owner and canonical path so that repeatedly
+        // listing the same directory returns stable grant ids instead of minting an unbounded
+        // number of new UUID grants. Do the reuse check and the mint under a single write lock:
+        // two concurrent requests can no longer both observe a miss and each insert a
+        // duplicate grant for the same path.
+        let canonical_key = path_key(&canonical);
+        let mut grants = self.grants.write().map_err(lock_error)?;
+        if let Some((existing_id, _)) = grants.iter().find(|(_, grant)| {
+            grant.owner == owner
+                && grant.source == GrantSource::Child
+                && path_key(&grant.path) == canonical_key
+        }) {
+            return Ok(GrantedPath {
+                path: path_string(&canonical)?,
+                grant_id: existing_id.clone(),
+            });
         }
-        self.insert(
+        self.insert_unlocked(
+            &mut grants,
             owner,
             canonical,
             parent.writable,
@@ -327,12 +329,38 @@ impl AccessRegistry {
         source: GrantSource,
         expires_after: Option<Duration>,
     ) -> AppResult<GrantedPath> {
+        let mut grants = self.grants.write().map_err(lock_error)?;
+        self.insert_unlocked(
+            &mut grants,
+            owner,
+            path,
+            writable,
+            is_directory,
+            source,
+            expires_after,
+        )
+    }
+
+    /// Insert a new grant, assuming the caller already holds the write lock. Shared by
+    /// `insert` and `grant_child` (which must reuse-check and mint inside one lock hold).
+    // Private grant-construction helper; each argument maps one-to-one to a `Grant` field.
+    // Aggregating them into a struct would only be used once, so we allow the lint.
+    #[allow(clippy::too_many_arguments)]
+    fn insert_unlocked(
+        &self,
+        grants: &mut HashMap<String, Grant>,
+        owner: &str,
+        path: PathBuf,
+        writable: bool,
+        is_directory: bool,
+        source: GrantSource,
+        expires_after: Option<Duration>,
+    ) -> AppResult<GrantedPath> {
         validate_owner(owner)?;
         let id = Uuid::new_v4().to_string();
         let expires_at = expires_after.and_then(|duration| Instant::now().checked_add(duration));
-        let mut grants = self.grants.write().map_err(lock_error)?;
         if source == GrantSource::Child {
-            self.enforce_child_grant_budget(&mut grants, owner);
+            self.enforce_child_grant_budget(grants, owner);
         }
         grants.insert(
             id.clone(),

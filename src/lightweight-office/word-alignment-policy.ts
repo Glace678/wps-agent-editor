@@ -1,4 +1,4 @@
-﻿import type { Editor } from '@superdoc-dev/react'
+import type { Editor } from '@superdoc-dev/react'
 import { observeDocumentMutations } from './dom-observer'
 
 export interface InstallWordAlignmentPolicyOptions {

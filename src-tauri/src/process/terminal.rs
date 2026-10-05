@@ -1,4 +1,7 @@
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::{codes, AppError, AppResult},
+    process::reaper::{self, MAX_SESSION_AGE, OUTPUT_LIMIT_BYTES},
+};
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -13,10 +16,13 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{ipc::Channel, WebviewWindow};
+
 const MAX_SESSIONS_GLOBAL: usize = 16;
 const MAX_SESSIONS_PER_WINDOW: usize = 4;
-const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
-const MAX_SESSION_AGE: Duration = Duration::from_secs(8 * 60 * 60);
+const MIN_COLS: u16 = 10;
+const MAX_COLS: u16 = 1000;
+const MAX_WRITE_BYTES: usize = 256 * 1024;
+const REAPER_INTERVAL: Duration = Duration::from_secs(60);
 
 type PtyWriter = Box<dyn Write + Send>;
 type PtyChild = Box<dyn Child + Send + Sync>;
@@ -91,12 +97,6 @@ pub fn start(
     let id = normalize_session_id(&requested_id)?;
     let label = window.label().to_owned();
     let session_key = key(&label, &id);
-    if sessions().lock().contains_key(&session_key) {
-        return Err(AppError::new(
-            "session-already-active",
-            "A terminal session with this id is already active",
-        ));
-    }
 
     let metadata = std::fs::metadata(&cwd)?;
     if !metadata.is_dir() {
@@ -104,38 +104,27 @@ pub fn start(
             "Terminal working directory is not a directory",
         ));
     }
-    {
-        let active = sessions().lock();
-        if active.len() >= MAX_SESSIONS_GLOBAL
-            || active
-                .values()
-                .filter(|session| session.window_label == label)
-                .count()
-                >= MAX_SESSIONS_PER_WINDOW
-        {
-            return Err(AppError::new(
-                "session-limit",
-                "Too many terminal sessions are active",
-            ));
-        }
-    }
 
+    // Open the PTY and spawn the shell before touching the registry. If a
+    // concurrent start for the same key wins the race below, the freshly
+    // spawned child is rolled back here (review report P8: the previous
+    // check-then-act allowed two spawns and an orphaned session).
     let pair = native_pty_system()
         .openpty(PtySize {
             rows: rows.clamp(2, 500),
-            cols: cols.clamp(10, 1000),
+            cols: cols.clamp(MIN_COLS, MAX_COLS),
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|error| AppError::new("pty-error", error.to_string()))?;
+        .map_err(|error| AppError::new(codes::PTY_ERROR, error.to_string()))?;
     let reader = pair
         .master
         .try_clone_reader()
-        .map_err(|error| AppError::new("pty-error", error.to_string()))?;
+        .map_err(|error| AppError::new(codes::PTY_ERROR, error.to_string()))?;
     let writer = pair
         .master
         .take_writer()
-        .map_err(|error| AppError::new("pty-error", error.to_string()))?;
+        .map_err(|error| AppError::new(codes::PTY_ERROR, error.to_string()))?;
     let mut command = CommandBuilder::new(shell_command());
     command.cwd(&cwd);
     command.env("TERM", "xterm-256color");
@@ -145,13 +134,13 @@ pub fn start(
     let child = pair
         .slave
         .spawn_command(command)
-        .map_err(|error| AppError::new("pty-error", error.to_string()))?;
+        .map_err(|error| AppError::new(codes::PTY_ERROR, error.to_string()))?;
     let pid = child.process_id();
     drop(pair.slave);
 
     let session = Arc::new(TerminalSession {
         id,
-        window_label: label,
+        window_label: label.clone(),
         cwd,
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
@@ -162,14 +151,47 @@ pub fn start(
         started: Instant::now(),
         events,
     });
-    sessions().lock().insert(session_key, session.clone());
+
+    // One critical section: duplicate check, quota check and the insert all
+    // happen under the same lock. The loser of a same-key race never reaches
+    // the registry, so it cannot occupy the 16-session quota until the 8 h
+    // reaper comes along.
+    let inserted = {
+        let mut active = sessions().lock();
+        if active.contains_key(&session_key) {
+            Err(AppError::new(
+                codes::SESSION_ALREADY_ACTIVE,
+                "A terminal session with this id is already active",
+            ))
+        } else if active.len() >= MAX_SESSIONS_GLOBAL
+            || active
+                .values()
+                .filter(|existing| existing.window_label == label)
+                .count()
+                >= MAX_SESSIONS_PER_WINDOW
+        {
+            Err(AppError::new(
+                codes::SESSION_LIMIT,
+                "Too many terminal sessions are active",
+            ))
+        } else {
+            active.insert(session_key, session.clone());
+            Ok(())
+        }
+    };
+    if let Err(error) = inserted {
+        // Roll back the spawned child; the reader thread was never started and
+        // nothing was registered, so no quota is leaked.
+        stop_session(&session);
+        return Err(error);
+    }
     spawn_reader(session.clone(), reader);
     ensure_reaper();
     Ok(start_result(&session))
 }
 
 pub fn write(window: &WebviewWindow, session_id: &str, data: String) -> AppResult<()> {
-    if data.contains('\0') || data.len() > 256 * 1024 {
+    if data.contains('\0') || data.len() > MAX_WRITE_BYTES {
         return Err(AppError::invalid("Terminal input is invalid or too large"));
     }
     let session = get(window.label(), session_id)?;
@@ -187,11 +209,11 @@ pub fn resize(window: &WebviewWindow, session_id: &str, cols: u16, rows: u16) ->
         .lock()
         .resize(PtySize {
             rows: rows.clamp(2, 500),
-            cols: cols.clamp(10, 1000),
+            cols: cols.clamp(MIN_COLS, MAX_COLS),
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|error| AppError::new("pty-error", error.to_string()));
+        .map_err(|error| AppError::new(codes::PTY_ERROR, error.to_string()));
     result
 }
 
@@ -262,10 +284,10 @@ fn spawn_reader(session: Arc<TerminalSession>, mut reader: Box<dyn Read + Send>)
                     Ok(count) => count,
                 };
                 let previous = session.output_bytes.fetch_add(count, Ordering::Relaxed);
-                if previous >= MAX_OUTPUT_BYTES {
+                if previous >= OUTPUT_LIMIT_BYTES {
                     break;
                 }
-                let keep = count.min(MAX_OUTPUT_BYTES - previous);
+                let keep = count.min(OUTPUT_LIMIT_BYTES - previous);
                 let text = String::from_utf8_lossy(&buffer[..keep]);
                 emit_output(&session, &text);
                 if keep < count {
@@ -274,7 +296,7 @@ fn spawn_reader(session: Arc<TerminalSession>, mut reader: Box<dyn Read + Send>)
                 }
             }
             if !session.stopping.swap(true, Ordering::SeqCst) {
-                terminate_tree(session.pid);
+                reaper::terminate_process_tree_sync(session.pid);
                 let _ = session.child.lock().kill();
             }
             let code = session
@@ -298,7 +320,7 @@ fn ensure_reaper() {
         std::thread::Builder::new()
             .name("pty-session-reaper".into())
             .spawn(|| loop {
-                std::thread::sleep(Duration::from_secs(60));
+                std::thread::sleep(REAPER_INTERVAL);
                 let expired = {
                     let mut active = sessions().lock();
                     let keys = active
@@ -323,7 +345,7 @@ fn stop_session(session: &TerminalSession) {
     if session.stopping.swap(true, Ordering::SeqCst) {
         return;
     }
-    terminate_tree(session.pid);
+    reaper::terminate_process_tree_sync(session.pid);
     let _ = session.child.lock().kill();
 }
 
@@ -345,28 +367,6 @@ fn emit_exit(session: &TerminalSession, code: Option<u32>) {
         session_id: session.id.clone(),
         window_label: session.window_label.clone(),
     });
-}
-
-#[cfg(unix)]
-fn terminate_tree(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        unsafe {
-            libc::kill(-(pid as i32), libc::SIGKILL);
-            libc::kill(pid as i32, libc::SIGKILL);
-        }
-    }
-}
-
-#[cfg(windows)]
-fn terminate_tree(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
 }
 
 #[cfg(test)]

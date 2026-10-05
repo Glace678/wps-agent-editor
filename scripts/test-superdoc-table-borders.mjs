@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
 const chunks = path.join(root, 'node_modules', 'superdoc', 'dist', 'chunks')
-const converterEsm = path.join(chunks, 'SuperConverter-SsIUcBUk.es.js')
+
+// SuperDoc emits content-hashed chunk names (SuperConverter-<hash>.es.js,
+// src-<hash>.es.js / .cjs) that change every release; resolve by pattern and
+// assert the expected counts instead of hardcoding the hashes.
+function resolveOne(pattern) {
+  const matches = readdirSync(chunks).filter((name) => pattern.test(name)).sort()
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one chunks/${pattern} chunk, found ${matches.length}`)
+  }
+  return matches[0]
+}
+const converterEsm = path.join(chunks, resolveOne(/^SuperConverter-.*\.es\.js$/))
 
 const converter = await import(pathToFileURL(converterEsm).href)
 const resolvePreferredNewTableStyleId = converter.Is
@@ -40,7 +51,10 @@ assert.deepEqual(
   { styleId: null, source: 'none' },
 )
 
-for (const file of ['src-CcBJnYZd.es.js', 'src-VzGe-_l_.cjs']) {
+for (const file of [
+  resolveOne(/^src-.*\.es\.js$/),
+  resolveOne(/^src-.*\.cjs$/),
+]) {
   const source = readFileSync(path.join(chunks, file), 'utf8')
   assert.match(source, /useDefaultBorder: false,/)
   assert.doesNotMatch(

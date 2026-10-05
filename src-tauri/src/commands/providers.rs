@@ -152,14 +152,15 @@ pub async fn providers_set_base_url(
 pub async fn providers_auth_status(
     state: State<'_, AppState>,
 ) -> AppResult<HashMap<String, AuthStatus>> {
-    state.providers.auth_status()
+    state.providers.auth_status().await
 }
 
 #[tauri::command]
 pub async fn providers_auth_set(input: AuthInput, state: State<'_, AppState>) -> AppResult<bool> {
     state
         .providers
-        .set_api_key(&input.provider_id, &input.api_key)?;
+        .set_api_key(&input.provider_id, &input.api_key)
+        .await?;
     Ok(true)
 }
 
@@ -168,7 +169,7 @@ pub async fn providers_auth_remove(
     provider_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<bool> {
-    state.providers.remove_api_key(&provider_id)?;
+    state.providers.remove_api_key(&provider_id).await?;
     Ok(true)
 }
 
@@ -462,6 +463,10 @@ fn merge_with_builtins(remote: Vec<ProviderDefinition>) -> Vec<ProviderDefinitio
             if provider.models.is_empty() {
                 provider.models.clone_from(&bundled.models);
             }
+            // models.dev does not tag local providers; without this, refreshing the
+            // catalog would overwrite the bundled `is_local: true` (e.g. Ollama)
+            // with `false` and desync the local-provider UX. Keep the most-local flag.
+            provider.is_local |= bundled.is_local;
         }
         providers.insert(provider.id.clone(), provider);
     }
@@ -487,6 +492,36 @@ fn apply_base_url_override(provider: &mut ProviderDefinition, override_url: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_keeps_bundled_local_flag_when_remote_has_none() {
+        // models.dev returns an Ollama entry but does not mark it local; the merge
+        // must preserve the bundled `is_local: true`.
+        let remote = vec![ProviderDefinition {
+            id: "ollama".into(),
+            name: "Ollama".into(),
+            api: "http://127.0.0.1:11434/v1".into(),
+            npm: String::new(),
+            doc: None,
+            env: vec![],
+            protocol: ProviderProtocol::OpenaiCompatible,
+            models: vec![],
+            default_model: None,
+            default_api: None,
+            is_api_overridden: false,
+            is_custom: false,
+            is_local: false,
+        }];
+        let merged = merge_with_builtins(remote);
+        let ollama = merged
+            .iter()
+            .find(|provider| provider.id == "ollama")
+            .expect("ollama present");
+        assert!(
+            ollama.is_local,
+            "bundled local flag must survive a remote refresh"
+        );
+    }
 
     #[test]
     fn provider_response_preserves_default_api_when_overridden() {

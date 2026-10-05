@@ -1,4 +1,4 @@
-import { desktopApi } from '@/platform/desktop'
+import { desktopApi } from '@/platform'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 

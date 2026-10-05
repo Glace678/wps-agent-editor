@@ -1,7 +1,8 @@
 import type { PdfImageAnnotationRecord } from './mupdf-protocol'
 
-export const MAX_IMAGE_BYTES = 25 * 1024 * 1024
-export const MAX_IMAGE_PIXELS = 40_000_000
+// 图片字节/像素上限的唯一出处在 worker/wae-limits（worker 侧 WAE 校验与 UI 预检必须一致），
+// 这里仅 re-export 以兼容既有从本模块引入的调用方。
+export { MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS } from './worker/wae-limits'
 
 export function detectImageMime(bytes: Uint8Array): PdfImageAnnotationRecord['mimeType'] | null {
   if (

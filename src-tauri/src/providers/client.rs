@@ -8,6 +8,11 @@ use tauri::ipc::Channel;
 use url::Url;
 
 const MAX_EVENT_BYTES: usize = 2 * 1024 * 1024;
+/// Hard cap on how many bytes of a non-2xx provider error body we buffer before
+/// surfacing it. Error bodies are expected to be tiny; without this limit a
+/// hostile or misbehaving provider could stream an arbitrarily large body straight
+/// into memory. (The successful SSE path keeps its own `MAX_EVENT_BYTES` cap.)
+const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,10 +50,14 @@ pub async fn stream_json_sse(
         .await?;
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
+        let (body, truncated) = read_bounded_error_body(response).await;
+        let note = if truncated { " (truncated)" } else { "" };
         return Err(AppError::new(
             "provider-http-error",
-            format!("Provider returned HTTP {status}: {}", truncate(&body, 2048)),
+            format!(
+                "Provider returned HTTP {status}: {}{note}",
+                truncate(&body, 2048)
+            ),
         ));
     }
     channel
@@ -85,4 +94,30 @@ pub async fn stream_json_sse(
 
 fn truncate(value: &str, max: usize) -> &str {
     value.get(..max).unwrap_or(value)
+}
+
+/// Drain a non-2xx response body while capping how much we buffer, returning the
+/// lossy-converted text and whether the body exceeded `MAX_ERROR_BODY_BYTES` (in
+/// which case the surplus bytes are dropped and the caller annotates the message).
+async fn read_bounded_error_body(response: reqwest::Response) -> (String, bool) {
+    let mut stream = response.bytes_stream();
+    let mut buffer = Vec::with_capacity(MAX_ERROR_BODY_BYTES.min(1024));
+    let mut truncated = false;
+    while let Some(chunk) = stream.next().await {
+        let remaining = MAX_ERROR_BODY_BYTES.saturating_sub(buffer.len());
+        if remaining == 0 {
+            truncated = true;
+            break;
+        }
+        match chunk {
+            Ok(bytes) if bytes.len() <= remaining => buffer.extend_from_slice(&bytes),
+            Ok(bytes) => {
+                buffer.extend_from_slice(&bytes[..remaining]);
+                truncated = true;
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+    (String::from_utf8_lossy(&buffer).into_owned(), truncated)
 }

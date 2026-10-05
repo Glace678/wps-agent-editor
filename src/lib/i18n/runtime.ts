@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { t as translate } from './translate'
-import { desktopApi } from '@/platform/desktop'
+import { desktopApi } from '@/platform'
 import {
   getLanguage,
   languages,

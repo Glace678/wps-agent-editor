@@ -25,6 +25,7 @@ eventsource-stream = "0.2"
 fontdb = "0.23"
 futures-util = "0.3"
 hex = "0.4"
+hmac = "0.12"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 log = "0.4"
 parking_lot = "0.12"

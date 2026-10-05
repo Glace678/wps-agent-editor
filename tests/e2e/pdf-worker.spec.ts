@@ -104,7 +104,8 @@ async function installPdfDesktopMock(page: Page, fixture = MINIMAL_PDF_BASE64): 
       if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
       if (command === 'providers_auth_status') return {}
       if (command === 'app_take_startup_files' || command === 'app_take_recovery_notices') return []
-      if (command === 'files_session_save' || command === 'documents_set_current_file') return null
+      if (command === 'files_session_save') return null
+      if (command === 'documents_set_current_file') return { success: true }
       return { success: true }
     }
 
@@ -148,6 +149,8 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
       if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
       if (command === 'providers_auth_status') return {}
       if (command === 'app_take_startup_files' || command === 'app_take_recovery_notices') return []
+      if (command === 'files_session_save') return null
+      if (command === 'documents_set_current_file') return { success: true }
       return null
     }
     Object.assign(window, {
@@ -475,6 +478,8 @@ test('MuPDF worker replaces body text via redaction and restores it through undo
       if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
       if (command === 'providers_auth_status') return {}
       if (command === 'app_take_startup_files' || command === 'app_take_recovery_notices') return []
+      if (command === 'files_session_save') return null
+      if (command === 'documents_set_current_file') return { success: true }
       return null
     }
     Object.assign(window, {
@@ -600,6 +605,8 @@ test('MuPDF worker erases a body line when the replacement text is empty', async
       if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
       if (command === 'providers_auth_status') return {}
       if (command === 'app_take_startup_files' || command === 'app_take_recovery_notices') return []
+      if (command === 'files_session_save') return null
+      if (command === 'documents_set_current_file') return { success: true }
       return null
     }
     Object.assign(window, {

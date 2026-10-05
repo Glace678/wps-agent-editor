@@ -1,3 +1,5 @@
+import { normalizePath } from '@/lib/path'
+
 export const LEGACY_CODE_FONT_SIZE_KEY = 'officeagentic-code-editor-font-size'
 export const CODE_FONT_SIZE_MIN = 8
 export const CODE_FONT_SIZE_MAX = 32
@@ -28,5 +30,5 @@ export function getDarkTheme(): boolean {
 }
 
 export function isSameFile(left: string, right: string): boolean {
-  return left.replace(/\\/g, '/').toLowerCase() === right.replace(/\\/g, '/').toLowerCase()
+  return normalizePath(left).toLowerCase() === normalizePath(right).toLowerCase()
 }

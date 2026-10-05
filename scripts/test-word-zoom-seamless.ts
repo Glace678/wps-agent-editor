@@ -161,11 +161,21 @@ function calculateAnchoredScroll(params: {
 // 5. 结构性断言：引擎产物（node_modules）确实已打上缩放补丁，
 //    防止 npm install 后漏跑 patch:superdoc 导致闪烁回归。
 {
-  const esmChunk = 'node_modules/superdoc/dist/chunks/src-CcBJnYZd.es.js'
-  const cjsChunk = 'node_modules/superdoc/dist/chunks/src-VzGe-_l_.cjs'
-  for (const chunk of [esmChunk, cjsChunk]) {
-    if (!exists(chunk)) continue // 未安装依赖时跳过（CI 会先 install + patch）
-    const code = read(chunk)
+  // SuperDoc 的 chunk 文件名带内容哈希（src-<hash>.es.js），每个版本都变，
+  // 按 pattern 解析实际文件并断言数量，避免硬编码哈希随版本失效。
+  const chunksDir = 'node_modules/superdoc/dist/chunks'
+  if (exists(chunksDir)) {
+    const layoutChunks = fs
+      .readdirSync(chunksDir)
+      .filter((name) => /^src-.*\.(?:es\.js|cjs)$/.test(name))
+      .sort()
+    assert.equal(
+      layoutChunks.length,
+      2,
+      `expected one ESM and one CJS superdoc layout chunk under ${chunksDir}, found ${layoutChunks.length}`,
+    )
+    for (const chunk of layoutChunks.map((name) => `${chunksDir}/${name}`)) {
+      const code = read(chunk)
     assert.match(
       code,
       /if \(this\.#isSemanticFlowMode\(\)\) \{\s*\n\s*this\.#pendingDocChange = true;\s*\n\s*this\.#scheduleRerender\(\);/,
@@ -196,6 +206,7 @@ function calculateAnchoredScroll(params: {
       /this\.#viewportHost\.style\.height = "";/,
       `${chunk}: no paginated #applyZoom branch may leave viewport height auto`,
     )
+    }
   }
 }
 

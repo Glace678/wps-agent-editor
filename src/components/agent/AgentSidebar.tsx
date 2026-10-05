@@ -134,6 +134,11 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     if (!activeAgentId) return
     const runId = crypto.randomUUID()
     const userMessage: ChatMessage = { role: 'user', content, attachments, timestamp: Date.now() }
+    // Review §01-9: snapshot the conversation history synchronously from the
+    // store instead of the subscribed `messages` closure, which can be stale if
+    // a stream event landed between render and send. Snapshot BEFORE addMessage
+    // so the just-created userMessage is appended to history exactly once.
+    const history = [...(useAgentStore.getState().messages[activeAgentId] || []), userMessage]
     addMessage(activeAgentId, userMessage)
     clearCollaborationEvents()
     setIsRunning(true)
@@ -141,7 +146,6 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
     setIsStopping(false)
     setTaskStatus(t('agentUi.processing'))
 
-    const history = [...(messages[activeAgentId] || []), userMessage]
     const conversationId = ensureConversationId(activeAgentId)
 
     interface ResolvedTurn {
@@ -219,7 +223,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [activeAgentId, addMessage, clearCollaborationEvents, completeAssistantStream, ensureConversationId, handleAgentEvent, messages, persistConversation, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [activeAgentId, addMessage, clearCollaborationEvents, completeAssistantStream, ensureConversationId, handleAgentEvent, persistConversation, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
 
   const handleLoadConversation = useCallback(async (conversationId: string) => {
     if (!activeAgentId || isRunning) return

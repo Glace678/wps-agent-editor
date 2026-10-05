@@ -1,5 +1,6 @@
 import type { PptxViewer } from '@aiden0z/pptx-renderer'
 import JSZip from 'jszip'
+import { normalizePath } from '@/lib/path'
 
 export type PresentationAnimationKind = 'entrance' | 'emphasis' | 'exit'
 export type PresentationTransitionKind = 'fade' | 'push' | 'wipe' | 'split' | 'cover' | 'uncover'
@@ -37,7 +38,7 @@ const MAX_SLIDE_XML_BYTES = 5 * 1024 * 1024
 const ZIP_EXTRACT_CONCURRENCY = 6
 
 function normalizeZipPath(baseDirectory: string, target: string): string {
-  let cleanTarget = target.replace(/\\/g, '/')
+  let cleanTarget = normalizePath(target)
   // A relationship Target starting with '/' is an absolute package reference and
   // must resolve from the package root, not relative to baseDirectory (otherwise
   // a '/ppt/...' target becomes 'ppt/ppt/...' and the slide XML is silently lost).

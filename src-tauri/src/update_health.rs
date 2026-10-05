@@ -1,7 +1,8 @@
 use crate::{
-    error::{AppError, AppResult},
+    error::{codes, AppError, AppResult},
     state::atomic_write_json,
 };
+use hmac::{Hmac, Mac};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -447,13 +448,13 @@ impl UpdateHealthTransaction {
     pub(crate) fn prepare(app: &tauri::AppHandle, to_version: &str) -> AppResult<Self> {
         let to_version_parsed = Version::parse(to_version).map_err(|error| {
             AppError::new(
-                "update-version-invalid",
+                codes::UPDATE_VERSION_INVALID,
                 format!("Updater offered an invalid version: {error}"),
             )
         })?;
         if to_version_parsed <= app.package_info().version.clone() {
             return Err(AppError::new(
-                "update-version-invalid",
+                codes::UPDATE_VERSION_INVALID,
                 "Update health transactions require a newer application version",
             ));
         }
@@ -471,7 +472,7 @@ impl UpdateHealthTransaction {
                 ) =>
             {
                 return Err(AppError::new(
-                    "update-health-pending",
+                    codes::UPDATE_HEALTH_PENDING,
                     "Another update health transaction is still active",
                 ));
             }
@@ -586,7 +587,7 @@ impl UpdateHealthTransaction {
             let _ = remove_path(&state.backup_path);
             let _ = remove_path(&guardian.payload_path);
             AppError::new(
-                "update-health-guardian-failed",
+                codes::UPDATE_HEALTH_GUARDIAN_FAILED,
                 format!("Cannot start update health guardian: {error}"),
             )
         })?;
@@ -601,7 +602,7 @@ impl UpdateHealthTransaction {
                 let _ = remove_path(&state.backup_path);
                 let _ = remove_path(&guardian.payload_path);
                 return Err(AppError::new(
-                    "update-health-guardian-failed",
+                    codes::UPDATE_HEALTH_GUARDIAN_FAILED,
                     format!("Cannot identify update health guardian: {error}"),
                 ));
             }
@@ -676,13 +677,13 @@ pub(crate) fn record_startup(app: &tauri::AppHandle) -> AppResult<()> {
         }
         HealthStage::RolledBack => {
             return Err(AppError::new(
-                "update-rollback-verification-failed",
+                codes::UPDATE_ROLLBACK_VERIFICATION_FAILED,
                 "Rollback state does not match the running application version",
             ));
         }
         HealthStage::RollbackFailed => {
             return Err(AppError::new(
-                "update-rollback-failed",
+                codes::UPDATE_ROLLBACK_FAILED,
                 state
                     .error
                     .clone()
@@ -695,7 +696,7 @@ pub(crate) fn record_startup(app: &tauri::AppHandle) -> AppResult<()> {
                 commit_state(&paths.state, &mut state, &guardian_secret)?;
             }
             return Err(AppError::new(
-                "update-rollback-in-progress",
+                codes::UPDATE_ROLLBACK_IN_PROGRESS,
                 "The previous update is still being rolled back",
             ));
         }
@@ -719,7 +720,7 @@ pub(crate) fn record_startup(app: &tauri::AppHandle) -> AppResult<()> {
         && !allow_rebind
     {
         return Err(AppError::new(
-            "update-health-startup-already-running",
+            codes::UPDATE_HEALTH_STARTUP_ALREADY_RUNNING,
             "Another updated application process owns startup health confirmation",
         ));
     }
@@ -836,13 +837,13 @@ pub(crate) fn verify_rollback(
         || app.package_info().version.to_string() != expected_from.to_string()
     {
         return Err(AppError::new(
-            "update-rollback-verification-failed",
+            codes::UPDATE_ROLLBACK_VERIFICATION_FAILED,
             "The updater rollback record does not match the restored application",
         ));
     }
     ensure_running_payload_matches(&state).map_err(|_| {
         AppError::new(
-            "update-rollback-verification-failed",
+            codes::UPDATE_ROLLBACK_VERIFICATION_FAILED,
             "The restored payload does not match the rollback record",
         )
     })?;
@@ -1132,7 +1133,7 @@ fn record_relaunch_failure(
 fn restore_payload(state: &HealthState) -> AppResult<()> {
     if !state.backup_path.exists() {
         return Err(AppError::new(
-            "update-rollback-backup-missing",
+            codes::UPDATE_ROLLBACK_BACKUP_MISSING,
             "The updater rollback backup is missing",
         ));
     }
@@ -1209,7 +1210,7 @@ fn launch_restored(state: &HealthState) -> AppResult<()> {
     detach_command(&mut command);
     command.spawn().map(|_| ()).map_err(|error| {
         AppError::new(
-            "update-rollback-relaunch-failed",
+            codes::UPDATE_ROLLBACK_RELAUNCH_FAILED,
             format!("The previous version was restored but could not be relaunched: {error}"),
         )
     })
@@ -1271,7 +1272,7 @@ fn ensure_guardian_running(
     )
     .map_err(|error| {
         AppError::new(
-            "update-health-guardian-failed",
+            codes::UPDATE_HEALTH_GUARDIAN_FAILED,
             format!("Cannot restart update health guardian: {error}"),
         )
     })?;
@@ -1281,7 +1282,7 @@ fn ensure_guardian_running(
             let _ = child.kill();
             let _ = child.wait();
             return Err(AppError::new(
-                "update-health-guardian-failed",
+                codes::UPDATE_HEALTH_GUARDIAN_FAILED,
                 format!("Cannot identify restarted update health guardian: {error}"),
             ));
         }
@@ -1517,7 +1518,7 @@ impl CopyBudget {
         self.entries = self.entries.saturating_add(1);
         if self.bytes > MAX_BACKUP_BYTES || self.entries > MAX_BACKUP_ENTRIES {
             return Err(AppError::new(
-                "update-backup-too-large",
+                codes::UPDATE_BACKUP_TOO_LARGE,
                 "The installed payload exceeds the rollback backup limits",
             ));
         }
@@ -1549,7 +1550,7 @@ fn digest_payload_entry(
     #[cfg(windows)]
     if metadata_is_symlink_or_reparse(&metadata) {
         return Err(AppError::new(
-            "update-backup-unsupported-entry",
+            codes::UPDATE_BACKUP_UNSUPPORTED_ENTRY,
             format!(
                 "Rollback digest refuses a reparse point: {}",
                 path.display()
@@ -1584,7 +1585,7 @@ fn digest_payload_entry(
     }
     if !metadata.is_file() {
         return Err(AppError::new(
-            "update-backup-unsupported-entry",
+            codes::UPDATE_BACKUP_UNSUPPORTED_ENTRY,
             format!("Unsupported rollback digest entry: {}", path.display()),
         ));
     }
@@ -1603,7 +1604,7 @@ fn digest_payload_entry(
         read_total = read_total.saturating_add(read as u64);
         if read_total > metadata.len() || read_total > MAX_BACKUP_BYTES {
             return Err(AppError::new(
-                "update-backup-changed",
+                codes::UPDATE_BACKUP_CHANGED,
                 "Rollback payload changed while it was being authenticated",
             ));
         }
@@ -1611,7 +1612,7 @@ fn digest_payload_entry(
     }
     if read_total != metadata.len() {
         return Err(AppError::new(
-            "update-backup-changed",
+            codes::UPDATE_BACKUP_CHANGED,
             "Rollback payload changed while it was being authenticated",
         ));
     }
@@ -1660,7 +1661,7 @@ fn copy_path(source: &Path, destination: &Path, budget: &mut CopyBudget) -> AppR
     #[cfg(windows)]
     if metadata_is_symlink_or_reparse(&metadata) {
         return Err(AppError::new(
-            "update-backup-unsupported-entry",
+            codes::UPDATE_BACKUP_UNSUPPORTED_ENTRY,
             format!(
                 "Windows rollback backup refuses a reparse point: {}",
                 source.display()
@@ -1688,7 +1689,7 @@ fn copy_path(source: &Path, destination: &Path, budget: &mut CopyBudget) -> AppR
     }
     if !metadata.is_file() {
         return Err(AppError::new(
-            "update-backup-unsupported-entry",
+            codes::UPDATE_BACKUP_UNSUPPORTED_ENTRY,
             format!("Unsupported installed payload entry: {}", source.display()),
         ));
     }
@@ -1750,7 +1751,7 @@ fn verify_restore_permissions(target: &Path) -> AppResult<()> {
             .open(&probe)
             .map_err(|error| {
                 AppError::new(
-                    "update-rollback-permission-denied",
+                    codes::UPDATE_ROLLBACK_PERMISSION_DENIED,
                     format!(
                         "Cannot prepare rollback beside {}: {error}",
                         target.display()
@@ -1770,7 +1771,7 @@ fn write_initial_state(path: &Path, state: &HealthState, guardian_secret: &str) 
     verify_state_auth(state, guardian_secret)?;
     if path.exists() {
         return Err(AppError::new(
-            "update-health-pending",
+            codes::UPDATE_HEALTH_PENDING,
             "Updater health state already exists",
         ));
     }
@@ -1791,13 +1792,13 @@ fn commit_state(path: &Path, state: &mut HealthState, guardian_secret: &str) -> 
         || current.authentication_tag != state.authentication_tag
     {
         return Err(AppError::new(
-            "update-health-state-conflict",
+            codes::UPDATE_HEALTH_STATE_CONFLICT,
             "Updater health state changed concurrently",
         ));
     }
     state.revision = state.revision.checked_add(1).ok_or_else(|| {
         AppError::new(
-            "update-health-state-conflict",
+            codes::UPDATE_HEALTH_STATE_CONFLICT,
             "Updater health state revision overflowed",
         )
     })?;
@@ -1806,8 +1807,7 @@ fn commit_state(path: &Path, state: &mut HealthState, guardian_secret: &str) -> 
     atomic_write_json(path, state)
 }
 
-fn state_authentication_tag(state: &HealthState, guardian_secret: &str) -> AppResult<String> {
-    validate_seal(guardian_secret)?;
+fn state_without_auth_tag(state: &HealthState) -> AppResult<serde_json::Value> {
     let mut authenticated = serde_json::to_value(state)?;
     let object = authenticated
         .as_object_mut()
@@ -1815,37 +1815,38 @@ fn state_authentication_tag(state: &HealthState, guardian_secret: &str) -> AppRe
     object
         .remove("authenticationTag")
         .ok_or_else(|| AppError::internal("Updater health authentication field is unavailable"))?;
-    hmac_sha256_hex(guardian_secret, &serde_json::to_vec(&authenticated)?)
+    Ok(authenticated)
 }
 
-fn hmac_sha256_hex(secret: &str, message: &[u8]) -> AppResult<String> {
-    let key =
-        hex::decode(secret).map_err(|error| AppError::new("invalid-data", error.to_string()))?;
-    let mut inner_key = [0x36_u8; 64];
-    let mut outer_key = [0x5c_u8; 64];
-    for (index, byte) in key.iter().enumerate() {
-        inner_key[index] ^= byte;
-        outer_key[index] ^= byte;
-    }
-    let mut inner = Sha256::new();
-    inner.update(inner_key);
-    inner.update(message);
-    let inner_digest = inner.finalize();
-    let mut outer = Sha256::new();
-    outer.update(outer_key);
-    outer.update(inner_digest);
-    Ok(hex::encode(outer.finalize()))
+fn hmac_key(secret: &str) -> AppResult<Vec<u8>> {
+    hex::decode(secret).map_err(|error| AppError::new(codes::INVALID_DATA, error.to_string()))
+}
+
+fn state_authentication_tag(state: &HealthState, guardian_secret: &str) -> AppResult<String> {
+    validate_seal(guardian_secret)?;
+    let key = hmac_key(guardian_secret)?;
+    let payload = serde_json::to_vec(&state_without_auth_tag(state)?)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&key)
+        .map_err(|error| AppError::new(codes::INVALID_DATA, error.to_string()))?;
+    mac.update(&payload);
+    Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
 fn verify_state_auth(state: &HealthState, guardian_secret: &str) -> AppResult<()> {
-    let expected = state_authentication_tag(state, guardian_secret)?;
-    if constant_time_equal(state.authentication_tag.as_bytes(), expected.as_bytes()) {
-        Ok(())
-    } else {
-        Err(AppError::denied(
-            "Updater health state authentication failed",
-        ))
-    }
+    validate_seal(guardian_secret)?;
+    let key = hmac_key(guardian_secret)?;
+    let payload = serde_json::to_vec(&state_without_auth_tag(state)?)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&key)
+        .map_err(|error| AppError::new(codes::INVALID_DATA, error.to_string()))?;
+    mac.update(&payload);
+    let stored = hex::decode(&state.authentication_tag)
+        .map_err(|_| AppError::denied("Updater health state authentication failed"))?;
+    // `verify_slice` performs a constant-time comparison; it replaces the old
+    // `constant_time_equal`-over-hex-strings path for state authentication.
+    // (RFC 2104 key hashing for keys > 64 bytes is handled by the hmac crate;
+    // the previous hand-rolled ipad/opad loop silently truncated longer keys.)
+    mac.verify_slice(&stored)
+        .map_err(|_| AppError::denied("Updater health state authentication failed"))
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
@@ -1893,7 +1894,7 @@ fn read_guardian_secret(paths: &HealthPaths) -> AppResult<String> {
     reject_storage_path_components(&paths.root, &paths.secret)?;
     let bytes = fs::read(&paths.secret)?;
     let secret = std::str::from_utf8(&bytes)
-        .map_err(|_| AppError::new("invalid-data", "Guardian key is not valid UTF-8"))?;
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Guardian key is not valid UTF-8"))?;
     validate_seal(secret)?;
     Ok(secret.to_owned())
 }
@@ -1925,12 +1926,12 @@ fn validate_state(state: &HealthState) -> AppResult<()> {
     validate_seal(&state.authentication_tag)?;
     validate_token(&state.transaction_id)?;
     let from_version = Version::parse(&state.from_version)
-        .map_err(|error| AppError::new("invalid-data", error.to_string()))?;
+        .map_err(|error| AppError::new(codes::INVALID_DATA, error.to_string()))?;
     let to_version = Version::parse(&state.to_version)
-        .map_err(|error| AppError::new("invalid-data", error.to_string()))?;
+        .map_err(|error| AppError::new(codes::INVALID_DATA, error.to_string()))?;
     if to_version <= from_version {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Updater health target version must be newer than its source version",
         ));
     }
@@ -1946,19 +1947,19 @@ fn validate_state(state: &HealthState) -> AppResult<()> {
         || !state.guardian_launch_path.is_absolute()
     {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Updater health state contains invalid paths or timestamps",
         ));
     }
     validate_seal(&state.backup_digest_sha256).map_err(|_| {
         AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Updater rollback payload digest must be lowercase SHA-256",
         )
     })?;
     validate_seal(&state.guardian_digest_sha256).map_err(|_| {
         AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Updater guardian digest must be lowercase SHA-256",
         )
     })?;
@@ -1970,7 +1971,7 @@ fn validate_state(state: &HealthState) -> AppResult<()> {
         (None, None) => {}
         _ => {
             return Err(AppError::new(
-                "invalid-data",
+                codes::INVALID_DATA,
                 "Updater guardian process state is incomplete",
             ))
         }
@@ -1990,7 +1991,7 @@ fn validate_state(state: &HealthState) -> AppResult<()> {
         (None, None, None, None) => false,
         _ => {
             return Err(AppError::new(
-                "invalid-data",
+                codes::INVALID_DATA,
                 "Updater startup process state is incomplete",
             ))
         }
@@ -2039,7 +2040,7 @@ fn validate_state(state: &HealthState) -> AppResult<()> {
     };
     if !valid_stage {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Updater health stage has inconsistent process or timestamp fields",
         ));
     }
@@ -2053,7 +2054,7 @@ fn validate_process_identity(identity: &ProcessIdentity) -> AppResult<()> {
         || identity.started_marker.len() > 256
     {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Updater process identity is invalid",
         ));
     }
@@ -2081,7 +2082,7 @@ fn current_process_identity() -> AppResult<ProcessIdentity> {
 fn wait_for_process_identity(pid: u32) -> AppResult<ProcessIdentity> {
     if !valid_process_id(pid) {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Guardian returned an invalid process identifier",
         ));
     }
@@ -2097,7 +2098,7 @@ fn wait_for_process_identity(pid: u32) -> AppResult<ProcessIdentity> {
     }
     Err(last_error.unwrap_or_else(|| {
         AppError::new(
-            "update-health-guardian-failed",
+            codes::UPDATE_HEALTH_GUARDIAN_FAILED,
             "Cannot identify the update health guardian process",
         )
     }))
@@ -2171,6 +2172,136 @@ fn process_tree_edge_is_possible(
 }
 
 #[cfg(target_os = "linux")]
+fn kernel_supports_pidfd() -> bool {
+    // pidfd_open(2) / pidfd_send_signal(2) require Linux >= 5.3. Query the
+    // running kernel once; older kernels get the /proc-based fallback below
+    // instead of failing the rollback outright (review report Top10 #6).
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        parse_linux_kernel_version()
+            .map(|(major, minor)| (major, minor) >= (5, 3))
+            .unwrap_or(true)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_kernel_version() -> Option<(u32, u32)> {
+    let release = fs::read_to_string("/proc/sys/kernel/osrelease").ok()?;
+    let mut digits = release.split(|c: char| !c.is_ascii_digit());
+    let major = digits.next()?.parse().ok()?;
+    let minor = digits
+        .find(|candidate| !candidate.is_empty())?
+        .parse()
+        .ok()?;
+    Some((major, minor))
+}
+
+#[cfg(target_os = "linux")]
+fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
+    if kernel_supports_pidfd() {
+        terminate_tree_with_pidfd(expected)
+    } else {
+        terminate_tree_with_proc(expected)
+    }
+}
+
+/// Fallback for kernels older than 5.3 (no pidfd). Same overall shape as the
+/// pidfd path — freeze the tree depth-first via /proc snapshots, re-check
+/// each node's reported parent before touching it, SIGKILL deepest first,
+/// then wait for /proc/<pid> to disappear — but with plain `kill(2)` instead
+/// of pidfd_send_signal(2) and a polling wait instead of polling the pidfd.
+#[cfg(target_os = "linux")]
+fn terminate_tree_with_proc(expected: &ProcessIdentity) -> AppResult<()> {
+    if !valid_process_id(expected.pid) {
+        return Err(AppError::new(
+            codes::INVALID_DATA,
+            "Refusing to terminate an invalid process identifier",
+        ));
+    }
+    if query_process_identity(expected.pid).ok().as_ref() != Some(expected) {
+        return Ok(());
+    }
+    kill_linux_pid(expected.pid, libc::SIGSTOP)?;
+    let mut frozen: Vec<(u32, usize)> = vec![(expected.pid, 0)];
+    let mut quiet_passes = 0_usize;
+    for _ in 0..MAX_PROCESS_TREE_PASSES {
+        let links = snapshot_linux_process_links()?;
+        let descendants = recursive_process_descendants(expected.pid, &links);
+        if descendants.len() >= MAX_PROCESS_TREE_PROCESSES {
+            return Err(AppError::new(
+                codes::UPDATE_ROLLBACK_PROCESS_TREE_LIMIT,
+                "The unhealthy application process tree exceeds the rollback safety limit",
+            ));
+        }
+        let mut added = false;
+        for descendant in descendants {
+            if frozen.iter().any(|(pid, _)| *pid == descendant.pid) {
+                continue;
+            }
+            if !frozen.iter().any(|(pid, _)| *pid == descendant.parent_pid) {
+                continue;
+            }
+            if linux_process_parent_pid(descendant.pid)? != descendant.parent_pid {
+                continue;
+            }
+            kill_linux_pid(descendant.pid, libc::SIGSTOP)?;
+            frozen.push((descendant.pid, descendant.depth));
+            added = true;
+        }
+        if added {
+            quiet_passes = 0;
+        } else {
+            quiet_passes += 1;
+            if quiet_passes >= 2 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+    if quiet_passes < 2 {
+        return Err(AppError::new(
+            codes::UPDATE_ROLLBACK_PROCESS_TREE_UNSTABLE,
+            "The unhealthy application process tree did not stabilize before rollback",
+        ));
+    }
+    frozen.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
+    for (pid, _) in &frozen {
+        kill_linux_pid(*pid, libc::SIGKILL)?;
+    }
+    for (pid, _) in &frozen {
+        wait_for_linux_process_exit(*pid, Duration::from_secs(10))?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn kill_linux_pid(pid: u32, signal: i32) -> AppResult<()> {
+    let pid_t = libc::pid_t::try_from(pid)
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Invalid Linux process identifier"))?;
+    let result = unsafe { libc::kill(pid_t, signal) };
+    if result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().into())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_linux_process_exit(pid: u32, timeout: Duration) -> AppResult<()> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if fs::metadata(format!("/proc/{pid}")).is_err() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    Err(AppError::new(
+        codes::UPDATE_ROLLBACK_PROCESS_TIMEOUT,
+        "Timed out stopping the unhealthy updated application process tree",
+    ))
+}
+
+#[cfg(target_os = "linux")]
 struct LinuxTreeProcess {
     identity: ProcessIdentity,
     pidfd: std::os::fd::OwnedFd,
@@ -2190,10 +2321,10 @@ impl Drop for LinuxTreeProcess {
 }
 
 #[cfg(target_os = "linux")]
-fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
+fn terminate_tree_with_pidfd(expected: &ProcessIdentity) -> AppResult<()> {
     if !valid_process_id(expected.pid) {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Refusing to terminate an invalid process identifier",
         ));
     }
@@ -2211,7 +2342,7 @@ fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
         let descendants = recursive_process_descendants(expected.pid, &links);
         if descendants.len() >= MAX_PROCESS_TREE_PROCESSES {
             return Err(AppError::new(
-                "update-rollback-process-tree-limit",
+                codes::UPDATE_ROLLBACK_PROCESS_TREE_LIMIT,
                 "The unhealthy application process tree exceeds the rollback safety limit",
             ));
         }
@@ -2252,7 +2383,7 @@ fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
     }
     if quiet_passes < 2 {
         return Err(AppError::new(
-            "update-rollback-process-tree-unstable",
+            codes::UPDATE_ROLLBACK_PROCESS_TREE_UNSTABLE,
             "The unhealthy application process tree did not stabilize before rollback",
         ));
     }
@@ -2273,7 +2404,7 @@ fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
 fn open_linux_tree_process(pid: u32, depth: usize) -> AppResult<Option<LinuxTreeProcess>> {
     use std::os::fd::{FromRawFd, OwnedFd};
     let pid = libc::pid_t::try_from(pid)
-        .map_err(|_| AppError::new("invalid-data", "Invalid Linux process identifier"))?;
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Invalid Linux process identifier"))?;
     let raw_fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0_u32) as i32 };
     if raw_fd < 0 {
         let error = std::io::Error::last_os_error();
@@ -2353,7 +2484,7 @@ fn wait_for_linux_pidfd(pidfd: &std::os::fd::OwnedFd, timeout: Duration) -> AppR
         }
         if result == 0 {
             return Err(AppError::new(
-                "update-rollback-process-timeout",
+                codes::UPDATE_ROLLBACK_PROCESS_TIMEOUT,
                 "Timed out stopping the unhealthy updated application process tree",
             ));
         }
@@ -2390,15 +2521,15 @@ fn linux_process_parent_pid(pid: u32) -> AppResult<u32> {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat"))?;
     let fields = stat
         .rsplit_once(')')
-        .ok_or_else(|| AppError::new("invalid-data", "Malformed Linux process metadata"))?
+        .ok_or_else(|| AppError::new(codes::INVALID_DATA, "Malformed Linux process metadata"))?
         .1
         .split_whitespace()
         .collect::<Vec<_>>();
     fields
         .get(1)
-        .ok_or_else(|| AppError::new("invalid-data", "Linux parent process is unavailable"))?
+        .ok_or_else(|| AppError::new(codes::INVALID_DATA, "Linux parent process is unavailable"))?
         .parse::<u32>()
-        .map_err(|_| AppError::new("invalid-data", "Linux parent process is malformed"))
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Linux parent process is malformed"))
 }
 
 #[cfg(target_os = "linux")]
@@ -2432,23 +2563,29 @@ fn terminate_process_tree_if_same(_expected: &ProcessIdentity) -> AppResult<()> 
 #[cfg(target_os = "linux")]
 fn query_process_identity(pid: u32) -> AppResult<ProcessIdentity> {
     if !valid_process_id(pid) {
-        return Err(AppError::new("invalid-data", "Invalid Linux process ID"));
+        return Err(AppError::new(
+            codes::INVALID_DATA,
+            "Invalid Linux process ID",
+        ));
     }
     let process_root = PathBuf::from(format!("/proc/{pid}"));
     let executable_path = fs::canonicalize(process_root.join("exe"))?;
     let stat = fs::read_to_string(process_root.join("stat"))?;
     let fields = stat
         .rsplit_once(')')
-        .ok_or_else(|| AppError::new("invalid-data", "Malformed Linux process metadata"))?
+        .ok_or_else(|| AppError::new(codes::INVALID_DATA, "Malformed Linux process metadata"))?
         .1
         .split_whitespace()
         .collect::<Vec<_>>();
-    let started = fields
-        .get(19)
-        .ok_or_else(|| AppError::new("invalid-data", "Linux process start time is unavailable"))?;
+    let started = fields.get(19).ok_or_else(|| {
+        AppError::new(
+            codes::INVALID_DATA,
+            "Linux process start time is unavailable",
+        )
+    })?;
     if !started.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Linux process start time is malformed",
         ));
     }
@@ -2475,7 +2612,7 @@ fn validate_linux_boot_id(value: &str) -> AppResult<&str> {
         Ok(value)
     } else {
         Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Linux boot identity is malformed",
         ))
     }
@@ -2533,9 +2670,12 @@ fn macos_process_record(pid: u32) -> AppResult<(ProcessIdentity, u32)> {
     use std::os::unix::ffi::OsStringExt;
     const PROC_PIDTBSDINFO: i32 = 3;
     let pid_i32 = i32::try_from(pid)
-        .map_err(|_| AppError::new("invalid-data", "Invalid macOS process ID"))?;
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Invalid macOS process ID"))?;
     if pid_i32 <= 0 {
-        return Err(AppError::new("invalid-data", "Invalid macOS process ID"));
+        return Err(AppError::new(
+            codes::INVALID_DATA,
+            "Invalid macOS process ID",
+        ));
     }
     let mut path = vec![0_u8; 4096];
     let path_length = unsafe {
@@ -2654,7 +2794,7 @@ fn terminate_macos_process_tree(expected: &ProcessIdentity) -> AppResult<()> {
             added = true;
             if processes.len() >= MAX_PROCESS_TREE_PROCESSES {
                 return Err(AppError::new(
-                    "update-rollback-process-tree-limit",
+                    codes::UPDATE_ROLLBACK_PROCESS_TREE_LIMIT,
                     "The unhealthy application process tree exceeds the rollback safety limit",
                 ));
             }
@@ -2671,7 +2811,7 @@ fn terminate_macos_process_tree(expected: &ProcessIdentity) -> AppResult<()> {
     }
     if quiet_passes < 2 {
         return Err(AppError::new(
-            "update-rollback-process-tree-unstable",
+            codes::UPDATE_ROLLBACK_PROCESS_TREE_UNSTABLE,
             "The unhealthy application process tree did not stabilize before rollback",
         ));
     }
@@ -2686,7 +2826,7 @@ fn terminate_macos_process_tree(expected: &ProcessIdentity) -> AppResult<()> {
         while is_same_process(&process.identity) {
             if started.elapsed() >= Duration::from_secs(10) {
                 return Err(AppError::new(
-                    "update-rollback-process-timeout",
+                    codes::UPDATE_ROLLBACK_PROCESS_TIMEOUT,
                     "Timed out stopping the unhealthy updated application process tree",
                 ));
             }
@@ -2699,7 +2839,7 @@ fn terminate_macos_process_tree(expected: &ProcessIdentity) -> AppResult<()> {
 #[cfg(target_os = "macos")]
 fn macos_child_pids(parent_pid: u32) -> AppResult<Vec<u32>> {
     let parent_pid = i32::try_from(parent_pid)
-        .map_err(|_| AppError::new("invalid-data", "Invalid macOS parent process ID"))?;
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Invalid macOS parent process ID"))?;
     let mut pids = vec![0_i32; MAX_PROCESS_TREE_PROCESSES];
     let buffer_size = i32::try_from(pids.len() * std::mem::size_of::<i32>())
         .map_err(|_| AppError::internal("macOS child process buffer size overflow"))?;
@@ -2708,10 +2848,10 @@ fn macos_child_pids(parent_pid: u32) -> AppResult<Vec<u32>> {
         return Err(std::io::Error::last_os_error().into());
     }
     let count = usize::try_from(count)
-        .map_err(|_| AppError::new("invalid-data", "macOS child process count overflow"))?;
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "macOS child process count overflow"))?;
     if count >= pids.len() {
         return Err(AppError::new(
-            "update-rollback-process-tree-limit",
+            codes::UPDATE_ROLLBACK_PROCESS_TREE_LIMIT,
             "The unhealthy application has too many direct child processes",
         ));
     }
@@ -2731,7 +2871,7 @@ fn signal_macos_process_if_same(expected: &ProcessIdentity, signal: i32) -> AppR
         return Ok(false);
     }
     let pid = libc::pid_t::try_from(expected.pid)
-        .map_err(|_| AppError::new("invalid-data", "Invalid macOS process identifier"))?;
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Invalid macOS process identifier"))?;
     if unsafe { libc::kill(pid, signal) } != 0 {
         let error = std::io::Error::last_os_error();
         return if error.raw_os_error() == Some(libc::ESRCH) {
@@ -2874,7 +3014,10 @@ fn windows_process_creation_ticks(process: WindowsProcessHandle) -> AppResult<u6
 #[cfg(windows)]
 fn query_process_identity(pid: u32) -> AppResult<ProcessIdentity> {
     if !valid_process_id(pid) {
-        return Err(AppError::new("invalid-data", "Invalid Windows process ID"));
+        return Err(AppError::new(
+            codes::INVALID_DATA,
+            "Invalid Windows process ID",
+        ));
     }
     let process = unsafe { OpenProcess(WINDOWS_PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if process.is_null() {
@@ -2916,7 +3059,7 @@ impl Drop for WindowsTreeProcess {
 fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
     if !valid_process_id(expected.pid) {
         return Err(AppError::new(
-            "invalid-data",
+            codes::INVALID_DATA,
             "Refusing to terminate an invalid Windows process identifier",
         ));
     }
@@ -2936,7 +3079,7 @@ fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
         let descendants = recursive_process_descendants(expected.pid, &links);
         if descendants.len() >= MAX_PROCESS_TREE_PROCESSES {
             return Err(AppError::new(
-                "update-rollback-process-tree-limit",
+                codes::UPDATE_ROLLBACK_PROCESS_TREE_LIMIT,
                 "The unhealthy application process tree exceeds the rollback safety limit",
             ));
         }
@@ -2985,7 +3128,7 @@ fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
     }
     if quiet_passes < 2 {
         return Err(AppError::new(
-            "update-rollback-process-tree-unstable",
+            codes::UPDATE_ROLLBACK_PROCESS_TREE_UNSTABLE,
             "The unhealthy application process tree did not stabilize before rollback",
         ));
     }
@@ -3079,7 +3222,7 @@ fn suspend_windows_tree_process(process: &mut WindowsTreeProcess) -> AppResult<b
             return Ok(false);
         }
         return Err(AppError::new(
-            "update-rollback-process-suspend-failed",
+            codes::UPDATE_ROLLBACK_PROCESS_SUSPEND_FAILED,
             format!("Cannot suspend rollback process (NTSTATUS 0x{status:08x})"),
         ));
     }
@@ -3116,12 +3259,12 @@ fn windows_process_parent_pid(process: WindowsProcessHandle) -> AppResult<u32> {
     };
     if status < 0 || returned < information_length {
         return Err(AppError::new(
-            "update-rollback-process-query-failed",
+            codes::UPDATE_ROLLBACK_PROCESS_QUERY_FAILED,
             format!("Cannot query rollback process parent (NTSTATUS 0x{status:08x})"),
         ));
     }
     u32::try_from(information.inherited_from_unique_process_id)
-        .map_err(|_| AppError::new("invalid-data", "Windows parent process ID overflow"))
+        .map_err(|_| AppError::new(codes::INVALID_DATA, "Windows parent process ID overflow"))
 }
 
 #[cfg(windows)]
@@ -3176,7 +3319,7 @@ fn windows_process_has_exited(process: WindowsProcessHandle) -> AppResult<bool> 
         WINDOWS_WAIT_TIMEOUT => Ok(false),
         WINDOWS_WAIT_FAILED => Err(std::io::Error::last_os_error().into()),
         status => Err(AppError::new(
-            "update-rollback-process-wait-failed",
+            codes::UPDATE_ROLLBACK_PROCESS_WAIT_FAILED,
             format!("Unexpected Windows process wait status {status}"),
         )),
     }
@@ -3187,12 +3330,12 @@ fn wait_for_windows_process(process: WindowsProcessHandle, timeout_ms: u32) -> A
     match unsafe { WaitForSingleObject(process, timeout_ms) } {
         WINDOWS_WAIT_OBJECT_0 => Ok(()),
         WINDOWS_WAIT_TIMEOUT => Err(AppError::new(
-            "update-rollback-process-timeout",
+            codes::UPDATE_ROLLBACK_PROCESS_TIMEOUT,
             "Timed out stopping the unhealthy updated application process tree",
         )),
         WINDOWS_WAIT_FAILED => Err(std::io::Error::last_os_error().into()),
         status => Err(AppError::new(
-            "update-rollback-process-wait-failed",
+            codes::UPDATE_ROLLBACK_PROCESS_WAIT_FAILED,
             format!("Unexpected Windows process wait status {status}"),
         )),
     }
@@ -3369,7 +3512,7 @@ fn capture_platform_metadata(
         if let Some(display_version) = registry_read_display_version(&hive)? {
             if display_version != expected_version {
                 return Err(AppError::new(
-                    "update-rollback-metadata-mismatch",
+                    codes::UPDATE_ROLLBACK_METADATA_MISMATCH,
                     format!(
                         "Installed registry version {display_version} does not match application version {expected_version}"
                     ),
@@ -3386,7 +3529,7 @@ fn capture_platform_metadata(
         }
     }
     Err(AppError::new(
-        "update-rollback-metadata-missing",
+        codes::UPDATE_ROLLBACK_METADATA_MISSING,
         "Cannot capture the Windows uninstall metadata required for rollback",
     ))
 }
@@ -3407,7 +3550,7 @@ fn restore_platform_metadata(metadata: Option<&PlatformRollbackMetadata>) -> App
     }) = metadata
     else {
         return Err(AppError::new(
-            "update-rollback-metadata-missing",
+            codes::UPDATE_ROLLBACK_METADATA_MISSING,
             "Windows rollback state has no uninstall metadata",
         ));
     };
@@ -3507,7 +3650,7 @@ fn registry_read_display_version(hive: &RegistryHive) -> AppResult<Option<String
         };
         if queried != ERROR_SUCCESS || value_type != REG_SZ {
             return Err(AppError::new(
-                "update-rollback-metadata-read-failed",
+                codes::UPDATE_ROLLBACK_METADATA_READ_FAILED,
                 format!("Cannot read Windows uninstall metadata (error {queried})"),
             ));
         }
@@ -3517,7 +3660,7 @@ fn registry_read_display_version(hive: &RegistryHive) -> AppResult<Option<String
             .unwrap_or(value.len());
         String::from_utf16(&value[..length])
             .map(Some)
-            .map_err(|error| AppError::new("invalid-data", error.to_string()))
+            .map_err(|error| AppError::new(codes::INVALID_DATA, error.to_string()))
     })();
     unsafe {
         RegCloseKey(key);
@@ -3577,7 +3720,7 @@ fn registry_write_display_version(hive: &RegistryHive, display_version: &str) ->
     };
     if opened != ERROR_SUCCESS {
         return Err(AppError::new(
-            "update-rollback-metadata-write-failed",
+            codes::UPDATE_ROLLBACK_METADATA_WRITE_FAILED,
             format!("Cannot open Windows uninstall metadata (error {opened})"),
         ));
     }
@@ -3596,7 +3739,7 @@ fn registry_write_display_version(hive: &RegistryHive, display_version: &str) ->
     }
     if written != ERROR_SUCCESS {
         return Err(AppError::new(
-            "update-rollback-metadata-write-failed",
+            codes::UPDATE_ROLLBACK_METADATA_WRITE_FAILED,
             format!("Cannot restore Windows uninstall metadata (error {written})"),
         ));
     }
@@ -4102,7 +4245,7 @@ mod tests {
             commit_state(&paths.state, &mut stale, TEST_SECRET)
                 .unwrap_err()
                 .code,
-            "update-health-state-conflict"
+            codes::UPDATE_HEALTH_STATE_CONFLICT
         );
     }
 
@@ -4161,7 +4304,7 @@ mod tests {
         fs::create_dir_all(state.backup_path.parent().unwrap()).unwrap();
         fs::write(&state.backup_path, b"old").unwrap();
         persist(&paths, &state);
-        let error = AppError::new("update-rollback-relaunch-failed", "fixture");
+        let error = AppError::new(codes::UPDATE_ROLLBACK_RELAUNCH_FAILED, "fixture");
 
         record_relaunch_failure(&paths.state, &mut state, TEST_SECRET, &error).unwrap();
 

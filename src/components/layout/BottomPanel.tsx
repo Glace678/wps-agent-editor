@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useTranslation } from '@/lib/i18n/runtime'
 import { usePanelStore, type BottomPanelTab, PANEL_MAX_HEIGHT_RATIO, PANEL_MIN_HEIGHT } from '@/stores/panel.store'
 import { useDebugStore } from '@/stores/debug.store'
+import { useDocumentDrag } from '@/hooks/use-pointer-drag'
 import { ProblemsView } from './panel/ProblemsView'
 import { DebugConsoleView } from './panel/DebugConsoleView'
 import { TERMINAL_KILL_ACTIVE_EVENT, TerminalView } from './panel/TerminalView'
@@ -46,33 +47,16 @@ export function BottomPanel() {
   const [problemCount, setProblemCount] = useState(0)
   const [copyOutputFailed, setCopyOutputFailed] = useState(false)
   const copyOutputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const resizeRef = useRef<{ cleanup: (() => void) | null }>({ cleanup: null })
-  const startResize = useCallback(() => {
-    const onMove = (event: MouseEvent) => {
-      const next = window.innerHeight - event.clientY
-      // 小窗口下比例上限可能小于最小高度，用 max 保证下限不被上限吞掉。
-      const maxAllowed = Math.max(PANEL_MIN_HEIGHT, window.innerHeight * PANEL_MAX_HEIGHT_RATIO)
-      const clamped = Math.min(Math.max(next, PANEL_MIN_HEIGHT), maxAllowed)
-      setHeight(clamped)
-    }
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-      window.removeEventListener('blur', onUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      resizeRef.current.cleanup = null
-    }
-    document.body.style.cursor = 'ns-resize'
-    document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-    window.addEventListener('blur', onUp)
-    resizeRef.current.cleanup = onUp
+  const onResizeMove = useCallback((event: MouseEvent) => {
+    const next = window.innerHeight - event.clientY
+    // 小窗口下比例上限可能小于最小高度，用 max 保证下限不被上限吞掉。
+    const maxAllowed = Math.max(PANEL_MIN_HEIGHT, window.innerHeight * PANEL_MAX_HEIGHT_RATIO)
+    const clamped = Math.min(Math.max(next, PANEL_MIN_HEIGHT), maxAllowed)
+    setHeight(clamped)
   }, [setHeight])
+  const { start: startResize } = useDocumentDrag(onResizeMove)
 
   useEffect(() => () => {
-    resizeRef.current.cleanup?.()
     if (copyOutputTimerRef.current) clearTimeout(copyOutputTimerRef.current)
   }, [])
 

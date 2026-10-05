@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -10,7 +10,18 @@ function read(relativePath) {
   return readFileSync(path.join(distDir, relativePath), 'utf8')
 }
 
-for (const file of ['chunks/src-CcBJnYZd.es.js', 'chunks/src-VzGe-_l_.cjs']) {
+// SuperDoc emits content-hashed layout chunk names (src-<hash>.es.js / .cjs)
+// that change every release; resolve by pattern and assert the count instead
+// of hardcoding the hash.
+const chunksDir = path.join(distDir, 'chunks')
+const layoutChunks = readdirSync(chunksDir)
+  .filter((name) => /^src-.*\.(?:es\.js|cjs)$/.test(name))
+  .sort()
+if (layoutChunks.length !== 2) {
+  throw new Error(`Expected one ESM and one CJS layout chunk, found ${layoutChunks.length}`)
+}
+
+for (const file of layoutChunks.map((name) => `chunks/${name}`)) {
   const source = read(file)
   assert.match(source, /const layoutWidth = props\.imageElement\.offsetWidth \|\| rect\.width;/)
   assert.match(source, /visualScaleX = rect\.width \/ layoutWidth \|\| 1;/)

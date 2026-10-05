@@ -1,26 +1,9 @@
-import { desktopApi } from '@/platform'
-
 /**
- * Adapt the asynchronous Tauri listener registration to React's synchronous
- * effect cleanup contract. Cleanup is safe even when unmount happens before
- * Tauri finishes registering the listener.
+ * Thin re-export shim (review R1).
+ *
+ * The disposed/unlisten race-adaptive subscription logic now lives in
+ * `src/platform/subscription.ts`: the platform layer owns the Tauri transport,
+ * and platform must never depend on lib. Existing `@/lib/desktop-events`
+ * imports keep working through this shim.
  */
-export function subscribeDesktopEvent<T>(
-  channel: string,
-  callback: (payload: T) => void,
-): () => void {
-  let disposed = false
-  let unlisten: (() => void) | undefined
-
-  void desktopApi.app.listen<T>(channel, callback).then((dispose) => {
-    if (disposed) dispose()
-    else unlisten = dispose
-  }).catch((error: unknown) => {
-    console.error(`[desktop-event] Failed to listen to ${channel}`, error)
-  })
-
-  return () => {
-    disposed = true
-    unlisten?.()
-  }
-}
+export { subscribeDesktopEvent } from '@/platform/subscription'

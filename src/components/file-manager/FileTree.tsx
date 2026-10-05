@@ -11,7 +11,6 @@ interface FileTreeProps {
   entries: FileEntry[]
   onOpenFile: (path: string) => void
   onOpenDir: (path: string) => void
-  currentDir: string
 }
 
 /** 浏览列表悬停：只显示完整名称 */

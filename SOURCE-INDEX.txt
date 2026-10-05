@@ -716,7 +716,6 @@ tests/e2e/support/minimal-docx.ts | 2326
 tests/e2e/terminal.spec.ts | 12625
 tests/e2e/web-canary.spec.ts | 18283
 tests/e2e/word-zoom-seamless.spec.ts | 17688
-tsconfig.i18n.json | 232
 tsconfig.json | 79
 tsconfig.node.json | 341
 tsconfig.web.json | 335

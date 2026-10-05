@@ -276,16 +276,24 @@ impl ProviderStore {
         self.base_urls.read().get(provider_id).cloned()
     }
 
-    pub fn auth_status(&self) -> AppResult<HashMap<String, AuthStatus>> {
+    pub async fn auth_status(&self) -> AppResult<HashMap<String, AuthStatus>> {
         let indexed = self.credential_index.read().clone();
-        let configured = reconcile_credential_index(&indexed, |provider_id| {
-            let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id)?;
-            match entry.get_password() {
-                Ok(secret) => Ok(!secret.is_empty()),
-                Err(keyring::Error::NoEntry) => Ok(false),
-                Err(error) => Err(error.into()),
-            }
-        })?;
+        // keyring lookups are blocking system calls (the OS credential store can be slow);
+        // run them on the blocking thread pool instead of a tokio worker. Clone the snapshot
+        // for the closure so `indexed` itself stays available for the post-await comparison.
+        let indexed_for_blocking = indexed.clone();
+        let configured = tokio::task::spawn_blocking(move || -> AppResult<HashSet<String>> {
+            reconcile_credential_index(&indexed_for_blocking, |provider_id| {
+                let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id)?;
+                match entry.get_password() {
+                    Ok(secret) => Ok(!secret.is_empty()),
+                    Err(keyring::Error::NoEntry) => Ok(false),
+                    Err(error) => Err(error.into()),
+                }
+            })
+        })
+        .await
+        .map_err(|_| AppError::internal("credential store task panicked"))??;
         if configured != indexed {
             let mut index = self.credential_index.write();
             self.persist_credential_index(&configured)?;
@@ -305,64 +313,128 @@ impl ProviderStore {
             .collect())
     }
 
-    pub fn set_api_key(&self, provider_id: &str, api_key: &str) -> AppResult<()> {
+    pub async fn set_api_key(&self, provider_id: &str, api_key: &str) -> AppResult<()> {
         let provider_id = validate_provider_id(provider_id)?;
         let api_key = api_key.trim();
         if api_key.is_empty() {
             return Err(AppError::invalid("API key cannot be empty"));
         }
-        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id)?;
-        let previous = match entry.get_password() {
-            Ok(value) => Some(value),
-            Err(keyring::Error::NoEntry) => None,
-            Err(error) => return Err(error.into()),
-        };
-        entry.set_password(api_key)?;
-
-        let mut index = self.credential_index.write();
-        let mut candidate = index.clone();
-        candidate.insert(provider_id.to_owned());
-        if let Err(error) = self.persist_credential_index(&candidate) {
-            let _ = match previous {
-                Some(value) => entry.set_password(&value),
-                None => entry.delete_credential(),
+        let provider_id = provider_id.to_owned();
+        let api_key = api_key.to_owned();
+        // Blocking keyring FFI on the blocking pool: read the previous secret, then write the
+        // new one. We return `previous` so a later index-persist failure can roll the credential
+        // back. Clone `provider_id` for the closure so the original stays usable for the index.
+        let blocking_provider_id = provider_id.clone();
+        let previous = tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
+            let entry = keyring::Entry::new(KEYRING_SERVICE, &blocking_provider_id)?;
+            let previous = match entry.get_password() {
+                Ok(value) => Some(value),
+                Err(keyring::Error::NoEntry) => None,
+                Err(error) => return Err(error.into()),
             };
+            entry.set_password(&api_key)?;
+            Ok(previous)
+        })
+        .await
+        .map_err(|_| AppError::internal("credential store task panicked"))??;
+
+        // Lock scope ends here so the parking_lot write guard (non-Send) is never held across
+        // the rollback `await` below. Persist-success commits the index inside the lock; on
+        // failure the index is left unchanged and the error is carried out for rollback.
+        let rollback: Option<AppError> = {
+            let mut index = self.credential_index.write();
+            let mut candidate = index.clone();
+            candidate.insert(provider_id.to_owned());
+            match self.persist_credential_index(&candidate) {
+                Ok(()) => {
+                    *index = candidate;
+                    None
+                }
+                Err(error) => Some(error),
+            }
+        };
+        if let Some(error) = rollback {
+            let pid = provider_id.clone();
+            let prev = previous.clone();
+            tokio::task::spawn_blocking(move || -> AppResult<()> {
+                let entry = keyring::Entry::new(KEYRING_SERVICE, &pid)?;
+                match prev {
+                    Some(value) => entry.set_password(&value),
+                    None => entry.delete_credential(),
+                }
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|_| AppError::internal("credential store task panicked"))??;
             return Err(error);
         }
-        *index = candidate;
         Ok(())
     }
 
-    pub fn remove_api_key(&self, provider_id: &str) -> AppResult<()> {
+    pub async fn remove_api_key(&self, provider_id: &str) -> AppResult<()> {
         let provider_id = validate_provider_id(provider_id)?;
-        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id)?;
-        let previous = match entry.get_password() {
-            Ok(value) => Some(value),
-            Err(keyring::Error::NoEntry) => None,
-            Err(error) => return Err(error.into()),
+        let provider_id = provider_id.to_owned();
+        // Blocking keyring FFI on the blocking pool: read the previous secret (for rollback),
+        // then delete it. Clone `provider_id` for the closure so the original stays usable for
+        // the credential index update below.
+        let blocking_provider_id = provider_id.clone();
+        let previous = tokio::task::spawn_blocking(move || -> AppResult<Option<String>> {
+            let entry = keyring::Entry::new(KEYRING_SERVICE, &blocking_provider_id)?;
+            let previous = match entry.get_password() {
+                Ok(value) => Some(value),
+                Err(keyring::Error::NoEntry) => None,
+                Err(error) => return Err(error.into()),
+            };
+            match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(previous),
+                Err(error) => Err(error.into()),
+            }
+        })
+        .await
+        .map_err(|_| AppError::internal("credential store task panicked"))??;
+
+        // Lock scope ends here so the non-Send write guard is never held across the rollback
+        // `await` below. Persist-success commits the index inside the lock; on failure the index
+        // is left unchanged and the error is carried out.
+        let rollback: Option<AppError> = {
+            let mut index = self.credential_index.write();
+            let mut candidate = index.clone();
+            candidate.remove(&provider_id);
+            match self.persist_credential_index(&candidate) {
+                Ok(()) => {
+                    *index = candidate;
+                    None
+                }
+                Err(error) => Some(error),
+            }
         };
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(error) => return Err(error.into()),
-        }
-        let mut index = self.credential_index.write();
-        let mut candidate = index.clone();
-        candidate.remove(provider_id);
-        if let Err(error) = self.persist_credential_index(&candidate) {
+        if let Some(error) = rollback {
+            // Roll the credential back if it existed before the delete.
             if let Some(value) = previous {
-                let _ = entry.set_password(&value);
+                let pid = provider_id.clone();
+                tokio::task::spawn_blocking(move || -> AppResult<()> {
+                    let entry = keyring::Entry::new(KEYRING_SERVICE, &pid)?;
+                    entry.set_password(&value).map_err(Into::into)
+                })
+                .await
+                .map_err(|_| AppError::internal("credential store task panicked"))??;
             }
             return Err(error);
         }
-        *index = candidate;
         Ok(())
     }
 
-    pub fn api_key(&self, provider_id: &str) -> AppResult<String> {
-        let provider_id = validate_provider_id(provider_id)?;
-        keyring::Entry::new(KEYRING_SERVICE, provider_id)?
-            .get_password()
-            .map_err(Into::into)
+    pub async fn api_key(&self, provider_id: &str) -> AppResult<String> {
+        let provider_id = validate_provider_id(provider_id)?.to_owned();
+        // keyring get is a blocking system call; run it on the blocking thread pool so it
+        // never stalls a tokio worker inside the async completion path.
+        tokio::task::spawn_blocking(move || -> AppResult<String> {
+            keyring::Entry::new(KEYRING_SERVICE, &provider_id)?
+                .get_password()
+                .map_err(Into::into)
+        })
+        .await
+        .map_err(|_| AppError::internal("credential store task panicked"))?
     }
 
     fn persist_custom(&self, providers: &[CustomProviderConfig]) -> AppResult<()> {

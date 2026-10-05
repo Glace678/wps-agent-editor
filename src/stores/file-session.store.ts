@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 import type { FileSessionState } from '@/types/desktop-api'
+import { normalizePath } from '@/lib/path'
 
 const MAX_RECENT_DIRECTORIES = 10
 const MAX_OPEN_FILES = 100
 
 function pathKey(path: string): string {
   const isWindowsPath = /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\')
-  const normalized = path.replace(/\\/g, '/').replace(/\/{2,}/g, '/')
+  const normalized = normalizePath(path)
   return isWindowsPath ? normalized.toLowerCase() : normalized
 }
 

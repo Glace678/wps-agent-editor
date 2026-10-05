@@ -327,6 +327,7 @@ export function PdfViewer({
     clientRef.current?.dispose()
     clientRef.current = client
     loadedWorkerFontsRef.current.clear()
+    fontBytesRef.current.clear()
     pendingTextEditRef.current.clear()
     freshTextAnnotationsRef.current.clear()
     bodyDraftsRef.current.clear()
@@ -676,6 +677,10 @@ export function PdfViewer({
     if (!request) {
       request = desktopApi.documents.readFont(font.fontId)
       fontBytesRef.current.set(font.fontId, request)
+      // 失败后移出缓存，允许后续重试（对齐 MuPdfClient.loadTextLayer 的失败处理）
+      request.catch(() => {
+        if (fontBytesRef.current.get(font.fontId) === request) fontBytesRef.current.delete(font.fontId)
+      })
     }
     return standaloneBuffer(await request)
   }, [])

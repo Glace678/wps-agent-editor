@@ -1,5 +1,6 @@
 import { readFile, writeFile, rename } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
+import { stripComments } from './lib/comment-utils.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const rustPath = resolve(root, 'src-tauri/src/lib.rs')
@@ -9,12 +10,6 @@ const write = process.argv.includes('--write')
 
 // Strip Rust/JS comments before extracting, so a command-looking token inside a
 // comment or string literal is not mistaken for a real registration.
-function stripComments(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
-}
-
 const rust = await readFile(rustPath, 'utf8')
 const mapping = await readFile(mappingPath, 'utf8')
 const handler = stripComments(rust).match(/tauri::generate_handler!\s*\[([\s\S]*?)\]/)?.[1]

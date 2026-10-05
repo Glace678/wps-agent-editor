@@ -7,7 +7,7 @@
 // Keep the document dimensions in layout pixels, convert pointer movement back
 // through the active visual scale, and project the drag onto the image diagonal.
 // The package is pinned to 1.44.0; fail loudly if its generated output changes.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -120,8 +120,18 @@ const chunkReplacements = [
   },
 ]
 
-apply('chunks/src-CcBJnYZd.es.js', chunkReplacements)
-apply('chunks/src-VzGe-_l_.cjs', chunkReplacements)
+// SuperDoc emits content-hashed layout chunk names (src-<hash>.es.js / .cjs)
+// that change every release; resolve them by pattern and assert the count
+// instead of hardcoding the hash.
+const chunksDir = path.join(distDir, 'chunks')
+const layoutChunks = readdirSync(chunksDir)
+  .filter((name) => /^src-.*\.(?:es\.js|cjs)$/.test(name))
+  .sort()
+if (layoutChunks.length !== 2) {
+  throw new Error(`Expected one ESM and one CJS layout chunk, found ${layoutChunks.length}`)
+}
+
+for (const chunk of layoutChunks) apply(`chunks/${chunk}`, chunkReplacements)
 
 apply('superdoc.min.js', [
   {

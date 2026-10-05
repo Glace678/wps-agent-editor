@@ -57,12 +57,17 @@ assert.equal(englishModules.toolbar.texts.deleteTable, 'Delete table')
 assert.notEqual(chineseModules.toolbar.texts.undo, englishModules.toolbar.texts.undo)
 
 const fontFace = (familyName: string, displayName = familyName): SystemFontFace => ({
+  fontId: familyName,
   familyName,
   displayName,
   faceName: 'Regular',
+  faceIndex: 0,
   weight: 400,
   style: 'normal',
   stretch: 5,
+  embedding: 'unknown',
+  subsetAllowed: true,
+  outlineEmbeddingAllowed: true,
 })
 const mixedFontFaces = [
   fontFace('Times New Roman'),

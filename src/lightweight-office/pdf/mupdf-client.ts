@@ -18,6 +18,10 @@ interface PendingRequest {
   reject: (reason: unknown) => void
 }
 
+// 每请求超时看门狗：worker 串行队列一旦在畸形 PDF 上卡住，UI 不应无限 loading。
+// 取宽裕值，只兜“worker 无响应”，不误杀大文档渲染。
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
+
 type PdfWorkerRequestInput = PdfWorkerRequest extends infer Request
   ? Request extends PdfWorkerRequest
     ? Omit<Request, 'requestId' | 'documentId'>
@@ -36,6 +40,7 @@ export class MuPdfClientError extends Error {
 export class MuPdfWorkerClient {
   private readonly worker: Worker
   private readonly pending = new Map<string, PendingRequest>()
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   // 文字层不可变且按页复用；记忆化 Promise 让 StrictMode 双挂载/多调用方共享同一请求，
   // 避免「响应被某一任调用方丢弃后不再重试」的竞态
   private readonly textLayerCache = new Map<number, Promise<PdfTextLayer>>()
@@ -51,6 +56,7 @@ export class MuPdfWorkerClient {
     })
     this.worker.addEventListener('message', this.handleMessage)
     this.worker.addEventListener('error', this.handleWorkerError)
+    this.worker.addEventListener('messageerror', this.handleMessageError)
   }
 
   private readonly handleMessage = (event: MessageEvent<PdfWorkerResponse>) => {
@@ -58,6 +64,7 @@ export class MuPdfWorkerClient {
     const pending = this.pending.get(response.requestId)
     if (!pending || pending.documentId !== response.documentId) return
     this.pending.delete(response.requestId)
+    this.clearTimer(response.requestId)
     if (response.ok) pending.resolve(response.result)
     else pending.reject(new MuPdfClientError(response.error.code, response.error.message))
   }
@@ -68,8 +75,33 @@ export class MuPdfWorkerClient {
       'pdf-worker-crashed',
       event.message || 'The PDF worker stopped unexpectedly',
     )
+    this.rejectAllPending(error)
+  }
+
+  private readonly handleMessageError = () => {
+    // structured-clone 失败（worker→client 的响应无法反序列化）走 messageerror 而非 error。
+    // 此时无法定位具体 requestId，把所有挂起请求统一拒绝以免永久挂起；worker 本身仍存活，
+    // 故不置 workerFailed，后续请求仍可服务。
+    const error = new MuPdfClientError(
+      'message-error',
+      'A PDF worker message could not be deserialized',
+    )
+    this.rejectAllPending(error)
+  }
+
+  private clearTimer(requestId: string): void {
+    const timer = this.timers.get(requestId)
+    if (timer) {
+      clearTimeout(timer)
+      this.timers.delete(requestId)
+    }
+  }
+
+  private rejectAllPending(error: MuPdfClientError): void {
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
+    for (const timer of this.timers.values()) clearTimeout(timer)
+    this.timers.clear()
   }
 
   private request<TResult>(
@@ -90,10 +122,21 @@ export class MuPdfWorkerClient {
         resolve: resolve as (value: unknown) => void,
         reject,
       })
+      const timer = setTimeout(() => {
+        if (!this.pending.has(requestId)) return
+        this.pending.delete(requestId)
+        this.timers.delete(requestId)
+        reject(new MuPdfClientError(
+          'request-timeout',
+          `The PDF request timed out after ${DEFAULT_REQUEST_TIMEOUT_MS / 1000}s`,
+        ))
+      }, DEFAULT_REQUEST_TIMEOUT_MS)
+      this.timers.set(requestId, timer)
       try {
         this.worker.postMessage(payload, transfer)
       } catch (error) {
         this.pending.delete(requestId)
+        this.clearTimer(requestId)
         reject(error)
       }
     })
@@ -194,10 +237,10 @@ export class MuPdfWorkerClient {
     this.disposed = true
     this.worker.removeEventListener('message', this.handleMessage)
     this.worker.removeEventListener('error', this.handleWorkerError)
+    this.worker.removeEventListener('messageerror', this.handleMessageError)
     this.worker.terminate()
     const error = new MuPdfClientError('pdf-worker-closed', 'The PDF worker is closed')
-    for (const pending of this.pending.values()) pending.reject(error)
-    this.pending.clear()
+    this.rejectAllPending(error)
     this.textLayerCache.clear()
   }
 }

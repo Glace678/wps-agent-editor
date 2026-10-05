@@ -1,11 +1,12 @@
 import type { AgentAttachment, AgentAttachmentSource } from '@/types/agent'
 import { getFileGrantId } from '@/platform/grants'
+import { baseName } from '@/lib/path'
 
 export const AGENT_ATTACHMENT_MIME = 'application/x-officeagentic-attachments'
 export const MAX_AGENT_ATTACHMENTS = 12
 
 function fileNameFromPath(filePath: string): string {
-  return filePath.split(/[/\\]/).filter(Boolean).pop() || filePath
+  return baseName(filePath) || filePath
 }
 
 export function createAgentAttachment(

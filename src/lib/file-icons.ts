@@ -8,6 +8,7 @@ import odtIcon from '@/assets/file-icons/odt.svg'
 import odsIcon from '@/assets/file-icons/ods.svg'
 import folderIcon from '@/assets/file-icons/folder.svg'
 import defaultIcon from '@/assets/file-icons/default.svg'
+import { extensionOf } from '@/lib/path'
 
 const EXTENSION_ICON_MAP: Record<string, string> = {
   '.docx': wordIcon,
@@ -25,10 +26,11 @@ const EXTENSION_ICON_MAP: Record<string, string> = {
 }
 
 export function getExtensionFromPath(filePath: string): string {
-  const name = filePath.split(/[/\\]/).pop() || ''
-  const dot = name.lastIndexOf('.')
-  if (dot <= 0) return ''
-  return name.slice(dot).toLowerCase()
+  // extensionOf returns the lowercased extension without a dot; the icon map is
+  // keyed with leading dots, and its hidden-file semantics (dot <= 0 → '') are
+  // preserved: extensionOf already returns '' for dotfiles like '.gitignore'.
+  const ext = extensionOf(filePath)
+  return ext ? `.${ext}` : ''
 }
 
 export function resolveFileIconSrc(filePath: string, isDirectory?: boolean): string {

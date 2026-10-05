@@ -18,9 +18,15 @@ export function AgentMessageList({
     <>
       {messages.map((msg, i) => {
         const isUser = msg.role === 'user'
+        // Stable React key (review §07-26A): role + streaming correlation id +
+        // timestamp make the key stable across streaming frame updates, so an
+        // in-place content append does not remount or misattach bubble state.
+        // The array index is only a tiebreaker for identical timestamps; the key
+        // must never degrade to a bare index for normal messages.
+        const messageKey = `${msg.role}:${msg.streamingRunId ?? ''}:${msg.timestamp ?? ''}:${i}`
         return (
           <div
-            key={i}
+            key={messageKey}
             className={cn(
               'group flex flex-col',
               isUser ? 'items-end' : 'items-start',
@@ -74,7 +80,11 @@ export function AgentMessageList({
                 </div>
               )}
 
-              {/* Document operation badge */}
+              {/* Document operation badge. ChatMessage (types/agent.ts) currently
+                  has no structured toolCalls field, so a content sniff is the
+                  only available signal. Once the wire message carries structured
+                  tool metadata, switch this to `msg.toolCalls?.length`
+                  (review §07-26B). */}
               {!isUser && msg.content.includes('```tool') && (
                 <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
                   <Wrench className="h-3 w-3 text-amber-500" />

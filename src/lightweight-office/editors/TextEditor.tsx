@@ -16,6 +16,7 @@ import {
 import DOMPurify from 'dompurify'
 import { useEditorStore } from '@/stores/editor.store'
 import { useTranslation } from '@/lib/i18n/runtime'
+import { baseName } from '@/lib/path'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { getThemePreference, setThemePreference, type ThemePreference } from '@/lib/theme'
 import {
@@ -164,6 +165,10 @@ interface TextTab {
   dirty: boolean
 }
 
+// 「搜索选中内容」与「帮助」外链：抽为顶部具名常量，避免散落在组件体内。
+const BING_SEARCH_URL = 'https://www.bing.com/search?q='
+const OFFICE_HELP_URL = 'https://support.microsoft.com/office'
+
 function createTabId(): string {
   return `notepad-tab-${crypto.randomUUID()}`
 }
@@ -214,7 +219,7 @@ export function TextEditor({
   const readyOnceRef = useRef(false)
   const editorRootRef = useRef<HTMLDivElement>(null)
   const zoomStatusRef = useRef<HTMLSpanElement>(null)
-  const displayNameRef = useRef(filePath.split(/[/\\]/).pop() || filePath)
+  const displayNameRef = useRef(baseName(filePath))
   const dirtyRef = useRef(false)
   // Serializes overlapping saves so a second save always waits for the first
   // disk write to settle before snapshotting and writing again.
@@ -373,7 +378,7 @@ export function TextEditor({
   const zoomReset = useCallback(() => applyDiscreteZoom(100), [applyDiscreteZoom])
 
   const [text, setText] = useState('')
-  const [displayName, setDisplayName] = useState(() => filePath.split(/[/\\]/).pop() || filePath)
+  const [displayName, setDisplayName] = useState(() => baseName(filePath))
   const [encoding, setEncoding] = useState<TextEncoding>('utf-8')
   const [lineEnding, setLineEnding] = useState<LineEnding>('crlf')
   const [documentType, setDocumentType] = useState<'plain' | 'markdown'>(() =>
@@ -815,7 +820,7 @@ export function TextEditor({
           documentBridge.setPlainText(textRef.current, target)
         }
 
-        const nextName = target.split(/[/\\]/).pop() || target
+        const nextName = baseName(target)
         if (sameTab) {
           displayNameRef.current = nextName
           setDisplayName(nextName)
@@ -914,7 +919,7 @@ export function TextEditor({
         const buffer = await readFileBuffer(filePath)
         if (cancelled) return
         const decoded = decodeTextFile(buffer)
-        const name = filePath.split(/[/\\]/).pop() || filePath
+        const name = baseName(filePath)
         resetDocument(decoded.text, filePath, name, decoded.encoding, decoded.lineEnding)
         localStorage.setItem('notepad-last-file', filePath)
         setLoading(false)
@@ -2285,7 +2290,7 @@ export function TextEditor({
     const range = currentSelection()
     const query = textRef.current.slice(range.start, range.end).trim()
     if (!query) return
-    window.open(`https://www.bing.com/search?q=${encodeURIComponent(query)}`, '_blank', 'noopener')
+    window.open(`${BING_SEARCH_URL}${encodeURIComponent(query)}`, '_blank', 'noopener')
   }, [currentSelection])
 
   const goToRequestedLine = useCallback(() => {
@@ -2385,7 +2390,7 @@ export function TextEditor({
       else switchTabByOffset(-1)
     },
     help: () => {
-      window.open('https://support.microsoft.com/office', '_blank', 'noopener')
+      window.open(OFFICE_HELP_URL, '_blank', 'noopener')
     },
   }), [
     closeDocument,

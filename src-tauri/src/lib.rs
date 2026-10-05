@@ -19,13 +19,18 @@ use crate::{
 use std::path::{Path, PathBuf};
 use tauri::{Emitter, Manager};
 
+/// Process exit codes (review report N5). `EXIT_HEALTH_ROLLBACK` (72) is
+/// produced by update_health / smoke flows and lives next to them; this shard
+/// only owns the guardian failure path below.
+const EXIT_UPDATER_GUARDIAN_FAILED: i32 = 71;
+
 pub fn run() {
     match update_health::run_guardian_from_process() {
         Ok(true) => return,
         Ok(false) => {}
         Err(error) => {
             eprintln!("Updater health guardian failed: {error}");
-            std::process::exit(71);
+            std::process::exit(EXIT_UPDATER_GUARDIAN_FAILED);
         }
     }
 
@@ -245,12 +250,6 @@ where
         };
         (candidate.is_file() && !is_executable_file(&candidate)).then_some(candidate)
     })
-}
-
-impl From<tauri::Error> for AppError {
-    fn from(error: tauri::Error) -> Self {
-        AppError::internal(error.to_string())
-    }
 }
 
 #[cfg(test)]

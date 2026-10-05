@@ -1,6 +1,9 @@
 use crate::{
-    error::{AppError, AppResult},
-    process::dependencies::resolve_executable,
+    error::{codes, AppError, AppResult},
+    process::{
+        dependencies::resolve_executable,
+        reaper::{self, MAX_SESSION_AGE, OUTPUT_LIMIT_BYTES},
+    },
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -22,10 +25,8 @@ use tauri::{ipc::Channel, WebviewWindow};
 use tempfile::TempDir;
 use tungstenite::{client, error::Error as WebSocketError, Message, WebSocket};
 
-const MAX_DEBUG_OUTPUT: usize = 4 * 1024 * 1024;
 const MAX_DEBUG_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
 const INSPECTOR_START_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_DEBUG_SESSION_AGE: Duration = Duration::from_secs(8 * 60 * 60);
 
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -84,7 +85,7 @@ struct DebugSession {
     control: DebugControl,
     stopping: AtomicBool,
     exit_emitted: AtomicBool,
-    output_bytes: std::sync::atomic::AtomicUsize,
+    output_bytes: Arc<std::sync::atomic::AtomicUsize>,
     started: Instant,
 }
 
@@ -171,7 +172,7 @@ pub fn start(
     }
     if metadata.len() > MAX_DEBUG_SOURCE_BYTES {
         return Err(AppError::new(
-            "file-too-large",
+            codes::FILE_TOO_LARGE,
             "Debugger source files are limited to 10 MiB",
         ));
     }
@@ -234,7 +235,7 @@ fn stop_session(session: &DebugSession) {
             let _ = stdin.lock().flush();
         }
     }
-    terminate_tree(session.pid);
+    reaper::terminate_process_tree_sync(Some(session.pid));
     let _ = session.child.lock().kill();
     emit_exit_once(session, None);
 }
@@ -249,7 +250,7 @@ pub fn send_command(
     match &session.control {
         DebugControl::Node(sender) => sender
             .send(NodeRequest::Command(command))
-            .map_err(|_| AppError::new("session-ended", "The Node debugger has stopped"))?,
+            .map_err(|_| AppError::new(codes::SESSION_ENDED, "The Node debugger has stopped"))?,
         DebugControl::Python { stdin, parser } => {
             let value = match command {
                 DebugCommand::Continue => "continue",
@@ -294,12 +295,12 @@ pub fn evaluate(
     match &session.control {
         DebugControl::Node(sender) => sender
             .send(NodeRequest::Evaluate { expression, id })
-            .map_err(|_| AppError::new("session-ended", "The Node debugger has stopped")),
+            .map_err(|_| AppError::new(codes::SESSION_ENDED, "The Node debugger has stopped")),
         DebugControl::Python { stdin, parser } => {
             let mut parser = parser.lock();
             if parser.pending_eval.is_some() {
                 return Err(AppError::new(
-                    "debugger-busy",
+                    codes::DEBUGGER_BUSY,
                     "A Python evaluation is already pending",
                 ));
             }
@@ -348,11 +349,11 @@ fn start_node(
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
-            .map_err(|error| AppError::new("debug-transpile-failed", error.to_string()))?;
+            .map_err(|error| AppError::new(codes::DEBUG_TRANSPILE_FAILED, error.to_string()))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(AppError::new(
-                "debug-transpile-failed",
+                codes::DEBUG_TRANSPILE_FAILED,
                 stderr.chars().take(8 * 1024).collect::<String>(),
             ));
         }
@@ -370,13 +371,13 @@ fn start_node(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_process_group(&mut command);
+    reaper::configure_std_process_group(&mut command);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(start_failure("dependency-missing"));
         }
-        Err(error) => return Err(AppError::new("debug-start-failed", error.to_string())),
+        Err(error) => return Err(AppError::new(codes::DEBUG_START_FAILED, error.to_string())),
     };
     let pid = child.id();
     let stdout = child
@@ -392,29 +393,50 @@ fn start_node(
     let url_events = events.clone();
     let url_id = id.clone();
     let url_label = label.clone();
+    // Shared with the DebugSession built below so the stderr reader's byte
+    // counting feeds the same cumulative OUTPUT_LIMIT_BYTES budget as the
+    // stdout reader.
+    let output_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let stderr_counter = output_bytes.clone();
+    // P6: previously this thread used `BufReader::lines()` capped by a *line
+    // count* (not bytes) and never incremented `output_bytes`, so a single
+    // giant stderr line could be buffered unbounded. Read line-by-line with
+    // `read_until` while counting every byte against OUTPUT_LIMIT_BYTES,
+    // shared with the stdout reader.
     std::thread::Builder::new()
         .name(format!("node-debug-stderr-{id}"))
         .spawn(move || {
             let mut sent_url = false;
-            for line in BufReader::new(stderr)
-                .take((MAX_DEBUG_OUTPUT + 1) as u64)
-                .lines()
-                .map_while(Result::ok)
-            {
-                if let Some(url) = inspector_url(&line) {
-                    if !sent_url {
-                        let _ = url_sender.send(url);
-                        sent_url = true;
+            let mut reader = BufReader::new(stderr);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                match reader.read_until(b'\n', &mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        let previous = stderr_counter.fetch_add(line.len(), Ordering::Relaxed);
+                        if previous >= OUTPUT_LIMIT_BYTES {
+                            break;
+                        }
+                        let keep = line.len().min(OUTPUT_LIMIT_BYTES - previous);
+                        let text = String::from_utf8_lossy(&line[..keep]);
+                        let trimmed = text.trim_end_matches(['\n', '\r']);
+                        if let Some(url) = inspector_url(trimmed) {
+                            if !sent_url {
+                                let _ = url_sender.send(url);
+                                sent_url = true;
+                            }
+                            continue;
+                        }
+                        if !is_inspector_boilerplate(trimmed) {
+                            emit_raw(
+                                &url_events,
+                                &url_id,
+                                &url_label,
+                                json!({ "event": "output", "kind": "stderr", "text": format!("{trimmed}\n") }),
+                            );
+                        }
                     }
-                    continue;
-                }
-                if !is_inspector_boilerplate(&line) {
-                    emit_raw(
-                        &url_events,
-                        &url_id,
-                        &url_label,
-                        json!({ "event": "output", "kind": "stderr", "text": format!("{line}\n") }),
-                    );
                 }
             }
         })
@@ -422,7 +444,7 @@ fn start_node(
     let ws_url = match url_receiver.recv_timeout(INSPECTOR_START_TIMEOUT) {
         Ok(url) => url,
         Err(_) => {
-            terminate_tree(pid);
+            reaper::terminate_process_tree_sync(Some(pid));
             let _ = child.kill();
             return Ok(start_failure("failed"));
         }
@@ -430,7 +452,7 @@ fn start_node(
     let socket = match connect_inspector(&ws_url) {
         Ok(socket) => socket,
         Err(error) => {
-            terminate_tree(pid);
+            reaper::terminate_process_tree_sync(Some(pid));
             let _ = child.kill();
             return Err(error);
         }
@@ -450,12 +472,29 @@ fn start_node(
         control: DebugControl::Node(sender),
         stopping: AtomicBool::new(false),
         exit_emitted: AtomicBool::new(false),
-        output_bytes: std::sync::atomic::AtomicUsize::new(0),
+        output_bytes,
         started: Instant::now(),
     });
-    sessions()
-        .lock()
-        .insert(session_key(&label, &id), session.clone());
+    // P8: duplicate check + insert happen under one lock. Two concurrent
+    // starts for the same window+id cannot both register; the loser rolls its
+    // child back instead of becoming an orphaned session.
+    let inserted = {
+        let mut active = sessions().lock();
+        match active.entry(session_key(&label, &id)) {
+            std::collections::hash_map::Entry::Occupied(_) => Err(AppError::new(
+                codes::SESSION_ALREADY_ACTIVE,
+                "A debug session with this id is already active",
+            )),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(session.clone());
+                Ok(())
+            }
+        }
+    };
+    if let Err(error) = inserted {
+        stop_session(&session);
+        return Err(error);
+    }
     spawn_output_reader(session.clone(), stdout, "stdout");
     spawn_node_loop(session.clone(), socket, receiver, breakpoints);
     emit_event(&session, json!({ "event": "started", "kind": "node" }));
@@ -496,13 +535,13 @@ fn start_python(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_process_group(&mut command);
+    reaper::configure_std_process_group(&mut command);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(start_failure("dependency-missing"));
         }
-        Err(error) => return Err(AppError::new("debug-start-failed", error.to_string())),
+        Err(error) => return Err(AppError::new(codes::DEBUG_START_FAILED, error.to_string())),
     };
     let pid = child.id();
     let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or_else(|| {
@@ -532,12 +571,27 @@ fn start_python(
         },
         stopping: AtomicBool::new(false),
         exit_emitted: AtomicBool::new(false),
-        output_bytes: std::sync::atomic::AtomicUsize::new(0),
+        output_bytes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         started: Instant::now(),
     });
-    sessions()
-        .lock()
-        .insert(session_key(&label, &id), session.clone());
+    // P8: duplicate check + insert under one lock; loser rolls back its child.
+    let inserted = {
+        let mut active = sessions().lock();
+        match active.entry(session_key(&label, &id)) {
+            std::collections::hash_map::Entry::Occupied(_) => Err(AppError::new(
+                codes::SESSION_ALREADY_ACTIVE,
+                "A debug session with this id is already active",
+            )),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(session.clone());
+                Ok(())
+            }
+        }
+    };
+    if let Err(error) = inserted {
+        stop_session(&session);
+        return Err(error);
+    }
     spawn_pdb_reader(session.clone(), stdout);
     spawn_output_reader(session.clone(), stderr, "stderr");
     spawn_child_monitor(session.clone());
@@ -571,7 +625,7 @@ fn spawn_node_loop(
                     &session,
                     json!({ "event": "error", "message": "Could not initialize Node Inspector" }),
                 );
-                terminate_tree(session.pid);
+                reaper::terminate_process_tree_sync(Some(session.pid));
                 return;
             }
             let file_url = url::Url::from_file_path(&session.inspector_path)
@@ -640,12 +694,12 @@ fn spawn_node_loop(
                     remove_session(&session);
                     return;
                 }
-                if session.started.elapsed() >= MAX_DEBUG_SESSION_AGE {
+                if session.started.elapsed() >= MAX_SESSION_AGE {
                     emit_event(
                         &session,
                         json!({ "event": "error", "message": "Debug session expired" }),
                     );
-                    terminate_tree(session.pid);
+                    reaper::terminate_process_tree_sync(Some(session.pid));
                     let _ = session.child.lock().kill();
                     break;
                 }
@@ -743,7 +797,7 @@ fn spawn_node_loop(
                 }
             }
             if !session.stopping.load(Ordering::SeqCst) {
-                terminate_tree(session.pid);
+                reaper::terminate_process_tree_sync(Some(session.pid));
                 let _ = session.child.lock().kill();
             }
             let code = session
@@ -769,18 +823,18 @@ fn spawn_pdb_reader(session: Arc<DebugSession>, mut stdout: impl Read + Send + '
                     Ok(0) | Err(_) => break,
                     Ok(count) => {
                         let previous = session.output_bytes.fetch_add(count, Ordering::Relaxed);
-                        if previous >= MAX_DEBUG_OUTPUT {
-                            terminate_tree(session.pid);
+                        if previous >= OUTPUT_LIMIT_BYTES {
+                            reaper::terminate_process_tree_sync(Some(session.pid));
                             break;
                         }
-                        let keep = count.min(MAX_DEBUG_OUTPUT - previous);
+                        let keep = count.min(OUTPUT_LIMIT_BYTES - previous);
                         process_pdb_chunk(&session, &bytes[..keep]);
                         if keep < count {
                             emit_event(
                                 &session,
                                 json!({ "event": "error", "message": "Debug output limit reached" }),
                             );
-                            terminate_tree(session.pid);
+                            reaper::terminate_process_tree_sync(Some(session.pid));
                             break;
                         }
                     }
@@ -954,10 +1008,10 @@ fn spawn_output_reader(
                     Ok(count) => count,
                 };
                 let previous = session.output_bytes.fetch_add(count, Ordering::Relaxed);
-                if previous >= MAX_DEBUG_OUTPUT {
+                if previous >= OUTPUT_LIMIT_BYTES {
                     break;
                 }
-                let keep = count.min(MAX_DEBUG_OUTPUT - previous);
+                let keep = count.min(OUTPUT_LIMIT_BYTES - previous);
                 let text = String::from_utf8_lossy(&bytes[..keep]);
                 emit_event(
                     &session,
@@ -968,7 +1022,7 @@ fn spawn_output_reader(
                         &session,
                         json!({ "event": "error", "message": "Debug output limit reached" }),
                     );
-                    terminate_tree(session.pid);
+                    reaper::terminate_process_tree_sync(Some(session.pid));
                     break;
                 }
             }
@@ -996,12 +1050,12 @@ fn spawn_child_monitor(session: Arc<DebugSession>) {
                     return;
                 }
             }
-            if session.started.elapsed() >= MAX_DEBUG_SESSION_AGE {
+            if session.started.elapsed() >= MAX_SESSION_AGE {
                 emit_event(
                     &session,
                     json!({ "event": "error", "message": "Debug session expired" }),
                 );
-                terminate_tree(session.pid);
+                reaper::terminate_process_tree_sync(Some(session.pid));
                 let _ = session.child.lock().kill();
             }
         })
@@ -1030,7 +1084,7 @@ fn connect_inspector(url: &str) -> AppResult<WebSocket<TcpStream>> {
     stream.set_read_timeout(Some(Duration::from_millis(100)))?;
     stream.set_write_timeout(Some(Duration::from_secs(3)))?;
     let (socket, _) = client(url, stream)
-        .map_err(|error| AppError::new("inspector-connection-failed", error.to_string()))?;
+        .map_err(|error| AppError::new(codes::INSPECTOR_CONNECTION_FAILED, error.to_string()))?;
     Ok(socket)
 }
 
@@ -1299,38 +1353,6 @@ fn start_failure(error: &'static str) -> DebugStartResult {
         error: Some(error),
         session_id: None,
     }
-}
-
-#[cfg(unix)]
-fn configure_process_group(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    command.process_group(0);
-}
-
-#[cfg(windows)]
-fn configure_process_group(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
-}
-
-#[cfg(unix)]
-fn terminate_tree(pid: u32) {
-    unsafe {
-        libc::kill(-(pid as i32), libc::SIGKILL);
-        libc::kill(pid as i32, libc::SIGKILL);
-    }
-}
-
-#[cfg(windows)]
-fn terminate_tree(pid: u32) {
-    let _ = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
 }
 
 #[cfg(test)]

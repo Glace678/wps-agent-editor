@@ -1,4 +1,5 @@
 import type { GrantedPath } from '@/types/desktop-api'
+import { normalizePath } from '@/lib/path'
 
 const grantsByPath = new Map<string, string>()
 
@@ -7,7 +8,7 @@ function isWindowsPath(path: string): boolean {
 }
 
 function pathKey(path: string): string {
-  const normalized = path.replace(/\\/g, '/').replace(/\/{2,}/g, '/')
+  const normalized = normalizePath(path)
   return isWindowsPath(path) ? normalized.toLowerCase() : normalized
 }
 

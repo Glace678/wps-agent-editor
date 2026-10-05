@@ -61,7 +61,7 @@ interface AgentState {
   clearCollaborationEvents: () => void
 }
 
-export const useAgentStore = create<AgentState>((set) => ({
+export const useAgentStore = create<AgentState>((set, get) => ({
   agents: [],
   activeAgentId: null,
   messages: {},
@@ -119,15 +119,14 @@ export const useAgentStore = create<AgentState>((set) => ({
       messages: { ...state.messages, [agentId]: [] },
       conversationIds: { ...state.conversationIds, [agentId]: crypto.randomUUID() },
     })),
+  // Review §08-2.1: read-then-conditional-set outside the set() callback. The
+  // previous version computed the result inside set() and smuggled it out via an
+  // outer closure, which depended on zustand applying set synchronously.
   ensureConversationId: (agentId) => {
-    let conversationId = ''
-    set((state) => {
-      conversationId = state.conversationIds[agentId] ?? crypto.randomUUID()
-      if (state.conversationIds[agentId]) return {}
-      return {
-        conversationIds: { ...state.conversationIds, [agentId]: conversationId },
-      }
-    })
+    const existing = get().conversationIds[agentId]
+    if (existing) return existing
+    const conversationId = crypto.randomUUID()
+    set({ conversationIds: { ...get().conversationIds, [agentId]: conversationId } })
     return conversationId
   },
   loadConversation: (agentId, conversation) => set((state) => ({

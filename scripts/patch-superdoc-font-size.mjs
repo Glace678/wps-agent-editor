@@ -9,7 +9,7 @@
 //
 // Idempotent: safe to run on every install. Throws when an expected pattern
 // is missing so a future superdoc upgrade cannot silently lose the patch.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -43,8 +43,18 @@ function apply(file, replacements) {
 }
 
 // ---------------------------------------------------------------------------
-// chunks/src-CcBJnYZd.es.js and chunks/src-VzGe-_l_.cjs (same source, ESM/CJS)
+// Layout chunks: SuperDoc emits content-hashed names (src-<hash>.es.js and
+// src-<hash>.cjs; same source, ESM/CJS) that change every release, so resolve
+// them by pattern and assert the expected count instead of hardcoding the hash.
 // ---------------------------------------------------------------------------
+const chunksDir = path.join(distDir, 'chunks')
+const layoutChunks = readdirSync(chunksDir)
+  .filter((name) => /^src-.*\.(?:es\.js|cjs)$/.test(name))
+  .sort()
+if (layoutChunks.length !== 2) {
+  throw new Error(`Expected one ESM and one CJS layout chunk, found ${layoutChunks.length}`)
+}
+
 const chunkReplacements = [
   {
     label: 'FontSize extension defaults 8–96 → 1–1638',
@@ -62,8 +72,8 @@ const chunkReplacements = [
     to: `const clamped = Math.min(${WORD_MAX_SIZE}, Math.max(${WORD_MIN_SIZE}, Number(value)));`,
   },
 ]
-apply('chunks/src-CcBJnYZd.es.js', chunkReplacements)
-apply('chunks/src-VzGe-_l_.cjs', chunkReplacements)
+
+for (const chunk of layoutChunks) apply(`chunks/${chunk}`, chunkReplacements)
 
 // ---------------------------------------------------------------------------
 // superdoc.min.js (minified bundle; variable names are 1.44.0-specific)

@@ -38,7 +38,10 @@ function bindings(): TauriBindings | undefined {
     invoke: <T>(command: string, args?: InvokeBody, options?: InvokeOptions) =>
       tauriInvoke<T>(
         command,
-        args,
+        // Tauri's InvokeArgs is a plain Record<string, unknown>; InvokeBody
+        // widens it with binary/channel branches. At the boundary the channel
+        // is serialized via its toJSON, so the cast is type-only, runtime-equal.
+        args as Record<string, unknown>,
         options ? { headers: options.headers ?? {} } : undefined,
       ),
     listen: <T>(event: string, handler: (message: TauriEvent<T>) => void) =>

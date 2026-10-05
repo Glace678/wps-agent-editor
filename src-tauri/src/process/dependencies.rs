@@ -170,17 +170,22 @@ const DEPENDENCIES: &[DependencySpec] = &[
 
 pub async fn probe_all() -> Vec<DependencyStatus> {
     let esbuild = super::runner::bundled_esbuild_path();
-    let mut results = Vec::with_capacity(DEPENDENCIES.len() + 1);
-    results.push(DependencyStatus {
+    let esbuild_status = DependencyStatus {
         id: "esbuild-sidecar",
         available: esbuild.is_file(),
         version: command_version(&esbuild, &["--version"]).await,
         path: esbuild.is_file().then(|| path_string(&esbuild)),
         capabilities: vec!["typescript-transpile", "tsx-transpile"],
-    });
-    for spec in DEPENDENCIES {
-        results.push(probe(spec).await);
-    }
+    };
+    // P16: the individual probes are independent. Running them serially made
+    // `process_probe_dependencies` block ~60 s on a machine missing most
+    // toolchains (20+ probes x 3 s timeout). join_all preserves the original
+    // order while collapsing wall-clock time to the slowest single probe;
+    // each probe keeps its own 3 s timeout via command_output_with_timeout.
+    let probes = futures_util::future::join_all(DEPENDENCIES.iter().map(probe));
+    let mut results = Vec::with_capacity(DEPENDENCIES.len() + 1);
+    results.push(esbuild_status);
+    results.extend(probes.await);
     results
 }
 

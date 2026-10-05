@@ -1,3 +1,4 @@
+use super::SuccessResult;
 use crate::{
     error::AppResult,
     files::ensure_file_can_be_opened,
@@ -9,7 +10,7 @@ use crate::{
     },
     state::AppState,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use tauri::{ipc::Channel, State, WebviewWindow};
 
@@ -62,11 +63,6 @@ pub struct TerminalResizeRequest {
     session_id: String,
     cols: u16,
     rows: u16,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SuccessResult {
-    success: bool,
 }
 
 #[tauri::command]

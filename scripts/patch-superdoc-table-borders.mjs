@@ -11,7 +11,7 @@
 // border on every borderless table. Existing intentionally borderless tables
 // must retain their source-document appearance.
 // Idempotent: safe to run on every install.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -41,6 +41,25 @@ function apply(file, replacements) {
   if (output !== source) writeFileSync(target, output, 'utf8')
 }
 
+// SuperDoc emits content-hashed chunk names (src-<hash>.es.js / .cjs and
+// SuperConverter-<hash>.es.js / .cjs) that change every release; resolve them by
+// pattern and assert the expected counts instead of hardcoding the hashes.
+const chunksDir = path.join(distDir, 'chunks')
+const layoutChunks = readdirSync(chunksDir)
+  .filter((name) => /^src-.*\.(?:es\.js|cjs)$/.test(name))
+  .sort()
+if (layoutChunks.length !== 2) {
+  throw new Error(`Expected one ESM and one CJS layout chunk, found ${layoutChunks.length}`)
+}
+const layoutEsm = layoutChunks.find((name) => name.endsWith('.es.js'))
+const layoutCjs = layoutChunks.find((name) => name.endsWith('.cjs'))
+const converterChunks = readdirSync(chunksDir)
+  .filter((name) => /^SuperConverter-.*\.(?:es\.js|cjs)$/.test(name))
+  .sort()
+if (converterChunks.length !== 2) {
+  throw new Error(`Expected one ESM and one CJS SuperConverter chunk, found ${converterChunks.length}`)
+}
+
 const layoutReplacements = [
   {
     label: 'preserve intentionally borderless existing tables',
@@ -53,8 +72,7 @@ const layoutReplacements = [
   },
 ]
 
-apply('chunks/src-CcBJnYZd.es.js', layoutReplacements)
-apply('chunks/src-VzGe-_l_.cjs', layoutReplacements)
+for (const chunk of layoutChunks) apply(`chunks/${chunk}`, layoutReplacements)
 
 const insertedTableBorderEsmReplacements = [
   {
@@ -126,8 +144,8 @@ const insertedTableBorderCjsReplacements = [
   },
 ]
 
-apply('chunks/src-CcBJnYZd.es.js', insertedTableBorderEsmReplacements)
-apply('chunks/src-VzGe-_l_.cjs', insertedTableBorderCjsReplacements)
+apply(`chunks/${layoutEsm}`, insertedTableBorderEsmReplacements)
+apply(`chunks/${layoutCjs}`, insertedTableBorderCjsReplacements)
 
 const preferredStyleReplacements = [
   {
@@ -137,7 +155,6 @@ const preferredStyleReplacements = [
   },
 ]
 
-apply('chunks/SuperConverter-SsIUcBUk.es.js', preferredStyleReplacements)
-apply('chunks/SuperConverter-BvRRLlhT.cjs', preferredStyleReplacements)
+for (const chunk of converterChunks) apply(`chunks/${chunk}`, preferredStyleReplacements)
 
 console.log('superdoc table border patch applied (idempotent)')

@@ -9,6 +9,7 @@ import type {
 } from '@/types/document'
 import { LiveOperationQueue } from './live-operation-queue'
 import { readFileBuffer } from '../utils/file-io'
+import { escapeHtmlText } from '../editors/notepad-tables'
 
 export type DocKind = 'word' | 'excel' | 'pdf' | 'text' | 'none'
 export interface CodeEditorAdapter {
@@ -465,7 +466,7 @@ async function insertWordText(text: string, append: boolean): Promise<unknown> {
     // newlines as separate paragraphs so multi-line replies stay readable.
     const paragraphs = text
       .split(/\r?\n/)
-      .map((line) => `<p>${escapeHtml(line)}</p>`)
+      .map((line) => `<p>${escapeHtmlText(line)}</p>`)
       .join('')
     if (append) editor.commands.insertContentAt(editor.state.doc.content.size, paragraphs)
     else editor.commands.insertContent(paragraphs)
@@ -559,8 +560,4 @@ function setCell(row: number, col: number, value: string): unknown {
   if (!state.workbook) return { success: false, error: 'Excel editor not ready' }
   state.workbook.setCellValue(row, col, value)
   return { success: true, row, col, value }
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

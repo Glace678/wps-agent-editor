@@ -70,10 +70,20 @@ let mupdfReady: Promise<void> | null = null
 
 function initializeMuPdf(): Promise<void> {
   if (!mupdfReady) {
-    mupdfReady = import('mupdf').then((module) => {
-      mupdf = module.default
-      emptyStore = module.emptyStore
-    })
+    mupdfReady = import('mupdf')
+      .then((module) => {
+        mupdf = module.default
+        emptyStore = module.emptyStore
+      })
+      .catch((error) => {
+        // 一次性打包/CDN 失败不应永久污染：复位为未初始化状态，让下一请求重新 import。
+        // 同时抛出专用错误码，与文档级错误区分。
+        mupdfReady = null
+        throw new PdfWorkerError(
+          'mupdf-load-failed',
+          error instanceof Error ? error.message : 'Could not load the MuPDF module',
+        )
+      })
   }
   return mupdfReady
 }
@@ -237,7 +247,12 @@ function readWaeRecord(
             true,
           )
           try {
-            result.previewPng = copyArrayBuffer(pixmap.asPNG())
+            const pngBuffer = pixmap.asPNG()
+            try {
+              result.previewPng = copyArrayBuffer(pngBuffer)
+            } finally {
+              destroyObject(pngBuffer as unknown as { destroy(): void })
+            }
           } finally {
             destroyObject(pixmap)
           }
@@ -351,6 +366,13 @@ function mutationResult(state: OpenDocumentState): PdfMutationResult {
     annotations: listAnnotations(state),
     ...journalState(state),
   }
+}
+
+/** 图片注释的 previewPng 是 ArrayBuffer，需要随响应 transfer 给 UI 线程。 */
+function mutationTransfer(result: PdfMutationResult): Transferable[] {
+  return result.annotations.flatMap((record) => (
+    record.type === 'image' && record.previewPng ? [record.previewPng] : []
+  ))
 }
 
 function findEditableAnnotation(state: OpenDocumentState, annotationId: string): LocatedAnnotation | null {
@@ -806,11 +828,16 @@ function renderPage(
       }
       page.runPageWidgets(device, matrix)
       device.close()
-      return {
-        pageIndex,
-        width: pixmap.getWidth(),
-        height: pixmap.getHeight(),
-        png: copyArrayBuffer(pixmap.asPNG()),
+      const pngBuffer = pixmap.asPNG()
+      try {
+        return {
+          pageIndex,
+          width: pixmap.getWidth(),
+          height: pixmap.getHeight(),
+          png: copyArrayBuffer(pngBuffer),
+        }
+      } finally {
+        destroyObject(pngBuffer as unknown as { destroy(): void })
       }
     } finally {
       destroyObject(device)
@@ -882,7 +909,8 @@ function textLayerForPage(
       const rect = normalizeRect(page, line.bbox)
       if (rect.width <= 0 || rect.height <= 0) return
       lines.push({
-        text: text.length > MAX_TEXT_LINE_CHARS ? `${text.slice(0, MAX_TEXT_LINE_CHARS)}…` : text,
+        // 截断时不加省略号：省略号会混入正文文本，污染「点原文直接改」的匹配与回填。
+        text: text.length > MAX_TEXT_LINE_CHARS ? text.slice(0, MAX_TEXT_LINE_CHARS) : text,
         x: rect.x,
         y: rect.y,
         width: rect.width,
@@ -1042,11 +1070,13 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     return { result: openResult(current) }
   }
 
-  const state = requireDocument(request.documentId)
   if (request.type === 'close') {
-    disposeCurrent()
+    // 幂等：关闭已关闭/陈旧的文档直接返回成功，而不是抛 stale-document。
+    if (current && current.documentId === request.documentId) disposeCurrent()
     return { result: { closed: true } }
   }
+
+  const state = requireDocument(request.documentId)
   if (request.type === 'authenticate') {
     if (!state.document.needsPassword()) return { result: openResult(state) }
     if (state.document.authenticatePassword(request.password) <= 0) {
@@ -1083,9 +1113,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     const result = mutationResult(state)
     return {
       result,
-      transfer: result.annotations.flatMap((record) => (
-        record.type === 'image' && record.previewPng ? [record.previewPng] : []
-      )),
+      transfer: mutationTransfer(result),
     }
   }
   if (request.type === 'replaceBodyText') {
@@ -1102,9 +1130,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     const result = mutationResult(state)
     return {
       result,
-      transfer: result.annotations.flatMap((record) => (
-        record.type === 'image' && record.previewPng ? [record.previewPng] : []
-      )),
+      transfer: mutationTransfer(result),
     }
   }
   if (request.type === 'createImage') {
@@ -1114,9 +1140,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     const result = mutationResult(state)
     return {
       result,
-      transfer: result.annotations.flatMap((record) => (
-        record.type === 'image' && record.previewPng ? [record.previewPng] : []
-      )),
+      transfer: mutationTransfer(result),
     }
   }
   if (request.type === 'updateImage') {
@@ -1126,9 +1150,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     const result = mutationResult(state)
     return {
       result,
-      transfer: result.annotations.flatMap((record) => (
-        record.type === 'image' && record.previewPng ? [record.previewPng] : []
-      )),
+      transfer: mutationTransfer(result),
     }
   }
   if (request.type === 'updateGeometry') {
@@ -1138,9 +1160,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     const result = mutationResult(state)
     return {
       result,
-      transfer: result.annotations.flatMap((record) => (
-        record.type === 'image' && record.previewPng ? [record.previewPng] : []
-      )),
+      transfer: mutationTransfer(result),
     }
   }
   if (request.type === 'deleteAnnotation') {
@@ -1150,9 +1170,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     const result = mutationResult(state)
     return {
       result,
-      transfer: result.annotations.flatMap((record) => (
-        record.type === 'image' && record.previewPng ? [record.previewPng] : []
-      )),
+      transfer: mutationTransfer(result),
     }
   }
   if (request.type === 'undo' || request.type === 'redo') {
@@ -1162,9 +1180,7 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
     const result = mutationResult(state)
     return {
       result,
-      transfer: result.annotations.flatMap((record) => (
-        record.type === 'image' && record.previewPng ? [record.previewPng] : []
-      )),
+      transfer: mutationTransfer(result),
     }
   }
   if (request.type === 'save') {

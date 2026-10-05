@@ -8,6 +8,9 @@ import type {
   RoutedDebugEvent,
 } from './code'
 import type { FileEntry, FileStatInfo, FileVersion, RecentFile } from './file'
+// Re-exported so platform/desktop.ts can import FileStatInfo / FileVersion
+// from the barrel ('@/types/desktop-api') like its sibling types.
+export type { FileStatInfo, FileVersion } from './file'
 import type { PresentationEditRequest, PresentationEditResult } from './presentation'
 import type {
   AuthStatus,
@@ -49,6 +52,7 @@ export type AppErrorCode =
   | 'dependency-missing'
   | 'desktop-api-unavailable'
   | 'executable-file-blocked'
+  | 'file-too-large'
   | 'internal'
   | 'invalid-argument'
   | 'invalid-binary'
@@ -68,7 +72,14 @@ export type AppErrorData = Omit<RustAppError, 'code' | 'details' | 'messageKey' 
   command?: string
 }
 
-export type InvokeBody = Record<string, unknown> | ArrayBuffer | Uint8Array
+// DesktopChannel<unknown> is included because invoke bodies embed streaming
+// channels under keys like `onEvent` (review D7); the branch lets desktop.ts
+// attach channels without `as unknown` double assertions.
+export type InvokeBody =
+  | Record<string, unknown>
+  | ArrayBuffer
+  | Uint8Array
+  | DesktopChannel<unknown>
 
 export interface InvokeOptions {
   headers?: Record<string, string>

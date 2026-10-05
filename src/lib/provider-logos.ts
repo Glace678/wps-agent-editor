@@ -12,8 +12,10 @@ const imageModules = import.meta.glob('../assets/provider-logos/*.{png,ico,webp,
   query: '?url',
 }) as Record<string, string>
 
+import { baseName } from '@/lib/path'
+
 function providerIdFromPath(path: string): string {
-  return path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? path
+  return baseName(path).replace(/\.[^.]+$/, '')
 }
 
 // Build the lookup table on a null-prototype object so lookups by ids like

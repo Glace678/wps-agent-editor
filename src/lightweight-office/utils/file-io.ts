@@ -1,4 +1,5 @@
 import { desktopApi, toUint8Array } from '@/platform'
+import { extensionOf } from '@/lib/path'
 import {
   CODE_FILE_EXTENSIONS,
   CODE_SPECIAL_FILE_NAMES,
@@ -105,12 +106,9 @@ export async function saveFileBuffer(filePath: string, buffer: ArrayBuffer): Pro
   await desktopApi.documents.saveBinary(filePath, new Uint8Array(buffer))
 }
 
-/** 从完整路径安全提取扩展名（不含点），兼容 Windows 路径 */
+/** 从完整路径安全提取扩展名（不含点、小写）；逻辑单一出处在 @/lib/path。extensionOf 对无扩展名/隐藏文件返回 ''。 */
 export function getExtension(filePath: string): string {
-  const name = filePath.split(/[/\\]/).pop() || ''
-  const dot = name.lastIndexOf('.')
-  if (dot <= 0) return ''
-  return name.slice(dot + 1).toLowerCase()
+  return extensionOf(filePath)
 }
 
 export function getDocKind(filePath: string): 'word' | 'excel' | 'slide' | 'pdf' | 'text' | 'code' | 'unknown' {
