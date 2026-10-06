@@ -94,6 +94,8 @@ interface RenderedPage {
   url: string
   targetWidth: number
   rotation: PdfRotation
+  /** devicePixelRatio the bitmap was rasterized at (F14). */
+  deviceScale: number
 }
 
 interface DragState {
@@ -133,7 +135,21 @@ export function PdfViewer({
   const [fitZoom, setFitZoom] = useState<number | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [renderTargets, setRenderTargets] = useState<number[]>([])
-  const [renderRevision, setRenderRevision] = useState(0)
+  // Repaint-only tick: bumped when the ref-held rendered-page map mutates
+  // (new bitmap ready, off-target bitmap revoked). It never re-dispatches
+  // renders (F8).
+  const [, setRenderRevision] = useState(0)
+  // Drives the render-dispatch effect only when a forced single-page
+  // re-render is needed.
+  const [renderDispatchTick, setRenderDispatchTick] = useState(0)
+  // Content-relative visible band (px) of the PDF scroller; drives text-layer
+  // line virtualization so a dense page never mounts thousands of line nodes
+   // (F10).
+  const [textViewport, setTextViewport] = useState({ top: 0, bottom: 0 })
+  // F14: track devicePixelRatio across monitors (dragging the window to a
+  // HiDPI screen does not necessarily resize it, so resize events miss it);
+  // the resolution media query re-subscribes whenever the value changes.
+  const [devicePixelRatio, setDevicePixelRatio] = useState(() => window.devicePixelRatio || 1)
   const [canAnnotate, setCanAnnotate] = useState(false)
   const [hasSignatures, setHasSignatures] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -157,8 +173,28 @@ export function PdfViewer({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const focusPageInputRef = useRef<(() => void) | null>(null)
   const clientRef = useRef<MuPdfWorkerClient | null>(null)
+  // Tracks automatic worker-degraded reopens per document path so a PDF that
+  // deterministically wedges the worker cannot trigger a reload loop.
+  const autoReopenRef = useRef<{ path: string; count: number } | null>(null)
   const documentGenerationRef = useRef(0)
   const renderEpochRef = useRef(0)
+  // F8: live render targets (stale closure avoided), in-flight requests
+  // (de-duped across effect re-runs) and per-page request sequences (stale
+  // responses dropped).
+  const renderTargetsRef = useRef<Set<number>>(new Set())
+  const inFlightRendersRef = useRef<
+    Map<number, { width: number; rotation: PdfRotation; sequence: number }>
+  >(new Map())
+  const renderSequenceRef = useRef<Map<number, number>>(new Map())
+  // Previous render inputs, used to tell a real config change (which must
+  // invalidate in-flight renders via a new epoch) from a forced-page tick
+  // (which must not kill unrelated in-flight renders) (F8).
+  const prevRenderConfigRef = useRef({
+    displayWidth: 0,
+    rotation: 0 as PdfRotation,
+    pagesLength: 0,
+    targetsKey: '',
+  })
   const renderedPagesRef = useRef(new Map<number, RenderedPage>())
   // 正文替换后这些页需要无视缓存强制重绘（redaction 已改变页面内容）
   const forcedRerenderRef = useRef(new Set<number>())
@@ -296,6 +332,9 @@ export function PdfViewer({
     setCanRedoEdit(result.canRedo)
     setDirty(result.dirty)
   }, [installAnnotations, setDirty])
+  // Latest reconcile primitive, used by late mutation responses (wps_04 F6).
+  const applyMutationResultRef = useRef(applyMutationResult)
+  applyMutationResultRef.current = applyMutationResult
 
   const showOperationError = useCallback((operation: string, cause: unknown) => {
     console.error(`[PdfViewer] ${operation}:`, cause)
@@ -367,6 +406,32 @@ export function PdfViewer({
     currentPageRef.current = 1
     let extractTimer: number | null = null
 
+    // F6: reconcile mutations that completed in the worker after their
+    // watchdog timeout instead of leaving UI/worker state diverged.
+    const unsubscribeLateMutations = client.onLateMutation(({ result }) => {
+      if (documentGenerationRef.current === generation && clientRef.current === client) {
+        applyMutationResultRef.current(result)
+      }
+    })
+
+    // Reset the auto-reopen counter when the document itself changes.
+    if (autoReopenRef.current?.path !== filePath) {
+      autoReopenRef.current = { path: filePath, count: 0 }
+    }
+    const unsubscribeDegraded = client.onDegraded(() => {
+      if (documentGenerationRef.current !== generation || clientRef.current !== client) return
+      const tracker = autoReopenRef.current
+      if (tracker && tracker.count >= 1) {
+        // The reopened client wedged again: stop and show the error rather
+        // than looping; the user can reopen manually.
+        setLoading(false)
+        setError(pdfMessage(language, 'workerDegraded'))
+        return
+      }
+      if (tracker) tracker.count += 1
+      setReloadToken((value) => value + 1)
+    })
+
     const applyOpenResult = (result: PdfOpenResult, stat: FileStatInfo) => {
       if (documentGenerationRef.current !== generation || clientRef.current !== client) return
       pagesRef.current = result.pages
@@ -423,6 +488,8 @@ export function PdfViewer({
 
     return () => {
       documentGenerationRef.current += 1
+      unsubscribeLateMutations()
+      unsubscribeDegraded()
       if (extractTimer != null) window.clearTimeout(extractTimer)
       if (clientRef.current === client) clientRef.current = null
       client.dispose()
@@ -554,6 +621,14 @@ export function PdfViewer({
         currentPageRef.current = pageNumber
         setCurrentPage(pageNumber)
       }
+      // F10: expose the scroller's visible band for line virtualization.
+      const viewTop = element.scrollTop
+      const viewBottom = viewTop + element.clientHeight
+      setTextViewport((previous) => (
+        previous.top === viewTop && previous.bottom === viewBottom
+          ? previous
+          : { top: viewTop, bottom: viewBottom }
+      ))
       const first = visible.length > 0 ? Math.min(...visible) : nearest
       const last = visible.length > 0 ? Math.max(...visible) : nearest
       const targets: number[] = []
@@ -573,11 +648,77 @@ export function PdfViewer({
     }
   }, [displayWidth, layout, pages.length, rotation])
 
+  // F10: content-relative page bands (px) for text-layer line virtualization.
+  // Derived from the same geometry the JSX renders (no forced sync layout).
+  // Scroller is p-4; both flex-col and grid gaps are PAGE_GAP; grid rows take
+  // the taller page's height (items-start).
+  const pageBands = useMemo(() => {
+    const heights = pages.map((page) => {
+      const view = pdfViewSize(page, rotation)
+      return Math.max(64, Math.round(displayWidth * view.height / view.width))
+    })
+    const bands: { top: number; height: number }[] = []
+    let cursor = 16
+    if (layout === 'two') {
+      for (let index = 0; index < heights.length; index += 2) {
+        const rowHeight = Math.max(heights[index], heights[index + 1] ?? 0)
+        bands[index] = { top: cursor, height: heights[index] }
+        if (index + 1 < heights.length) {
+          bands[index + 1] = { top: cursor, height: heights[index + 1] }
+        }
+        cursor += rowHeight + PAGE_GAP
+      }
+    } else {
+      heights.forEach((height, index) => {
+        bands[index] = { top: cursor, height }
+        cursor += height + PAGE_GAP
+      })
+    }
+    return bands
+  }, [displayWidth, layout, pages, rotation])
+
+  // Extra px kept above/below the viewport when virtualizing text lines, so
+  // fast scroll and drag-select do not empty the layer.
+  const TEXT_LAYER_BUFFER = 800
+
+  useEffect(() => {
+    const media = window.matchMedia(`(resolution: ${devicePixelRatio}dppx)`)
+    const handleChange = () => setDevicePixelRatio(window.devicePixelRatio || 1)
+    media.addEventListener('change', handleChange)
+    return () => media.removeEventListener('change', handleChange)
+  }, [devicePixelRatio])
+
   useEffect(() => {
     const client = clientRef.current
     if (!client || pages.length === 0) return
-    const epoch = ++renderEpochRef.current
     const targets = new Set(renderTargets)
+    // Live target set consulted when renders resolve; the closure `targets`
+    // above is stale by then (F8).
+    renderTargetsRef.current = targets
+
+    // Only a real change of the document-level render inputs invalidates
+    // in-flight renders. Scrolling (targetsKey) used to bump the epoch too,
+    // discarding renders of pages that stayed visible and re-requesting
+    // them (F8). A forced-page tick also reuses the current epoch.
+    const targetsKey = renderTargets.join(',')
+    const previousConfig = prevRenderConfigRef.current
+    const configChanged =
+      previousConfig.displayWidth !== displayWidth
+      || previousConfig.rotation !== rotation
+      || previousConfig.pagesLength !== pages.length
+    prevRenderConfigRef.current = {
+      displayWidth,
+      rotation,
+      pagesLength: pages.length,
+      targetsKey,
+    }
+    if (configChanged) {
+      renderEpochRef.current += 1
+      // In-flight results belong to the old geometry; they resolve stale.
+      inFlightRendersRef.current.clear()
+    }
+    const epoch = renderEpochRef.current
+
     let changed = false
     for (const [index, rendered] of renderedPagesRef.current) {
       if (!targets.has(index)) {
@@ -590,7 +731,7 @@ export function PdfViewer({
 
     // 正文行替换成功后需要新位图，但保留旧图垫底，等新位图就绪后再替换，
     // 避免提交后出现空白帧（点击外部时的闪烁）。
-    const deviceScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3)
+    const deviceScale = Math.min(Math.max(devicePixelRatio, 1), 3)
     const targetWidthAll = Math.max(64, Math.round(displayWidth * deviceScale))
     const staleWidths = new Map<number, number>()
     if (forcedRerenderRef.current.size > 0) {
@@ -608,21 +749,62 @@ export function PdfViewer({
         !forced
         && currentRendered
         && currentRendered.rotation === rotation
+        && currentRendered.deviceScale === deviceScale
         && requiredWidth >= currentRendered.targetWidth * 0.9
         && requiredWidth <= currentRendered.targetWidth * 1.1
       ) continue
+
+      // F8: de-duplicate in-flight requests. Every scroll tick re-runs this
+      // effect; without this gate pages already rendering were requested a
+      // second time. The sequence makes stale responses (older request
+      // resolving after a newer one) drop instead of overwriting a fresh
+      // bitmap.
+      const inFlight = inFlightRendersRef.current.get(pageIndex)
+      if (
+        !forced
+        && inFlight
+        && inFlight.width === requiredWidth
+        && inFlight.rotation === rotation
+      ) continue
+      const sequence = inFlight?.sequence !== undefined
+        ? inFlight.sequence + 1
+        : (renderSequenceRef.current.get(pageIndex) ?? 0) + 1
+      renderSequenceRef.current.set(pageIndex, sequence)
+      inFlightRendersRef.current.set(pageIndex, {
+        width: requiredWidth,
+        rotation,
+        sequence,
+      })
       void client.render(pageIndex, requiredWidth, rotation)
         .then((result) => {
-          if (renderEpochRef.current !== epoch || clientRef.current !== client || !targets.has(pageIndex)) return
+          if (renderEpochRef.current !== epoch || clientRef.current !== client) return
+          // Only the latest request for this page may commit, and only while
+          // the page is still on screen.
+          if (inFlightRendersRef.current.get(pageIndex)?.sequence !== sequence) return
+          if (!renderTargetsRef.current.has(pageIndex)) {
+            inFlightRendersRef.current.delete(pageIndex)
+            return
+          }
+          inFlightRendersRef.current.delete(pageIndex)
           const url = URL.createObjectURL(new Blob([result.png], { type: 'image/png' }))
           const previous = renderedPagesRef.current.get(pageIndex)
-          renderedPagesRef.current.set(pageIndex, { url, targetWidth: requiredWidth, rotation })
+          renderedPagesRef.current.set(pageIndex, {
+            url,
+            targetWidth: requiredWidth,
+            rotation,
+            deviceScale,
+          })
           if (previous) URL.revokeObjectURL(previous.url)
           setRenderRevision((value) => value + 1)
         })
-        .catch((cause) => console.error('[PdfViewer] page render failed:', pageIndex + 1, cause))
+        .catch((cause) => {
+          if (inFlightRendersRef.current.get(pageIndex)?.sequence === sequence) {
+            inFlightRendersRef.current.delete(pageIndex)
+          }
+          console.error('[PdfViewer] page render failed:', pageIndex + 1, cause)
+        })
     }
-  }, [displayWidth, pages.length, renderTargets, rotation, renderRevision])
+  }, [devicePixelRatio, displayWidth, pages.length, renderDispatchTick, renderTargets, rotation])
 
   // 可见页的结构化文字层懒加载（供鼠标划选/复制 PDF 原文），离屏即释放
   useEffect(() => {
@@ -806,7 +988,7 @@ export function PdfViewer({
     bodyEditedPagesRef.current.add(pageIndex)
     const refreshPage = () => {
       forcedRerenderRef.current.add(pageIndex)
-      setRenderRevision((value) => value + 1)
+      setRenderDispatchTick((value) => value + 1)
       // 原文已被涂除：丢弃本地与 client 的文字层缓存并重新提取
       textLayersRef.current.delete(pageIndex)
       client.invalidateTextLayer(pageIndex)
@@ -1252,7 +1434,7 @@ export function PdfViewer({
         })
         .catch((cause) => console.error('[PdfViewer] text layer reload failed:', pageIndex + 1, cause))
     }
-    setRenderRevision((value) => value + 1)
+    setRenderDispatchTick((value) => value + 1)
   }, [])
 
   const undoEdit = useCallback(() => {
@@ -1736,6 +1918,41 @@ export function PdfViewer({
               const rendered = renderedPagesRef.current.get(pageIndex)
               const textLayer = textLayersRef.current.get(pageIndex)
               const pageAnnotations = annotations.filter((record) => record.pageIndex === pageIndex)
+              // F10: virtualize the transparent text layer's line nodes — a
+              // dense page can carry up to MAX_TEXT_LINES_PER_PAGE records.
+              // Entries are positioned in the canonical (unrotated) layer; for
+              // 90/270 the canonical x-axis maps to the screen's vertical
+              // axis, and 180 flips the y-axis, so visibility is computed in
+              // the rotated coordinate space instead of skipping virtualization.
+              const textBand = pageBands[pageIndex]
+              const textEntryVisible = (entry: {
+                x: number
+                y: number
+                width: number
+                height: number
+              }): boolean => {
+                if (!textBand) return true
+                // Vertical extent of the entry as fractions of the page box.
+                let topFraction: number
+                let bottomFraction: number
+                if (rotation === 90) {
+                  topFraction = entry.x
+                  bottomFraction = entry.x + entry.width
+                } else if (rotation === 270) {
+                  topFraction = 1 - (entry.x + entry.width)
+                  bottomFraction = 1 - entry.x
+                } else if (rotation === 180) {
+                  topFraction = 1 - (entry.y + entry.height)
+                  bottomFraction = 1 - entry.y
+                } else {
+                  topFraction = entry.y
+                  bottomFraction = entry.y + entry.height
+                }
+                const entryTop = textBand.top + topFraction * textBand.height
+                const entryBottom = textBand.top + bottomFraction * textBand.height
+                return entryBottom >= textViewport.top - TEXT_LAYER_BUFFER
+                  && entryTop <= textViewport.bottom + TEXT_LAYER_BUFFER
+              }
               return (
                 <div
                   key={`${filePath}-${pageIndex}`}
@@ -1799,7 +2016,10 @@ export function PdfViewer({
                             cursor: editMode ? 'default' : 'text',
                           }}
                         >
-                          {textLayer.lines.map((line, lineIndex) => (
+                          {textLayer.lines
+                            .map((line, lineIndex) => ({ line, lineIndex }))
+                            .filter(({ line }) => textEntryVisible(line))
+                            .map(({ line, lineIndex }) => (
                             <div
                               key={lineIndex}
                               data-pdf-text-line
@@ -1826,7 +2046,10 @@ export function PdfViewer({
                           data-testid={`pdf-body-edit-layer-${pageIndex}`}
                           style={{ pointerEvents: 'none' }}
                         >
-                          {textLayer.paragraphs.map((paragraph, paragraphIndex) => (
+                          {textLayer.paragraphs
+                            .map((paragraph, paragraphIndex) => ({ paragraph, paragraphIndex }))
+                            .filter(({ paragraph }) => textEntryVisible(paragraph))
+                            .map(({ paragraph, paragraphIndex }) => (
                             <button
                               type="button"
                               key={`body-${paragraphIndex}`}

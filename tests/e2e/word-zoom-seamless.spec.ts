@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 import { createMinimalPagedDocx } from './support/minimal-docx'
+import { selfValidateMockPayloads, validateMockResponses } from './support/mock-payloads'
+import { assertPerfBudgets, perfBudget } from './support/perf'
+import { e2eTestTimeout } from './support/timeouts'
 
 /**
  * Word 无感缩放端到端验证：
@@ -8,9 +11,12 @@ import { createMinimalPagedDocx } from './support/minimal-docx'
  * - 双页↔单页切换时克隆覆盖层在位（[data-word-mode-swap-cover]），
  *   且切换后滚动锚点页保持在视口顶部附近。
  *
- * 注意：Playwright 的 page.mouse.wheel 在按住 Control 时会被无头 Chromium
- * 当作浏览器自身缩放吞掉（页面收不到任何 wheel 事件），因此这里直接在页面
- * 内派发合成 WheelEvent（ctrlKey:true）——应用的非被动 wheel 监听器照常接收。
+ * 注意：Playwright 的 page.mouse.wheel 在按住 Control 时，部分平台/浏览器
+ * 会当作浏览器自身缩放吞掉（页面收不到任何 wheel 事件），因此主用例直接在
+ * 页面内派发合成 WheelEvent（ctrlKey:true）——应用的非被动 wheel 监听器照常
+ * 接收。C4 另外提供一个真实 isTrusted 输入冒烟用例：在支持的平台上用
+ * keyboard.down('Control') + mouse.wheel 验证真实输入链路；若浏览器吞掉事件
+ * 则运行时 skip，而不是误判失败。
  */
 
 const docxBytesPromise = createMinimalPagedDocx()
@@ -20,6 +26,10 @@ async function installDesktopMock(page: Page): Promise<void> {
   await page.addInitScript((bytes) => {
     const callbacks = new Map<number, (payload: unknown) => void>()
     let callbackId = 0
+    // D1: un-whitelisted commands are recorded for the afterEach assertion.
+    const unknownCommands: string[] = []
+    // D2: record every mock response for runtime contract validation.
+    const mockResponses: Array<{ command: string; result: unknown }> = []
     // 桌面桥二进制通道使用 WAE1 信封（magic + uint32LE 元数据长度 + JSON + 负载）
     const encodeWae1 = (metadata: unknown, payload: Uint8Array) => {
       const meta = new TextEncoder().encode(JSON.stringify(metadata))
@@ -30,7 +40,7 @@ async function installDesktopMock(page: Page): Promise<void> {
       out.set(payload, 8 + meta.length)
       return out
     }
-    const invoke = async (command: string): Promise<unknown> => {
+    const handleInvoke = async (command: string): Promise<unknown> => {
       if (command === 'plugin:event|listen') return 1
       if (command === 'plugin:event|unlisten') return null
       if (command === 'files_get_home') return { path: '/mock/home', grantId: 'home-grant' }
@@ -50,7 +60,30 @@ async function installDesktopMock(page: Page): Promise<void> {
       if (command === 'providers_list') return []
       if (command === 'providers_auth_status') return {}
       if (command === 'documents_list_fonts') return []
-      if (command === 'app_take_startup_files') return []
+      if (command === 'app_take_startup_files'
+        || command === 'app_take_recovery_notices') return []
+      if (command === 'files_stat') {
+        return {
+          exists: true,
+          size: bytes.length,
+          modifiedAt: 1_788_825_600_000,
+          createdAt: 1_788_825_600_000,
+          extension: 'docx',
+        }
+      }
+      if (command === 'app_i18n_set_language'
+        || command === 'app_theme_set'
+        || command === 'app_startup_healthy'
+        || command === 'documents_set_current_file') {
+        return { success: true }
+      }
+      if (command === 'agents_conversations_list') return []
+      if (command === 'agents_conversations_import_codex') {
+        return {
+          discovered: 0, imported: 0, updated: 0, skipped: 0,
+          failed: 0, messages: 0, failures: [],
+        }
+      }
       if (command === 'documents_prepare_word') {
         return encodeWae1(
           {
@@ -65,7 +98,13 @@ async function installDesktopMock(page: Page): Promise<void> {
         )
       }
       if (command === 'documents_read_file') return Uint8Array.from(bytes)
+      unknownCommands.push(command)
       return { success: true }
+    }
+    const invoke = async (command: string): Promise<unknown> => {
+      const result = await handleInvoke(command)
+      mockResponses.push({ command, result })
+      return result
     }
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -82,6 +121,8 @@ async function installDesktopMock(page: Page): Promise<void> {
       __TAURI_EVENT_PLUGIN_INTERNALS__: {
         unregisterListener() {},
       },
+      __WAE_UNKNOWN_COMMANDS__: unknownCommands,
+      __WAE_MOCK_RESPONSES__: mockResponses,
     })
   }, Array.from(docxBytes))
 }
@@ -96,6 +137,9 @@ interface SamplerSummary {
   }>
   pageMutations: Array<{
     t: number
+    // MutationObserver delivery batch this record belongs to (C2): records in
+    // the same batch are one deterministic mutation event.
+    batch: number
     removedPages: number
     addedPages: number
     removedSpreads: number
@@ -115,7 +159,20 @@ async function installSampler(page: Page): Promise<void> {
     const marks: Record<string, number> = {}
     const t0 = performance.now()
 
+    let batchId = 0
     const observer = new MutationObserver((records) => {
+      // C2: sum every record delivered in this callback into ONE mutation
+      // entry tagged with the delivery batch. Batch identity, rather than a
+      // wall-clock window, is the primary evidence for "one rebuild event".
+      batchId += 1
+      const batch = {
+        t: performance.now() - t0,
+        batch: batchId,
+        removedPages: 0,
+        addedPages: 0,
+        removedSpreads: 0,
+        addedSpreads: 0,
+      }
       for (const record of records) {
         const removed = Array.from(record.removedNodes)
         const added = Array.from(record.addedNodes)
@@ -129,19 +186,18 @@ async function installSampler(page: Page): Promise<void> {
           }
           return direct + deep
         }
-        const removedPages = countSide(removed, '.superdoc-page', '.superdoc-page')
-        const addedPages = countSide(added, '.superdoc-page', '.superdoc-page')
-        const removedSpreads = countSide(removed, '.superdoc-spread', '.superdoc-spread')
-        const addedSpreads = countSide(added, '.superdoc-spread', '.superdoc-spread')
-        if (removedPages || addedPages || removedSpreads || addedSpreads) {
-          pageMutations.push({
-            t: performance.now() - t0,
-            removedPages,
-            addedPages,
-            removedSpreads,
-            addedSpreads,
-          })
-        }
+        batch.removedPages += countSide(removed, '.superdoc-page', '.superdoc-page')
+        batch.addedPages += countSide(added, '.superdoc-page', '.superdoc-page')
+        batch.removedSpreads += countSide(removed, '.superdoc-spread', '.superdoc-spread')
+        batch.addedSpreads += countSide(added, '.superdoc-spread', '.superdoc-spread')
+      }
+      if (
+        batch.removedPages
+        || batch.addedPages
+        || batch.removedSpreads
+        || batch.addedSpreads
+      ) {
+        pageMutations.push(batch)
       }
     })
     observer.observe(document.body, { childList: true, subtree: true })
@@ -202,6 +258,40 @@ async function installSampler(page: Page): Promise<void> {
       },
     })
   })
+}
+
+/**
+ * C3: deterministic "initial layout settled" signal — five consecutive
+ * animation frames with an identical page set and page heights — replacing
+ * the fixed 1500ms gamble before installing the sampler. Bounded fallback
+ * keeps the test from hanging if the signature never stabilizes.
+ */
+async function waitForInitialLayoutSettled(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    const host = document.querySelector('.presentation-editor__pages')
+    if (!host) {
+      resolve()
+      return
+    }
+    let lastSignature = ''
+    let stableFrames = 0
+    const sample = () => {
+      const pages = host.querySelectorAll<HTMLElement>('.superdoc-page[data-page-index]')
+      const signature = Array.from(
+        pages,
+        (p) => p.dataset.pageIndex + ':' + Math.round(p.getBoundingClientRect().height),
+      ).join('|')
+      if (signature && signature === lastSignature) stableFrames += 1
+      else {
+        stableFrames = 0
+        lastSignature = signature
+      }
+      if (stableFrames >= 5) resolve()
+      else requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+    setTimeout(resolve, 30_000)
+  }))
 }
 
 async function getProbeSummary(page: Page): Promise<SamplerSummary> {
@@ -292,6 +382,7 @@ function episodes(muts: SamplerSummary['pageMutations']) {
   const out: Array<{
     t0: number
     t1: number
+    batch: number
     removedPages: number
     addedPages: number
     removedSpreads: number
@@ -299,7 +390,9 @@ function episodes(muts: SamplerSummary['pageMutations']) {
   }> = []
   for (const m of sorted) {
     const last = out[out.length - 1]
-    if (last && m.t - last.t1 < 300) {
+    // Same observer batch always merges; the 300ms window only reconciles
+    // batches split across deliveries (C2).
+    if (last && (last.batch === m.batch || m.t - last.t1 < 300)) {
       last.t1 = m.t
       last.removedPages += m.removedPages
       last.addedPages += m.addedPages
@@ -309,6 +402,7 @@ function episodes(muts: SamplerSummary['pageMutations']) {
       out.push({
         t0: m.t,
         t1: m.t,
+        batch: m.batch,
         removedPages: m.removedPages,
         addedPages: m.addedPages,
         removedSpreads: m.removedSpreads,
@@ -323,9 +417,28 @@ test.beforeEach(async ({ page }) => {
   await installDesktopMock(page)
 })
 
-test.setTimeout(150_000)
+// D1: no test may leave the app calling commands this mock never whitelisted.
+// D2: mock responses are validated at runtime against the generated contract.
+test.afterEach(async ({ page }) => {
+  selfValidateMockPayloads()
+  const [unknown, responses] = await page.evaluate(() => [
+    (window as unknown as { __WAE_UNKNOWN_COMMANDS__?: string[] }).__WAE_UNKNOWN_COMMANDS__ ?? [],
+    (window as unknown as {
+      __WAE_MOCK_RESPONSES__?: Array<{ command: string; result: unknown }>
+    }).__WAE_MOCK_RESPONSES__ ?? [],
+  ])
+  expect(unknown, `unmocked invoke commands: ${unknown.join(', ')}`).toEqual([])
+  const contractErrors = validateMockResponses(responses)
+  expect(contractErrors, `mock payload contract violations:\n${contractErrors.join('\n')}`).toEqual([])
+})
 
-test('Word zoom across the two-page threshold is seamless (no page rebuild, paired spreads, cover + anchor)', async ({
+test.setTimeout(e2eTestTimeout(150_000))
+
+test('Word zoom across the two-page threshold is seamless (no page rebuild, paired spreads, cover + anchor)', {
+  // D3: heavy path; zoom legs carry explicit perf budgets.
+  annotation: { type: 'perf-path', description: 'multi-leg zoom across layout threshold' },
+  tag: '@perf',
+}, async ({
   page,
 }) => {
   const pageErrors: Error[] = []
@@ -343,14 +456,22 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
     )
     .toBeGreaterThanOrEqual(2)
 
-  // 等首屏排版/虚拟窗稳定，避免把初始挂载突变算进缩放窗口
-  await page.waitForTimeout(1500)
+  // 等首屏排版/虚拟窗稳定（确定性信号），避免把初始挂载突变算进缩放窗口
+  await waitForInitialLayoutSettled(page)
   await installSampler(page)
 
   // —— 缩小：从 100% 一路越过双页阈值 ——
   await mark(page, 'zoomStart')
-  await ctrlWheel(page, 120, 8)
-  await page.waitForTimeout(1800)
+  // D3: measured against an explicit budget instead of a blind timeout.
+  await perfBudget(test.info(), 'zoom-out across book threshold', 6_000, async () => {
+    await ctrlWheel(page, 120, 8)
+
+    // C2: 不用固定 sleep，轮询到双页 spread 真正出现
+    await expect.poll(() => page.locator('.superdoc-spread').count(), {
+      timeout: 30_000,
+      message: 'book mode spreads never appeared after zoom-out',
+    }).toBeGreaterThanOrEqual(1)
+  })
 
   // 双页排版：spread 存在且从第 1 页起两页一排
   const spreadCount = await page.locator('.superdoc-spread').count()
@@ -403,7 +524,23 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
     const sc = document.querySelector('.super-editor-container.contained') as HTMLElement | null
     if (sc) sc.scrollTop = sc.scrollHeight
   })
-  await page.waitForTimeout(900)
+  // C2: 轮询确认真的滚到了底（剩余不可滚动高度 ≤1px），再等两个 rAF
+  // 让虚拟窗完成底部页面挂载，代替固定 900ms。
+  await expect.poll(
+    () =>
+      page.evaluate(() => {
+        const sc = document.querySelector('.super-editor-container.contained') as HTMLElement | null
+        if (!sc) return -1
+        return sc.scrollHeight - sc.scrollTop - sc.clientHeight
+      }),
+    { timeout: 10_000 },
+  ).toBeLessThanOrEqual(1)
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }),
+  )
 
   await page.evaluate(() =>
     (
@@ -414,8 +551,14 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
   )
 
   // —— 放大：越过阈值回到单页 ——
-  await ctrlWheel(page, -120, 8)
-  await page.waitForTimeout(1800)
+  await perfBudget(test.info(), 'zoom-in back to vertical', 6_000, async () => {
+    await ctrlWheel(page, -120, 8)
+    // C2: 轮询到 spread 全部拆除（单页模式确定生效），代替固定 1800ms。
+    await expect.poll(() => page.locator('.superdoc-spread').count(), {
+      timeout: 30_000,
+      message: 'book mode spreads never tore down after zoom-in',
+    }).toBe(0)
+  })
   await mark(page, 'zoomEnd')
 
   await expect(page.locator('.word-document-layout')).toHaveAttribute(
@@ -427,17 +570,17 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
   // 单页模式下小幅缩小（不触双页阈值）：旧几何在 zoom<1 时同样会
   // 把未缩放高度沿 overflow 链泄漏成可滚动空白，这里一并回归。
   await ctrlWheel(page, 120, 3)
-  await page.waitForTimeout(1200)
   await expect(
     page.locator('.word-document-layout'),
     'zoom-out leg must stay in single-page mode',
-  ).toHaveAttribute('data-word-layout-mode', 'vertical')
-  const verticalBlank = await measureBlankBelowLastPage(page)
-  expect(
-    verticalBlank,
-    `vertical zoom-out must not leave blank scroll area below the last page (blank=${verticalBlank}px)`,
-  ).toBeLessThan(60)
-  expect(verticalBlank, 'blank measurement must be finite').toBeGreaterThan(-60)
+  ).toHaveAttribute('data-word-layout-mode', 'vertical', { timeout: 15_000 })
+  // C2: 重排完成的确定性信号是底部空白测量稳定，轮询代替固定 1200ms。
+  await expect
+    .poll(() => measureBlankBelowLastPage(page), {
+      timeout: 15_000,
+      message: 'vertical zoom-out leg: blank scroll area below the last page never settled',
+    })
+    .toBeLessThan(60)
 
   await page.evaluate(() =>
     (
@@ -510,4 +653,78 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
   ).toBeLessThanOrEqual(3)
 
   expect(pageErrors, `page errors: ${pageErrors.map((e) => e.message).join('; ')}`).toEqual([])
+
+  // D3: report slow legs as performance regressions, not timeout flakes.
+  assertPerfBudgets(test.info())
+})
+
+interface NativeWheelRecord {
+  trusted: boolean
+  ctrl: boolean
+  deltaY: number
+}
+
+// C4: 真实 isTrusted 输入冒烟。合成事件只能覆盖应用逻辑，覆盖不了浏览器/OS
+// 的输入派发；这里在按住 Control 时发真实 mouse.wheel，仅在「平台支持」（页面
+// 真能收到事件）时断言缩放发生，否则运行时跳过。
+test('native ctrl-wheel reaches the Word app on supporting platforms', async ({
+  page,
+  browserName,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.addInitScript(() => {
+    const received: NativeWheelRecord[] = []
+    ;(window as unknown as { __nativeWheelLog: NativeWheelRecord[] }).__nativeWheelLog = received
+    window.addEventListener(
+      'wheel',
+      (event) => {
+        received.push({ trusted: event.isTrusted, ctrl: event.ctrlKey, deltaY: event.deltaY })
+      },
+      true,
+    )
+  })
+  await page.goto('/?session=word', { waitUntil: 'domcontentloaded' })
+
+  await expect
+    .poll(
+      () =>
+        page.locator('.presentation-editor__pages .superdoc-page[data-page-index]').count(),
+      { timeout: 45_000 },
+    )
+    .toBeGreaterThanOrEqual(2)
+  await waitForInitialLayoutSettled(page)
+
+  const zoomTrigger = page.getByTestId('word-zoom-trigger')
+  const readPercent = async () => {
+    const text = (await zoomTrigger.textContent()) ?? ''
+    return Number(/\d+/.exec(text)?.[0] ?? Number.NaN)
+  }
+  const beforePercent = await readPercent()
+  expect(Number.isFinite(beforePercent)).toBeTruthy()
+
+  await page.locator('.presentation-editor__viewport').hover()
+  await page.keyboard.down('Control')
+  for (let i = 0; i < 6; i += 1) {
+    await page.mouse.wheel(0, 120)
+    // 输入节奏间隔（非等待条件成立），模拟真实滚格速度
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  }
+  await page.keyboard.up('Control')
+
+  const received = await page.evaluate(
+    () => (window as unknown as { __nativeWheelLog: NativeWheelRecord[] }).__nativeWheelLog,
+  )
+  const nativeCtrlWheels = received.filter((event) => event.trusted && event.ctrl)
+  // 浏览器把 ctrl-wheel 截去做自身缩放：该平台不支持真实链路，跳过。
+  test.skip(
+    nativeCtrlWheels.length === 0,
+    `${browserName} swallows ctrl-wheel as browser zoom on this platform`,
+  )
+
+  await expect
+    .poll(readPercent, {
+      timeout: 15_000,
+      message: 'native ctrl-wheel reached the page but the Word zoom percentage never changed',
+    })
+    .not.toBe(beforePercent)
 })

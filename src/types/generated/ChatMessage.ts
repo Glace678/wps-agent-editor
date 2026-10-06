@@ -2,4 +2,9 @@
 import type { AgentAttachment } from "./AgentAttachment";
 import type { ChatRole } from "./ChatRole";
 
-export type ChatMessage = { role: ChatRole, content: string, attachments: Array<AgentAttachment>, };
+export type ChatMessage = { role: ChatRole, content: string,
+/**
+ * Wire-optional: omitted when empty, accepted when missing, so the
+ * generated type is optional as well (wps_03 D5).
+ */
+attachments?: Array<AgentAttachment>, };

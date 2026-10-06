@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
@@ -27,15 +27,25 @@ export function ProblemsView({ onCountChange }: { onCountChange: (count: number)
   const navigateToLine = usePanelStore((s) => s.navigateToLine)
   const [items, setItems] = useState<MarkerItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const retryRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     let cancelled = false
     let timer: number | undefined
+    let failureCount = 0
+    // A dynamic import only rejects on a real chunk-load failure (offline,
+    // broken deploy). After a few consecutive failures leave the spinner and
+    // surface an error with retry; the 2s poll continues and self-heals if a
+    // later refresh succeeds.
+    const MAX_FAILURES = 3
 
     const refresh = async () => {
       try {
         const monacoModule = await import('monaco-editor')
         if (cancelled) return
+        failureCount = 0
+        setLoadFailed(false)
         const all = monacoModule.editor.getModelMarkers({})
         // 与 CodeEditor 创建模型时保持一致：用 monaco.Uri.file 归一化路径，
         // 统一 Windows（C:\...）与 Unix（/...）规则，避免双斜杠导致全部过滤。
@@ -58,8 +68,19 @@ export function ProblemsView({ onCountChange }: { onCountChange: (count: number)
         })))
         setLoading(false)
       } catch {
-        // monaco not loaded yet
+        failureCount += 1
+        if (failureCount >= MAX_FAILURES) {
+          setLoading(false)
+          setLoadFailed(true)
+        }
       }
+    }
+
+    retryRef.current = () => {
+      failureCount = 0
+      setLoadFailed(false)
+      setLoading(true)
+      void refresh()
     }
 
     void refresh()
@@ -67,6 +88,7 @@ export function ProblemsView({ onCountChange }: { onCountChange: (count: number)
     return () => {
       cancelled = true
       if (timer !== undefined) window.clearInterval(timer)
+      retryRef.current = () => {}
     }
   }, [currentFile])
 
@@ -78,6 +100,22 @@ export function ProblemsView({ onCountChange }: { onCountChange: (count: number)
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-xs text-muted-foreground">
         <WaitingText text={t('bottomPanel.loading')} />
+      </div>
+    )
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 text-xs text-muted-foreground">
+        <CircleAlert className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+        <span>{t('bottomPanel.problemsLoadFailed')}</span>
+        <button
+          type="button"
+          className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-accent"
+          onClick={() => retryRef.current()}
+        >
+          {t('presentationViewer.retry')}
+        </button>
       </div>
     )
   }

@@ -10,6 +10,7 @@ import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { useEditorStore } from '@/stores/editor.store'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readSpreadsheetBuffer, saveFileBuffer } from '../utils/file-io'
+import { checkSaveConflict, type FileBaselineStat } from '../utils/save-conflict'
 import { configureFortuneRendering } from '../utils/fortune-rendering'
 import {
   excelSheetsShareContentReferences,
@@ -17,6 +18,7 @@ import {
 } from '../utils/excel-dirty'
 import {
   DEFAULT_SPREADSHEET_FONT_SIZE,
+  sheetsToCsvBuffer,
   sheetsToXlsxBuffer,
   xlsxBufferToSheets,
 } from '../utils/xlsx-convert'
@@ -68,6 +70,10 @@ import {
   syncExcelCellEditorFontColor,
   type ExcelCellEditorTextSelection,
 } from '../utils/excel-cell-editor'
+import {
+  registerDocumentZoomOverride,
+  type DocumentZoomCommand,
+} from '@/components/layout/modules/DocumentZoom'
 
 configureFortuneRendering()
 
@@ -106,6 +112,10 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   const shellRef = useRef<HTMLDivElement>(null)
   const workbookRef = useRef<WorkbookInstance | null>(null)
   const savePathRef = useRef(filePath)
+  // File stat captured at open/save; compared before overwriting to detect
+  // an external modification (wps_04 F5).
+  const baselineStatRef = useRef<FileBaselineStat | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
   const readyRef = useRef(false)
   /** Ignore Fortune churn until the workbook has settled after open. */
   const suppressDirtyRef = useRef(true)
@@ -215,15 +225,22 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     dirtyReportedRef.current = false
     cancelPendingDirtyCheck()
     cancelBaselineSettle()
+    baselineStatRef.current = null
     documentBridge.clear()
-    savePathRef.current = getExtension(filePath) === 'xlsx'
+    // F4: CSV files save back to their own .csv path (CSV serializer below);
+    // only formats this app cannot write (xls/ods/…) are promoted to .xlsx.
+    const sourceExtension = getExtension(filePath)
+    savePathRef.current = sourceExtension === 'xlsx' || sourceExtension === 'csv'
       ? filePath
       : filePath.replace(/\.[^./\\]+$/i, '.xlsx')
 
     async function load() {
       try {
+        // Baseline stat before edits (F5 external-change detection).
+        const openStat = await desktopApi.files.stat(filePath)
         const buffer = await readSpreadsheetBuffer(filePath)
         if (cancelled) return
+        if (openStat.exists) baselineStatRef.current = openStat
         const loaded = await xlsxBufferToSheets(buffer)
         // The parse await can span a file switch; discard a stale result so it
         // cannot overwrite the newly requested workbook / baseline / state.
@@ -245,7 +262,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       documentBridge.clear()
       onRegisterSave(null)
     }
-  }, [cancelBaselineSettle, cancelPendingDirtyCheck, filePath, onRegisterSave])
+  }, [cancelBaselineSettle, cancelPendingDirtyCheck, filePath, onRegisterSave, reloadToken])
 
   useEffect(() => {
     onRegisterSave(async () => {
@@ -253,24 +270,49 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       const snapshot = api?.getAllSheets?.() ?? sheetsRef.current
       sheetsRef.current = snapshot
       lastContentSnapshotRef.current = snapshot
-      const buffer = await sheetsToXlsxBuffer(snapshot)
+
+      // F5: refuse to silently overwrite an external change.
+      const decision = await checkSaveConflict({
+        filePath,
+        baseline: baselineStatRef.current,
+        stat: (path) => desktopApi.files.stat(path),
+        confirm: (message) => window.confirm(message),
+        conflictMessage: t('appShell.externalSaveConflict'),
+      })
+      if (decision === 'reload') {
+        cancelPendingDirtyCheck()
+        onSaveSuccess()
+        setReloadToken((value) => value + 1)
+        return
+      }
+
       let target = savePathRef.current
-      if (!desktopApi.files.getGrantId(target)) {
+      if (decision === 'save-as' || !desktopApi.files.getGrantId(target)) {
         const defaultName = target.split(/[/\\]/).pop() || 'workbook.xlsx'
         const selected = await desktopApi.files.selectSaveFile(defaultName)
         if (!selected) return
         target = selected.path
         savePathRef.current = target
       }
+      // Serializer follows the actual target: CSV edits write real CSV,
+      // anything else writes XLSX (F4).
+      const buffer = getExtension(target) === 'csv'
+        ? sheetsToCsvBuffer(snapshot)
+        : await sheetsToXlsxBuffer(snapshot)
       await saveFileBuffer(target, buffer)
-      if (target !== filePath) setCurrentFile(target)
+      if (target !== filePath) {
+        setCurrentFile(target)
+      } else {
+        // Our write becomes the new conflict baseline.
+        baselineStatRef.current = await desktopApi.files.stat(target)
+      }
       // Saved state becomes the new clean baseline (clears the tab dirty dot).
       cancelPendingDirtyCheck()
       baselineFingerprintRef.current = fingerprintExcelSheets(snapshot)
       dirtyReportedRef.current = false
       onSaveSuccess()
     })
-  }, [cancelPendingDirtyCheck, filePath, onRegisterSave, onSaveSuccess, setCurrentFile])
+  }, [cancelPendingDirtyCheck, filePath, onRegisterSave, onSaveSuccess, setCurrentFile, t])
 
   useEffect(() => {
     const shell = shellRef.current
@@ -618,12 +660,14 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     })
     notifyFortuneOfResize()
 
+    const getZoomStepButtons = () => shell.querySelectorAll<HTMLElement>(
+      '.fortune-zoom-container > .fortune-zoom-button[role="button"]',
+    )
+
     const handleNativeZoomWheel = (event: WheelEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.deltaY === 0) return
 
-      const buttons = shell.querySelectorAll<HTMLElement>(
-        '.fortune-zoom-container > .fortune-zoom-button[role="button"]',
-      )
+      const buttons = getZoomStepButtons()
       const button = event.deltaY < 0
         ? buttons.item(buttons.length - 1)
         : buttons.item(0)
@@ -633,6 +677,29 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       event.stopPropagation()
       button.click()
     }
+
+    // 菜单缩放桥：in/out 点原生步进按钮；reset 打开比例预设菜单选 100%。
+    const triggerFortuneZoom = (command: DocumentZoomCommand) => {
+      if (command === 'zoomIn' || command === 'zoomOut') {
+        const buttons = getZoomStepButtons()
+        const button = command === 'zoomIn'
+          ? buttons.item(buttons.length - 1)
+          : buttons.item(0)
+        button?.click()
+        return
+      }
+      const ratioCurrent = shell.querySelector<HTMLElement>('.fortune-zoom-ratio-current')
+      if (!ratioCurrent) return
+      ratioCurrent.click()
+      const items = shell.querySelectorAll<HTMLElement>('.fortune-zoom-ratio-item')
+      const resetItem = Array.from(items).find((item) => item.textContent?.trim() === '100%')
+      if (resetItem) resetItem.click()
+    }
+    const disposeZoomBridge = registerDocumentZoomOverride({
+      zoomIn: () => triggerFortuneZoom('zoomIn'),
+      zoomOut: () => triggerFortuneZoom('zoomOut'),
+      zoomReset: () => triggerFortuneZoom('zoomReset'),
+    })
 
     const focusWorksheet = () => {
       requestAnimationFrame(() => {
@@ -945,6 +1012,7 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       pendingForward = false
       if (busyPollFrame !== null) cancelAnimationFrame(busyPollFrame)
       if (trailingTimer !== null) window.clearTimeout(trailingTimer)
+      disposeZoomBridge()
     }
     // fontLibraryReady gates the shell render (see live-resize effect above).
   }, [sheets, fontLibraryReady, t])

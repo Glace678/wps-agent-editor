@@ -70,7 +70,10 @@ export interface CustomProviderConnectionTestResult {
   error?: CustomProviderConnectionTestError
 }
 
+export type { AuthType } from './generated/AuthType'
+import type { AuthType } from './generated/AuthType'
+
 export interface AuthStatus {
   configured: boolean
-  type: 'api' | 'oauth'
+  type: AuthType
 }

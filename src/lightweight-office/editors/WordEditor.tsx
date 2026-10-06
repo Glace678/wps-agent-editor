@@ -18,6 +18,7 @@ import { WaitingText } from '@/components/ui/animated-ellipsis'
 import { documentBridge } from '../agent/document-bridge'
 import { getExtension, readWordBuffer, saveFileBuffer } from '../utils/file-io'
 import { prepareWordBytes, resolveSavePathForWord, resolveUniqueWordSavePath } from '../utils/doc-compat'
+import { checkSaveConflict, type FileBaselineStat } from '../utils/save-conflict'
 import { desktopApi } from '@/platform'
 import { loadSystemFontFaces, type SystemFontFace } from '../utils/system-fonts'
 import { createFullWordEditorModules } from '../word-toolbar'
@@ -132,6 +133,10 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
   const [superdocInstance, setSuperdocInstance] = useState<SuperDocInstance | null>(null)
   const [totalPages, setTotalPages] = useState<number | null>(null)
   const savePathRef = useRef(filePath)
+  // Stat of the file as last loaded/saved; compared before overwriting to
+  // detect an external modification (wps_04 F5).
+  const baselineStatRef = useRef<FileBaselineStat | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
   const [document, setDocument] = useState<File | null>(null)
   const [error, setError] = useState<'document' | 'legacy' | null>(null)
   const [errorDetail, setErrorDetail] = useState('')
@@ -168,9 +173,35 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     }
   }, [editorInstance])
 
+  // F9: getHtml() + DOMPurify serialize the whole document, so rebuilding the
+  // snapshot on every keystroke is O(document) per edit. Coalesce edit-driven
+  // refreshes into one trailing 300 ms task; view-mode switches and loads
+  // still refresh immediately.
+  const viewSnapshotTimerRef = useRef<number | null>(null)
+  const clearViewSnapshotTimer = useCallback(() => {
+    if (viewSnapshotTimerRef.current !== null) {
+      clearTimeout(viewSnapshotTimerRef.current)
+      viewSnapshotTimerRef.current = null
+    }
+  }, [])
+  const scheduleViewSnapshotRefresh = useCallback(() => {
+    if (viewSnapshotTimerRef.current !== null) return
+    viewSnapshotTimerRef.current = window.setTimeout(() => {
+      viewSnapshotTimerRef.current = null
+      refreshWordViewSnapshot()
+    }, 300)
+  }, [refreshWordViewSnapshot])
+
   useEffect(() => {
-    if (viewMode !== 'page') refreshWordViewSnapshot()
-  }, [refreshWordViewSnapshot, viewMode])
+    if (viewMode !== 'page') {
+      clearViewSnapshotTimer()
+      refreshWordViewSnapshot()
+    } else {
+      clearViewSnapshotTimer()
+    }
+  }, [clearViewSnapshotTimer, refreshWordViewSnapshot, viewMode])
+
+  useEffect(() => clearViewSnapshotTimer, [clearViewSnapshotTimer])
 
   const locateAgentText = (text: string | undefined): { left: number; top: number } | null => {
     const root = editorRootRef.current
@@ -284,11 +315,16 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     // initialization updates don't immediately mark the file dirty.
     isInitializedRef.current = false
     savePathRef.current = resolveSavePathForWord(filePath)
+    baselineStatRef.current = null
 
     async function load() {
       const isLegacy = getExtension(filePath) === 'doc'
       try {
         setLoadingMode(isLegacy ? 'legacy' : 'word')
+        // Capture the on-disk stat before any edit (F5 conflict detection).
+        const openStat = await desktopApi.files.stat(filePath)
+        if (cancelled) return
+        if (openStat.exists) baselineStatRef.current = openStat
         const wordFile = await readWordBuffer(filePath)
         const { buffer } = wordFile
         if (cancelled) return
@@ -335,7 +371,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       documentBridge.clear()
       onRegisterSave(null)
     }
-  }, [filePath, onRegisterSave])
+  }, [filePath, onRegisterSave, reloadToken])
 
   // 缩放走 SuperDoc 原生 API：外部 CSS zoom 会破坏它的指针坐标换算（无法编辑）
   const zoomRef = useRef(zoom)
@@ -572,9 +608,26 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       const instance = instanceRef.current
       if (!instance) return
       const blob = await instance.export({ triggerDownload: false })
+
+      // F5: external-modification check runs before any overwrite or save
+      // prompt. Reload discards local edits; save-as routes through the file
+      // picker below.
+      const decision = await checkSaveConflict({
+        filePath,
+        baseline: baselineStatRef.current,
+        stat: (path) => desktopApi.files.stat(path),
+        confirm: (message) => window.confirm(message),
+        conflictMessage: t('appShell.externalSaveConflict'),
+      })
+      if (decision === 'reload') {
+        onSaveSuccess()
+        setReloadToken((value) => value + 1)
+        return
+      }
+
       let target = savePathRef.current
       let directWrite = false
-      if (!desktopApi.files.getGrantId(target)) {
+      if (decision === 'save-as' || !desktopApi.files.getGrantId(target)) {
         const defaultName = target.split(/[/\\]/).pop() || 'document.docx'
         const selected = await desktopApi.files.selectSaveFile(defaultName)
         if (!selected) return
@@ -599,10 +652,13 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       // 从 .doc 打开后保存为 .docx，并切换当前路径
       if (target !== filePath) {
         setCurrentFile(target)
+      } else {
+        // Our write becomes the new conflict baseline.
+        baselineStatRef.current = await desktopApi.files.stat(target)
       }
       onSaveSuccess()
     })
-  }, [filePath, onRegisterSave, onSaveSuccess, setCurrentFile])
+  }, [filePath, onRegisterSave, onSaveSuccess, setCurrentFile, t])
 
   if (error) {
     return (
@@ -743,7 +799,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
             }
           }}
           onEditorUpdate={() => {
-            if (viewMode !== 'page') refreshWordViewSnapshot()
+            if (viewMode !== 'page') scheduleViewSnapshotRefresh()
             if (isInitializedRef.current) {
               documentBridge.markUserEdit()
               onDirty()

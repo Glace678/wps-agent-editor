@@ -35,8 +35,11 @@ ai-model-comparison-website/tsconfig.json | 712
 ai-model-comparison-website/vite.config.ts | 705
 opencode-interrupted-thinking.txt | 70395
 package.json | 7934
+patches/@aiden0z+pptx-renderer+1.2.4.patch | 252920
+patches/superdoc+1.44.0.patch | 1667724
 playwright.config.ts | 930
 postcss.config.js | 86
+scripts/check-engine-patches.mjs | 3169
 scripts/check-i18n.ts | 20322
 scripts/check-provider-logos.mjs | 5524
 scripts/check-provider-model-filter.ts | 1217
@@ -45,14 +48,10 @@ scripts/check-provider-search.ts | 12161
 scripts/check-sensitive-data.mjs | 3750
 scripts/check-version.mjs | 2339
 scripts/check-web-bundle-contract.mjs | 4221
+scripts/clear-vite-cache.mjs | 986
 scripts/generate-command-contract.mjs | 2647
 scripts/generate-provider-catalog.ts | 880
 scripts/generate-rust-types.mjs | 2833
-scripts/patch-pptx-renderer.mjs | 15738
-scripts/patch-superdoc-font-size.mjs | 4012
-scripts/patch-superdoc-image-resize.mjs | 23203
-scripts/patch-superdoc-table-borders.mjs | 5901
-scripts/patch-superdoc-word-layout.mjs | 42299
 scripts/prepare-esbuild-sidecar.mjs | 5531
 scripts/start-vite-dev.mjs | 6924
 scripts/store-github-credential.ps1 | 1195
@@ -106,6 +105,7 @@ scripts/test-word-color-picker.mjs | 1874
 scripts/test-word-toolbar-i18n.ts | 10231
 scripts/test-word-toolbar-overflow.mjs | 6201
 scripts/test-word-zoom-seamless.ts | 9277
+scripts/update-web-bundle-baseline.mjs | 2442
 scripts/verify-collaboration-transcript.mjs | 28158
 scripts/verify-i18n-keys.mjs | 3659
 scripts/web-bundle-baseline.json | 122

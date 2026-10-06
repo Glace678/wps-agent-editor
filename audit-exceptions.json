@@ -1,0 +1,29 @@
+{
+  "exceptions": [
+    {
+      "id": "GHSA-q2hr-2g5m-vwhr",
+      "expires": "2027-04-06",
+      "reason": "Transitive brace-expansion 1.x via minimatch in dev tooling; fixed only by major minimatch/tailwind toolchain upgrade (tracked with the tailwind v4 migration)."
+    },
+    {
+      "id": "GHSA-qhr7-859c-m2p7",
+      "expires": "2027-04-06",
+      "reason": "Transitive brace-expansion via minimatch in dev tooling and superdoc's bundled build dependencies; remediation tracked with the superdoc 1.47.1 upgrade (requires re-porting the engine patch)."
+    },
+    {
+      "id": "GHSA-6j4f-fj2g-mc7p",
+      "expires": "2027-04-06",
+      "reason": "Transitive brace-expansion via minimatch in dev tooling and superdoc's bundled build dependencies; remediation tracked with the superdoc 1.47.1 upgrade (requires re-porting the engine patch)."
+    },
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "expires": "2027-04-06",
+      "reason": "Transitive braces via chokidar (tailwind v3 dev tooling) and via micromatch bundled with superdoc 1.44.0; fixed by tailwind v4 migration and superdoc 1.47.1, which needs the 127-hunk superdoc engine patch re-ported and verified."
+    },
+    {
+      "id": "GHSA-rj75-hqrm-r3gf",
+      "expires": "2027-04-06",
+      "reason": "tailwindcss v3 direct dependency; fix requires the tailwind v4 major migration (CSS-first config, @tailwindcss/postcss pipeline and utility/config rewrites) tracked with the existing v4-migration exceptions."
+    }
+  ]
+}

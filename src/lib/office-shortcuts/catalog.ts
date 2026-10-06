@@ -290,7 +290,9 @@ export const OFFICE_SHORTCUT_CATALOG: readonly ShortcutBinding[] = [
   {
     id: 'format.clear',
     actionId: 'clearFormat',
-    defaultChord: 'Ctrl+Space',
+    // Ctrl+Space is the standard IME on/off chord on Windows (and widely used by
+    // other IMEs); the old binding preventDefault()'d it and broke Chinese input.
+    defaultChord: 'Ctrl+Shift+Space',
     label: '清除格式',
     labelEn: 'Clear formatting',
     category: 'format',

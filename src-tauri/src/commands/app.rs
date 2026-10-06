@@ -170,12 +170,46 @@ pub fn app_window_toggle_fullscreen(window: WebviewWindow) -> AppResult<SuccessR
     Ok(success())
 }
 
+/// Renderer event names for the dirty-document close coordination (wps_10 A1).
+/// Native UI emits these; the renderer walks its dirty tabs and invokes the
+/// corresponding `app_*_confirmed` / `app_quit_cancelled` command afterwards.
+pub(crate) const CLOSE_REQUESTED_EVENT: &str = "app:close-requested";
+pub(crate) const QUIT_REQUESTED_EVENT: &str = "app:quit-requested";
+pub(crate) const QUIT_CANCEL_EVENT: &str = "app:quit-cancel";
+pub(crate) const RELOAD_REQUEST_EVENT: &str = "app:reload-request";
+
+/// If a WebView does not answer a quit request at all within this timeout every
+/// renderer is unresponsive (dead/hung), so no save prompt can ever be shown.
+/// Any single human interaction disarms this fallback (see
+/// [`crate::window_guard::WindowGuard::quit_completely_unanswered`]).
+const QUIT_UNRESPONSIVE_RENDERER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReloadRequest {
+    force: bool,
+}
+
 #[tauri::command]
-pub fn app_window_close(
+pub fn app_window_close(window: WebviewWindow) -> AppResult<SuccessResult> {
+    // Route through the same dirty-document flow as the native close button:
+    // the renderer resolves every dirty tab and only then invokes
+    // app_close_confirmed, which performs the actual close (wps_10 A1).
+    let _ = window.emit(CLOSE_REQUESTED_EVENT, ());
+    Ok(success())
+}
+
+#[tauri::command]
+pub fn app_close_confirmed(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> AppResult<SuccessResult> {
-    state.revoke_window(window.label());
+    state
+        .window_guard
+        .lock()
+        .mark_close_confirmed(window.label());
+    // Do not revoke explicitly: revoke_window would consume the one-shot token
+    // above. The Destroyed event performs the identical cleanup after close.
     window
         .close()
         .map_err(|error| AppError::internal(error.to_string()))?;
@@ -216,9 +250,77 @@ pub fn app_window_new(
 }
 
 #[tauri::command]
-pub fn app_quit(app: tauri::AppHandle) -> SuccessResult {
-    app.exit(0);
-    success()
+pub fn app_quit(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<SuccessResult> {
+    request_quit(&app, &state)
+}
+
+/// Begin the coordinated quit: every open window's renderer must resolve its
+/// dirty tabs (app_quit_confirmed) or cancel the whole flow
+/// (app_quit_cancelled). Used by the `app_quit` command, the in-app
+/// application menu, and the native macOS menu.
+pub(crate) fn request_quit(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> AppResult<SuccessResult> {
+    let window_count = app.webview_windows().len();
+    if !state.window_guard.lock().arm_quit(window_count) {
+        return Ok(success());
+    }
+    for window in app.webview_windows().values() {
+        let _ = window.emit(QUIT_REQUESTED_EVENT, ());
+    }
+
+    // Dead-WebView safety net (see QUIT_UNRESPONSIVE_RENDERER_TIMEOUT).
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(QUIT_UNRESPONSIVE_RENDERER_TIMEOUT).await;
+        let Some(state) = handle.try_state::<AppState>() else {
+            return;
+        };
+        let force = state
+            .window_guard
+            .lock()
+            .quit_completely_unanswered();
+        if force {
+            handle.exit(0);
+        }
+    });
+    Ok(success())
+}
+
+#[tauri::command]
+pub fn app_quit_confirmed(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<SuccessResult> {
+    if state.window_guard.lock().confirm_quit() {
+        app.exit(0);
+    }
+    Ok(success())
+}
+
+#[tauri::command]
+pub fn app_quit_cancelled(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<SuccessResult> {
+    state.window_guard.lock().cancel_quit();
+    // Tell every window to close its save prompt.
+    for window in app.webview_windows().values() {
+        let _ = window.emit(QUIT_CANCEL_EVENT, ());
+    }
+    Ok(success())
+}
+
+#[tauri::command]
+pub fn app_reload_confirmed(window: WebviewWindow) -> AppResult<SuccessResult> {
+    window
+        .reload()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    Ok(success())
 }
 
 #[tauri::command]
@@ -260,7 +362,9 @@ pub fn app_menu_perform(
     state: State<'_, AppState>,
 ) -> AppResult<SuccessResult> {
     match action.as_str() {
-        "quit" => window.app_handle().exit(0),
+        "quit" => {
+            return request_quit(&window.app_handle(), &state);
+        }
         "toggle-fullscreen" => {
             let fullscreen = window
                 .is_fullscreen()
@@ -270,8 +374,13 @@ pub fn app_menu_perform(
                 .map_err(|error| AppError::internal(error.to_string()))?;
         }
         "reload" | "force-reload" => {
+            // Ask the renderer first; the actual reload happens via
+            // app_reload_confirmed once dirty tabs are resolved (wps_10 A1).
+            let request = ReloadRequest {
+                force: action == "force-reload",
+            };
             window
-                .reload()
+                .emit(RELOAD_REQUEST_EVENT, request)
                 .map_err(|error| AppError::internal(error.to_string()))?;
         }
         "toggle-dev-tools" => {
@@ -451,14 +560,23 @@ pub(crate) fn build_application_menu(app: &tauri::AppHandle) -> tauri::Result<Me
     let print = MenuItemBuilder::with_id("print", "Print…")
         .accelerator("CmdOrCtrl+P")
         .build(app)?;
+    // Custom items (not the predefined close_window/quit): native handling must
+    // route through request_quit / the close-requested event so dirty documents
+    // are guarded on macOS too (wps_10 A1).
+    let close_window = MenuItemBuilder::with_id("close-window", "Close Window")
+        .accelerator("CmdOrCtrl+W")
+        .build(app)?;
+    let quit_app = MenuItemBuilder::with_id("quit-app", "Quit Office Agentic")
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
     let file = SubmenuBuilder::new(app, "File")
         .item(&open_file)
         .item(&open_folder)
         .item(&save)
         .item(&print)
         .separator()
-        .close_window()
-        .quit()
+        .item(&close_window)
+        .item(&quit_app)
         .build()?;
     let edit = SubmenuBuilder::new(app, "Edit")
         .undo()
@@ -501,14 +619,32 @@ pub(crate) fn build_application_menu(app: &tauri::AppHandle) -> tauri::Result<Me
 
 #[cfg(target_os = "macos")]
 pub(crate) fn handle_native_menu(app: &tauri::AppHandle, action: &str) {
-    let window = app
-        .webview_windows()
+    match action {
+        "quit-app" => {
+            if let Some(state) = app.try_state::<AppState>() {
+                let _ = request_quit(app, &state);
+            }
+        }
+        "close-window" => {
+            let window = focused_window(app);
+            if let Some(window) = window {
+                let _ = window.emit(CLOSE_REQUESTED_EVENT, ());
+            }
+        }
+        _ => {
+            if let Some(window) = focused_window(app) {
+                let _ = window.emit(&format!("menu:{action}"), ());
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn focused_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
+    app.webview_windows()
         .into_values()
         .find(|window| window.is_focused().unwrap_or(false))
-        .or_else(|| app.get_webview_window("main"));
-    if let Some(window) = window {
-        let _ = window.emit(&format!("menu:{action}"), ());
-    }
+        .or_else(|| app.get_webview_window("main"))
 }
 
 fn success() -> SuccessResult {

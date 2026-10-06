@@ -50,8 +50,10 @@ jobs:
           release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease)"
           [[ "$(jq -r .isDraft <<<"$release_json")" == false ]] || { echo 'release_tag must be published' >&2; exit 1; }
           [[ "$(jq -r .isPrerelease <<<"$release_json")" == true ]] || { echo 'release_tag must remain a prerelease until staging acceptance passes' >&2; exit 1; }
-          if [[ "$RELEASE_TAG" != v2.0.0 && -z "$PREVIOUS_TAG" ]]; then
-            echo 'previous_tag is required after the initial v2.0.0 release' >&2
+          if [[ -z "$PREVIOUS_TAG" ]]; then
+            # No bootstrap exemption: every promotion is gated by an updater
+            # acceptance run, including the first stable release.
+            echo 'previous_tag is required for updater acceptance before promotion' >&2
             exit 1
           fi
           if [[ -n "$PREVIOUS_TAG" ]]; then
@@ -95,6 +97,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             file xvfb dbus-x11 libgtk-3-0 libwebkit2gtk-4.1-0 \
             libayatana-appindicator3-1 librsvg2-2 xdg-utils
+      - name: Fetch internal updater fixtures
+        shell: bash
+        run: |
+          run_id="$(gh api -H 'Accept: application/vnd.github+json' \
+            "repos/$GITHUB_REPOSITORY/actions/runs?event=push&head_branch=$RELEASE_TAG&per_page=30" \
+            | jq -r --arg name 'Signed cross-platform release' \
+              '.workflow_runs[] | select(.name==$name and .conclusion=="success") | .id' | head -n1)"
+          test -n "$run_id" || { echo "Could not locate a successful signed release workflow run for $RELEASE_TAG" >&2; exit 1; }
+          gh run download "$run_id" --name release-fixtures --dir internal-fixtures
       - name: Download exact release assets
         shell: bash
         run: >-
@@ -111,6 +122,7 @@ jobs:
           --platform "${{ matrix.platform }}"
           --arch "${{ matrix.arch }}"
           --directory smoke-artifacts
+          --fixtures-directory internal-fixtures
       - name: Verify GitHub build provenance
         shell: bash
         run: gh attestation verify "$PRIMARY_PATH" --repo "$GITHUB_REPOSITORY"
@@ -144,7 +156,6 @@ jobs:
           retention-days: 14
 
   updater-smoke:
-    if: inputs.previous_tag != ''
     needs: install-smoke
     strategy:
       fail-fast: false
@@ -178,6 +189,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             file xvfb dbus-x11 libgtk-3-0 libwebkit2gtk-4.1-0 \
             libayatana-appindicator3-1 librsvg2-2 xdg-utils
+      - name: Fetch internal updater fixtures
+        shell: bash
+        run: |
+          run_id="$(gh api -H 'Accept: application/vnd.github+json' \
+            "repos/$GITHUB_REPOSITORY/actions/runs?event=push&head_branch=$RELEASE_TAG&per_page=30" \
+            | jq -r --arg name 'Signed cross-platform release' \
+              '.workflow_runs[] | select(.name==$name and .conclusion=="success") | .id' | head -n1)"
+          test -n "$run_id" || { echo "Could not locate a successful signed release workflow run for $RELEASE_TAG" >&2; exit 1; }
+          gh run download "$run_id" --name release-fixtures --dir internal-fixtures
       - name: Download current updater inputs
         shell: bash
         run: >-
@@ -209,6 +229,7 @@ jobs:
           --arch "${{ matrix.arch }}"
           --previous-directory previous-release
           --current-directory current-release
+          --fixtures-directory internal-fixtures
           --report "updater-${{ matrix.platform }}-${{ matrix.arch }}-smoke-report.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -224,15 +245,75 @@ jobs:
       always() &&
       inputs.promote &&
       needs.install-smoke.result == 'success' &&
-      (inputs.previous_tag == '' || needs.updater-smoke.result == 'success')
+      needs.updater-smoke.result == 'success'
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 15
+    # Protected environment: configure "stable-channel" with required reviewers
+    # in repository settings so promotion needs human approval in addition to
+    # the smoke gates. The workflow cannot promote without that environment.
+    environment:
+      name: stable-channel
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Confirm the release is still an unpublished prerelease
+        shell: bash
+        run: |
+          release_json="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease)"
+          [[ "$(jq -r .isDraft <<<"$release_json")" == false ]] || { echo 'Cannot promote a draft release' >&2; exit 1; }
+          [[ "$(jq -r .isPrerelease <<<"$release_json")" == true ]] || {
+            echo 'Release is already on the stable channel; refusing to promote again' >&2
+            exit 1
+          }
+      - name: Re-verify all public release assets before promotion
+        shell: bash
+        run: |
+          targets=(
+            'windows x86_64' 'windows aarch64'
+            'macos x86_64' 'macos aarch64'
+            'linux x86_64' 'linux aarch64'
+          )
+          for target in "${targets[@]}"; do
+            read -r platform arch <<<"$target"
+            directory="verify-${platform}-${arch}"
+            node scripts/release/download-release-smoke.mjs \
+              --tag "$RELEASE_TAG" --platform "$platform" --arch "$arch" --directory "$directory"
+            node scripts/release/verify-release-smoke.mjs \
+              --tag "$RELEASE_TAG" --platform "$platform" --arch "$arch" \
+              --directory "$directory" --public-only
+          done
       - name: Promote accepted prerelease to stable
         shell: bash
         run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false
+      - name: Publish the promoted manifest to the stable channel
+        # wps_08 #2: the updater endpoint points at this rolling Release, not
+        # at /releases/latest, so clients only see manifests published here
+        # after the smoke gates and environment approval.
+        shell: bash
+        run: |
+          mkdir -p channel-manifest
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'latest.json' --dir channel-manifest --clobber
+          [[ -f channel-manifest/latest.json ]] || {
+            echo 'Promoted release has no latest.json to publish' >&2
+            exit 1
+          }
+          if gh release view stable-channel --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload stable-channel --repo "$GITHUB_REPOSITORY" \
+              channel-manifest/latest.json --clobber
+          else
+            gh release create stable-channel --repo "$GITHUB_REPOSITORY" \
+              --title 'Stable update channel' \
+              --notes 'Rolling updater manifest; published by the promote job after staging smoke tests.' \
+              channel-manifest/latest.json
+          fi

@@ -1,9 +1,21 @@
 // Runs the fast source-level regression scripts that do not need a browser.
+//
+// Scope (wps_07 B5): these are static guards over source text, not behavior
+// tests. Their match/doesNotMatch assertions are the minimum "banned/required
+// API shape" contract; executable behavior is covered by unit tests and e2e.
+// To prevent a script from passing with zero executed assertions, every run
+// gets the assertion-count loader (scripts/lib/structural-assert-loader.mjs),
+// and a missing/zero STRUCTURAL_OK marker fails here even on exit code 0.
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+// node --import parses its argument as a URL; a bare C:\ path would parse
+// with protocol 'c:'.
+const assertRegister = pathToFileURL(
+  path.join(root, 'scripts', 'lib', 'structural-assert-register.mjs'),
+).href
 
 export const STRUCTURAL_TESTS = [
   'test-agent-config-dialog-scroll.mjs',
@@ -13,6 +25,7 @@ export const STRUCTURAL_TESTS = [
   'test-document-tab-reorder.mjs',
   'test-excel-dark-color-preservation.mjs',
   'test-excel-dirty-fingerprint.mjs',
+  'test-excel-features-roundtrip.ts',
   'test-excel-font-picker-search-pin.mjs',
   'test-excel-format-picker-width.mjs',
   'test-excel-frame-scroll.mjs',
@@ -52,21 +65,33 @@ const NEEDS_TSX = new Set([
   'test-office-shortcuts-dispatch.mjs',
   'test-office-shortcuts-catalog.mjs',
 ])
-const tsxCli = path.join(root, 'node_modules/tsx/dist/cli.mjs')
-
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const failed = []
   for (const name of STRUCTURAL_TESTS) {
     const script = path.join(root, 'scripts', name)
-    const args = name.endsWith('.ts') || NEEDS_TSX.has(name)
-      ? [tsxCli, '--tsconfig', 'tsconfig.web.json', script]
-      : [script]
-    const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' })
-    if (result.status === 0) {
-      console.log(`PASS ${name}`)
+    const usesTsx = name.endsWith('.ts') || NEEDS_TSX.has(name)
+    // TS scripts: tsx must be registered BEFORE the assertion counter so the
+    // counter's resolve hook stays outermost (multiple --import flags register
+    // in order; the last one's hooks run first).
+    const nodeArgs = usesTsx
+      ? ['--import', 'tsx', '--import', assertRegister, script]
+      : ['--import', assertRegister, script]
+    const result = spawnSync(process.execPath, nodeArgs, {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, TSX_TSCONFIG_PATH: path.join(root, 'tsconfig.web.json') },
+    })
+    // B5: require an executed-assertion marker regardless of the exit code.
+    const marker = /STRUCTURAL_OK: (\d+) assertions/.exec(result.stdout)
+    const assertionCount = marker ? Number(marker[1]) : 0
+    if (result.status === 0 && assertionCount > 0) {
+      console.log(`PASS ${name} (${assertionCount} assertions)`)
     } else {
       failed.push(name)
-      console.error(`FAIL ${name}\n${result.stdout}${result.stderr}`)
+      const reason = result.status !== 0
+        ? `exit ${result.status}`
+        : 'no executed assertions detected (missing STRUCTURAL_OK marker)'
+      console.error(`FAIL ${name}: ${reason}\n${result.stdout}${result.stderr}`)
     }
   }
   if (failed.length) {

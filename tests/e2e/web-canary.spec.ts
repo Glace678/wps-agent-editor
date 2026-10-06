@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import ExcelJS from 'exceljs'
+import { selfValidateMockPayloads, validateMockResponses } from './support/mock-payloads'
 
 async function createExcelFixtureBytes(): Promise<number[]> {
   const workbook = new ExcelJS.Workbook()
@@ -10,13 +11,22 @@ async function createExcelFixtureBytes(): Promise<number[]> {
 
 const excelFixtureBytesPromise = createExcelFixtureBytes()
 
-async function installDesktopMock(page: Page, excelFixtureBytes: number[]): Promise<void> {
+async function installDesktopMock(
+  page: Page,
+  excelFixtureBytes: number[],
+): Promise<void> {
   await page.addInitScript((fixtureBytes) => {
     const callbacks = new Map<number, (payload: unknown) => void>()
     let callbackId = 0
     let startupDrained = false
     const invokedCommands: string[] = []
     const invokedMenuActions: string[] = []
+    // D1: commands not whitelisted by this mock are recorded so tests can
+    // fail when the app starts calling a command nobody stubbed (instead of
+    // silently getting {success:true}).
+    const unknownCommands: string[] = []
+    // D2: record every mock response for runtime contract validation.
+    const mockResponses: Array<{ command: string; result: unknown }> = []
     const providers = [{
       id: 'ollama',
       name: 'Ollama',
@@ -28,13 +38,28 @@ async function installDesktopMock(page: Page, excelFixtureBytes: number[]): Prom
       isCustom: false,
       isLocal: true,
     }]
-    const invoke = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+    const handleInvoke = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
       invokedCommands.push(command)
       if (command === 'app_menu_perform' && typeof args?.action === 'string') {
         invokedMenuActions.push(args.action)
       }
       if (command === 'plugin:event|listen') return 1
       if (command === 'plugin:event|unlisten') return null
+      if (command === 'app_i18n_set_language'
+        || command === 'app_theme_set'
+        || command === 'app_startup_healthy'
+        || command === 'documents_set_current_file') {
+        return { success: true }
+      }
+      if (command === 'agents_conversations_list') return []
+      if (command === 'agents_conversations_import_codex') {
+        return {
+          discovered: 0, imported: 0, updated: 0, skipped: 0,
+          failed: 0, messages: 0, failures: [],
+        }
+      }
+      if (command === 'app_take_recovery_notices') return []
+      if (command === 'app_menu_perform') return { success: true }
       if (command === 'files_get_home') return { path: '/mock/home', grantId: 'home-grant' }
       if (command === 'files_list' || command === 'files_search') return []
       if (command === 'files_get_recent') return []
@@ -85,6 +110,15 @@ async function installDesktopMock(page: Page, excelFixtureBytes: number[]): Prom
       if (command === 'files_open') {
         return { path: '/mock/notes.txt', grantId: 'notes-grant', recent: [] }
       }
+      if (command === 'files_stat') {
+        return {
+          exists: true,
+          size: fixtureBytes.length,
+          modifiedAt: 1_788_825_600_000,
+          createdAt: 1_788_825_600_000,
+          extension: 'xlsx',
+        }
+      }
       if (command === 'documents_read_file' || command === 'documents_prepare_spreadsheet') {
         if (new URL(window.location.href).searchParams.get('session') === 'excel') {
           return Uint8Array.from(fixtureBytes)
@@ -97,7 +131,13 @@ async function installDesktopMock(page: Page, excelFixtureBytes: number[]): Prom
         (window as unknown as Record<string, unknown>).__WAE_SAVE_TEXT_CALL__ = args
         return { success: true }
       }
+      unknownCommands.push(command)
       return { success: true }
+    }
+    const invoke = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+      const result = await handleInvoke(command, args)
+      mockResponses.push({ command, result })
+      return result
     }
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -116,12 +156,30 @@ async function installDesktopMock(page: Page, excelFixtureBytes: number[]): Prom
       },
       __WAE_TEST_COMMANDS__: invokedCommands,
       __WAE_TEST_MENU_ACTIONS__: invokedMenuActions,
+      __WAE_UNKNOWN_COMMANDS__: unknownCommands,
+      __WAE_MOCK_RESPONSES__: mockResponses,
     })
   }, excelFixtureBytes)
 }
 
 test.beforeEach(async ({ page }) => {
   await installDesktopMock(page, await excelFixtureBytesPromise)
+})
+
+// D1: no test may leave the app calling commands this mock never whitelisted.
+// D2: mock responses are validated at runtime against the contract mirrors of
+// the generated TS interfaces.
+test.afterEach(async ({ page }) => {
+  selfValidateMockPayloads()
+  const [unknown, responses] = await page.evaluate(() => [
+    (window as unknown as { __WAE_UNKNOWN_COMMANDS__?: string[] }).__WAE_UNKNOWN_COMMANDS__ ?? [],
+    (window as unknown as {
+      __WAE_MOCK_RESPONSES__?: Array<{ command: string; result: unknown }>
+    }).__WAE_MOCK_RESPONSES__ ?? [],
+  ])
+  expect(unknown, `unmocked invoke commands: ${unknown.join(', ')}`).toEqual([])
+  const contractErrors = validateMockResponses(responses)
+  expect(contractErrors, `mock payload contract violations:\n${contractErrors.join('\n')}`).toEqual([])
 })
 
 test('starts with the typed desktop bridge and renders the workspace', async ({ page }) => {
@@ -347,7 +405,8 @@ test('shows one tooltip and usable color/style controls for the Excel border com
     colorHexInputBox!.y + colorHexInputBox!.height / 2,
     { steps: 12 },
   )
-  await page.waitForTimeout(600)
+  // No fixed sleep: expect() auto-retries, and a delayed hover-close would
+  // fail the following click instead of producing a timing-based flake (C1).
   await expect(colorSubmenu).toBeVisible()
   await colorHexInput.click()
   await colorHexInput.fill('#336699')
@@ -393,7 +452,7 @@ test('shows one tooltip and usable color/style controls for the Excel border com
     styleChoiceBox!.y + styleChoiceBox!.height / 2,
     { steps: 12 },
   )
-  await page.waitForTimeout(600)
+  // C1: auto-retry visibility instead of a bare sleep.
   await expect(styleSubmenu).toBeVisible()
   await styleChoice.click()
   await expect(styleSubmenu).toBeVisible()
@@ -415,7 +474,7 @@ test('shows one tooltip and usable color/style controls for the Excel border com
   await page.screenshot({ path: testInfo.outputPath('excel-border-style-submenu.png') })
 
   await page.mouse.move(0, 0)
-  await page.waitForTimeout(600)
+  // toBeHidden() retries until the hover-out settles; no fixed sleep (C1).
   await expect(styleSubmenu).toBeHidden()
   await page.screenshot({ path: testInfo.outputPath('excel-border-controls.png') })
 })

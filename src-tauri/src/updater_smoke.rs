@@ -22,6 +22,7 @@ const REPORT_PREFIX: &str = "--wae-updater-report=";
 const REPOSITORY_PREFIX: &str = "--wae-updater-repository=";
 const TAG_PREFIX: &str = "--wae-updater-tag=";
 const EXPECTED_PREFIX: &str = "--wae-updater-version=";
+const FIXTURE_BASE_PREFIX: &str = "--wae-updater-fixture-base-url=";
 pub(crate) const HEALTH_FAILURE_FLAG: &str = "--wae-updater-health-failure";
 const REPORT_DIRECTORY: &str = "wae-updater-smoke";
 
@@ -166,13 +167,18 @@ impl SmokeSpec {
             &std::env::temp_dir().join(REPORT_DIRECTORY),
         )?;
         let base = format!("https://github.com/{repository}/releases/download/{tag}");
+        // Tamper/invalid-install fixtures are served by the staging hook's
+        // loopback HTTP server (the public release no longer carries them).
+        let fixture_base = Url::parse(required_value(&values, FIXTURE_BASE_PREFIX)?)
+            .map_err(|error| AppError::invalid(format!("Invalid fixture base URL: {error}")))?;
+        validate_fixture_base(&fixture_base)?;
         let spec = Self {
             report_path,
             expected_version,
             current_version,
             valid_endpoint: Url::parse(&format!("{base}/latest.json"))?,
-            tampered_endpoint: Url::parse(&format!("{base}/latest-tampered.json"))?,
-            invalid_install_endpoint: Url::parse(&format!("{base}/latest-invalid-install.json"))?,
+            tampered_endpoint: fixture_base.join("latest-tampered.json")?,
+            invalid_install_endpoint: fixture_base.join("latest-invalid-install.json")?,
             inject_health_failure: health_failure_count == 1,
             rollback_transaction_id: values.get(ROLLBACK_PREFIX).cloned(),
         };
@@ -211,6 +217,7 @@ fn parse_values(arguments: &[OsString]) -> Result<HashMap<&'static str, String>,
         REPOSITORY_PREFIX,
         TAG_PREFIX,
         EXPECTED_PREFIX,
+        FIXTURE_BASE_PREFIX,
         ROLLBACK_PREFIX,
     ];
     let mut values = HashMap::new();
@@ -241,6 +248,34 @@ fn required_value<'a>(
         .get(prefix)
         .map(String::as_str)
         .ok_or_else(|| AppError::invalid(format!("Missing updater smoke argument {prefix}")))
+}
+
+/// Fixture server URL rules: absolute, no embedded credentials, path ending in
+/// `/` so relative joins target the server root. HTTPS is required except for
+/// the loopback hosts the acceptance hook actually binds to.
+fn validate_fixture_base(url: &Url) -> Result<(), AppError> {
+    if !url.is_special() || url.cannot_be_a_base() {
+        return Err(AppError::invalid("Fixture base URL must be an absolute hierarchical URL"));
+    }
+    if !url.path().ends_with('/') {
+        return Err(AppError::invalid(
+            "Fixture base URL path must end in '/' so fixture metadata is resolved at its root",
+        ));
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(AppError::invalid("Fixture base URL must not contain credentials"));
+    }
+    let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]" | "::1"));
+    match url.scheme() {
+        "https" => {}
+        "http" if loopback => {}
+        _ => {
+            return Err(AppError::invalid(
+                "Fixture base URL must use https, or http bound to a loopback host",
+            ))
+        }
+    }
+    Ok(())
 }
 
 fn validate_repository(repository: &str) -> Result<(), AppError> {
@@ -587,5 +622,19 @@ mod tests {
         )
         .is_err());
         assert!(validate_report_path(&root.path().join("report.json"), root.path()).is_err());
+    }
+
+    #[test]
+    fn fixture_base_accepts_loopback_and_https_only() {
+        let parse = |value: &str| Url::parse(value).unwrap();
+        assert!(validate_fixture_base(&parse("http://127.0.0.1:8123/")).is_ok());
+        assert!(validate_fixture_base(&parse("http://localhost/root/")).is_ok());
+        assert!(validate_fixture_base(&parse("https://updates.example.com/")).is_ok());
+        // Trailing slash is required for deterministic relative resolution.
+        assert!(validate_fixture_base(&parse("http://127.0.0.1:8123/root")).is_err());
+        // Plain HTTP on a remote host is rejected.
+        assert!(validate_fixture_base(&parse("http://example.com/")).is_err());
+        // Embedded credentials are rejected.
+        assert!(validate_fixture_base(&parse("https://user:pass@example.com/")).is_err());
     }
 }

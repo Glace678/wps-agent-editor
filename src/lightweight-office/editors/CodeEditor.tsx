@@ -1,4 +1,5 @@
 import { desktopApi } from '@/platform'
+import { errorMessage } from '@/platform/app-error'
 import {
   useCallback,
   useEffect,
@@ -49,12 +50,13 @@ import {
   decodeSource,
   escapeRegExp,
   getDarkTheme,
-  isSameFile,
   LEGACY_CODE_FONT_SIZE_KEY,
   NO_BREAKPOINTS,
 } from '../utils/code-editor-constants'
+import { isSamePath } from '@/lib/path'
 import { installFixedVerticalScrollbar } from '../utils/code-fixed-scrollbar'
 import { configureMonaco } from '../utils/code-monaco-setup'
+import { registerDocumentZoomOverride } from '@/components/layout/modules/DocumentZoom'
 
 configureMonacoEnvironment()
 
@@ -177,6 +179,16 @@ export function CodeEditor({
     showHint()
   }, [showHint])
 
+  // 菜单缩放桥：代码编辑器自管字号（data-manages-document-zoom）。
+  useEffect(
+    () => registerDocumentZoomOverride({
+      zoomIn: () => changeFontSize(1),
+      zoomOut: () => changeFontSize(-1),
+      zoomReset: resetFontSize,
+    }),
+    [changeFontSize, resetFontSize],
+  )
+
   useEffect(() => {
     return () => {
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current)
@@ -236,7 +248,7 @@ export function CodeEditor({
   useEffect(() => {
     if (!pendingNavigation) return
     const { line, column, file } = pendingNavigation
-    if (file && !isSameFile(file, filePath)) return
+    if (file && !isSamePath(file, filePath)) return
     navigateTo(line, column)
   }, [pendingNavigation, filePath, navigateTo])
 
@@ -346,7 +358,10 @@ export function CodeEditor({
         duration: result.durationMs,
       }))
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error)
+      const text = errorMessage(error)
+      // wps_10 D2: the raw backend message (paths, executable names, stderr
+      // fragments) goes only into the output panel, which is the diagnostic
+      // detail surface. The status bar shows a localized generic failure.
       usePanelStore.getState().showRunResult({
         text,
         command: '',
@@ -354,7 +369,7 @@ export function CodeEditor({
         success: false,
         errorCode: 'failed',
       })
-      setStatus(text)
+      setStatus(t('codeEditor.runFailed'))
     } finally {
       setIsRunning(false)
     }
@@ -701,7 +716,7 @@ export function CodeEditor({
         },
       })
     }
-    const isCurrentFile = debugCurrentFile !== null && isSameFile(debugCurrentFile, filePath)
+    const isCurrentFile = debugCurrentFile !== null && isSamePath(debugCurrentFile, filePath)
     if (isCurrentFile && debugCurrentLine !== null) {
       decorations.push({
         range: new monaco.Range(debugCurrentLine, 1, debugCurrentLine, 1),

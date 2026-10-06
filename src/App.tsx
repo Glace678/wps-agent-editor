@@ -9,10 +9,13 @@ import { usePanelStore } from '@/stores/panel.store'
 import { selectFileSession, useFileSessionStore } from '@/stores/file-session.store'
 import type { FileSessionState } from '@/types/desktop-api'
 import { useAgentBridge } from '@/lightweight-office'
+import { useNativeCloseGuard } from '@/lib/use-native-close-guard'
 import { loadSystemFontFaces } from '@/lightweight-office/utils/system-fonts'
 import { isImageFile } from '@/lightweight-office/utils/file-io'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { invokeOfficeAction, type OfficeActionId } from '@/lib/office-shortcuts'
+import { invokeDocumentZoomCommand } from '@/components/layout/modules/DocumentZoom'
+import { performClipboardPaste } from '@/lib/clipboard-paste'
 import { AGENT_COLLABORATION_ENABLED } from '@/lib/agent-collaboration'
 import {
   APP_MENU_NEW_AGENT_EVENT,
@@ -26,30 +29,29 @@ type EditMenuAction = Extract<
 >
 type ZoomMenuAction = Extract<OfficeActionId, 'zoomIn' | 'zoomOut' | 'zoomReset'>
 
-function runEditMenuAction(action: EditMenuAction, fallbackCommand: string): void {
+function runEditMenuAction(
+  action: EditMenuAction,
+  fallbackCommand: string,
+  pasteHint?: string,
+): void {
   if (!invokeOfficeAction(action)) {
     // Binary editors intentionally defer these commands to the WebView. A menu
     // selection needs an explicit command because no keyboard default follows.
+    if (action === 'paste') {
+      // execCommand('paste') is rejected by Chromium: read the clipboard and
+      // insert ourselves, or hint the user to press Ctrl+V.
+      void performClipboardPaste(pasteHint ?? 'Press Ctrl+V to paste')
+      return
+    }
     document.execCommand(fallbackCommand)
   }
 }
 
 function runZoomMenuAction(action: ZoomMenuAction): void {
   if (invokeOfficeAction(action)) return
-
-  const shortcut = action === 'zoomIn'
-    ? { key: '+', code: 'Equal' }
-    : action === 'zoomOut'
-      ? { key: '-', code: 'Minus' }
-      : { key: '0', code: 'Digit0' }
-  const target = document.querySelector<HTMLElement>('[data-manages-document-zoom]') ?? window
-  target.dispatchEvent(new KeyboardEvent('keydown', {
-    ...shortcut,
-    bubbles: true,
-    cancelable: true,
-    ctrlKey: desktopApi.app.platform !== 'darwin',
-    metaKey: desktopApi.app.platform === 'darwin',
-  }))
+  // 显式命令调用：旧实现派发合成 KeyboardEvent，但目标带 data-manages-document-zoom，
+  // DocumentZoom 的 guard 必然吞掉该事件，菜单缩放对所有编辑器都是死路径。
+  invokeDocumentZoomCommand(action)
 }
 
 function recoverySummary(language: string, count: number): string {
@@ -72,6 +74,7 @@ export default function App() {
   const { language, t } = useTranslation()
   const [recoveryNotices, setRecoveryNotices] = useState<RecoveryNotice[]>([])
   useAgentBridge()
+  useNativeCloseGuard()
 
   useEffect(() => {
     // A pending update is healthy only after the renderer mounted and completed
@@ -158,12 +161,18 @@ export default function App() {
       return startupFiles.length
     }
 
+    let startupHydrated = false
     void (async () => {
       // Register first, then drain. A second-instance notification only signals
       // that this window's one-shot native queue has work; no absolute path is
       // exposed in a WebView URL or low-trust event payload.
       try {
         unlisten = await desktopApi.app.listen('app:open-file', () => {
+          // #5: before hydrate, draining here races loadSession — the opened
+          // file would be clobbered by the stale openFiles from disk. The
+          // native one-shot queue retains the paths; the drain after hydrate
+          // consumes them. Only drain immediately once hydration finished.
+          if (!startupHydrated) return
           void drainStartupFiles().catch((error) => {
             console.error('[startup-files] Failed to consume additional files', error)
           })
@@ -192,6 +201,7 @@ export default function App() {
       useFileSessionStore.getState().hydrate(restoreDocuments
         ? restoredSession
         : { ...restoredSession, openFiles: [], activeFile: null })
+      startupHydrated = true
 
       if (await drainStartupFiles()) return
       if (!restoreDocuments || useEditorStore.getState().currentFile) return
@@ -288,7 +298,7 @@ export default function App() {
       runEditMenuAction('copy', 'copy')
     })
     const disposePaste = subscribeDesktopEvent('menu:paste', () => {
-      runEditMenuAction('paste', 'paste')
+      runEditMenuAction('paste', 'paste', t('menu.pasteHint'))
     })
     const disposeSelectAll = subscribeDesktopEvent('menu:select-all', () => {
       runEditMenuAction('selectAll', 'selectAll')
@@ -336,7 +346,7 @@ export default function App() {
       disposeNewAgent()
       disposeRunMultiAgent()
     }
-  }, [setRecentFiles])
+  }, [setRecentFiles, t])
 
   return (
     <>

@@ -1,14 +1,14 @@
 use std::{
     io::Read,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use sha1::{Digest, Sha1};
-use tokio::sync::Mutex;
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     state::{
         atomic_write_json, new_recovery_notices, read_versioned_json, RecoveryNotices,
         DATA_SCHEMA_VERSION,
@@ -42,9 +42,14 @@ impl Default for HistoryIndexFile {
     }
 }
 
+#[derive(Clone)]
 pub struct HistoryStore {
     root: PathBuf,
-    lock: Mutex<()>,
+    // Serializes history mutations. A std mutex is correct here: every lock
+    // site is inside `spawn_blocking` (below), never on an async runtime
+    // thread, so blocking-IO contention cannot stall async workers
+    // (wps_02 D-8).
+    lock: Arc<parking_lot::Mutex<()>>,
     notices: RecoveryNotices,
 }
 
@@ -56,24 +61,82 @@ impl HistoryStore {
     pub fn new_with_recovery(root: PathBuf, notices: RecoveryNotices) -> Self {
         Self {
             root,
-            lock: Mutex::new(()),
+            lock: Arc::new(parking_lot::Mutex::new(())),
             notices,
         }
     }
 
     pub async fn snapshot(&self, path: &Path, force: bool) -> AppResult<bool> {
-        let _guard = self.lock.lock().await;
-        self.snapshot_unlocked(path, force)
+        let this = self.clone();
+        let path = path.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let _guard = this.lock.lock();
+            this.snapshot_unlocked(&path, force)
+        })
+        .await
+        .map_err(|error| AppError::internal(format!("History snapshot task failed: {error}")))?
     }
 
     pub async fn write_with_snapshot(&self, path: &Path, data: &[u8]) -> AppResult<()> {
-        let _guard = self.lock.lock().await;
-        self.snapshot_unlocked(path, false)?;
-        write_atomic(path, data)
+        let this = self.clone();
+        let path = path.to_owned();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || {
+            let _guard = this.lock.lock();
+            this.snapshot_unlocked(&path, false)?;
+            write_atomic(&path, &data)
+        })
+        .await
+        .map_err(|error| AppError::internal(format!("History write task failed: {error}")))?
     }
 
     pub async fn list(&self, path: &Path) -> AppResult<Vec<FileVersion>> {
-        let _guard = self.lock.lock().await;
+        let this = self.clone();
+        let path = path.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let _guard = this.lock.lock();
+            this.list_blocking(&path)
+        })
+        .await
+        .map_err(|error| AppError::internal(format!("History list task failed: {error}")))?
+    }
+
+    pub async fn restore(&self, path: &Path, version_id: &str) -> AppResult<bool> {
+        let this = self.clone();
+        let path = path.to_owned();
+        let version_id = version_id.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let _guard = this.lock.lock();
+            this.restore_blocking(&path, &version_id)
+        })
+        .await
+        .map_err(|error| AppError::internal(format!("History restore task failed: {error}")))?
+    }
+
+    pub async fn move_history(&self, old_path: &Path, new_path: &Path) -> AppResult<()> {
+        let this = self.clone();
+        let old_path = old_path.to_owned();
+        let new_path = new_path.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let _guard = this.lock.lock();
+            this.move_history_blocking(&old_path, &new_path)
+        })
+        .await
+        .map_err(|error| AppError::internal(format!("History move task failed: {error}")))?
+    }
+
+    pub async fn delete_history(&self, path: &Path) -> AppResult<()> {
+        let this = self.clone();
+        let path = path.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let _guard = this.lock.lock();
+            this.delete_history_blocking(&path)
+        })
+        .await
+        .map_err(|error| AppError::internal(format!("History delete task failed: {error}")))?
+    }
+
+    fn list_blocking(&self, path: &Path) -> AppResult<Vec<FileVersion>> {
         let directory = self.directory_for(path);
         let entries = self.read_index(&directory)?;
         Ok(entries
@@ -87,11 +150,10 @@ impl HistoryStore {
             .collect())
     }
 
-    pub async fn restore(&self, path: &Path, version_id: &str) -> AppResult<bool> {
+    fn restore_blocking(&self, path: &Path, version_id: &str) -> AppResult<bool> {
         if !valid_version_id(version_id) {
             return Ok(false);
         }
-        let _guard = self.lock.lock().await;
         let directory = self.directory_for(path);
         let snapshot = directory.join(version_id);
         if std::fs::metadata(&snapshot)
@@ -110,8 +172,7 @@ impl HistoryStore {
         Ok(true)
     }
 
-    pub async fn move_history(&self, old_path: &Path, new_path: &Path) -> AppResult<()> {
-        let _guard = self.lock.lock().await;
+    fn move_history_blocking(&self, old_path: &Path, new_path: &Path) -> AppResult<()> {
         let old_directory = self.directory_for(old_path);
         let new_directory = self.directory_for(new_path);
         if old_directory == new_directory || !old_directory.exists() {
@@ -127,8 +188,7 @@ impl HistoryStore {
         Ok(())
     }
 
-    pub async fn delete_history(&self, path: &Path) -> AppResult<()> {
-        let _guard = self.lock.lock().await;
+    fn delete_history_blocking(&self, path: &Path) -> AppResult<()> {
         let directory = self.directory_for(path);
         match std::fs::remove_dir_all(directory) {
             Ok(()) => Ok(()),
@@ -192,16 +252,36 @@ impl HistoryStore {
         index.insert(
             0,
             HistoryIndexEntry {
-                id,
+                id: id.clone(),
                 saved_at,
                 size: actual_len,
                 source_mtime_ms,
             },
         );
         let removed = index.split_off(index.len().min(MAX_VERSIONS));
-        self.write_index(&directory, &index)?;
+        if let Err(error) = self.write_index(&directory, &index) {
+            // wps_10 B4: the index on disk still describes the old version set,
+            // so the snapshot written above is referenced nowhere and would be
+            // an uncollectable orphan. Remove it before propagating.
+            if let Err(remove_error) = std::fs::remove_file(directory.join(&id)) {
+                log::warn!(
+                    "failed to remove orphaned snapshot {} in {} after index write failure: {remove_error}",
+                    id,
+                    directory.display()
+                );
+            }
+            return Err(error);
+        }
         for entry in removed {
-            let _ = std::fs::remove_file(directory.join(entry.id));
+            // wps_10 D1: the index no longer references this snapshot; a delete
+            // failure leaves an orphaned version file, so record it.
+            if let Err(error) = std::fs::remove_file(directory.join(&entry.id)) {
+                log::warn!(
+                    "failed to delete pruned history snapshot {} in {}: {error}",
+                    entry.id,
+                    directory.display()
+                );
+            }
         }
         Ok(true)
     }

@@ -92,6 +92,7 @@ pub struct CustomProviderConfig {
     pub models: Vec<ProviderModel>,
     pub protocol: ProviderProtocol,
     #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
     pub created_at: u64,
 }
 
@@ -173,7 +174,13 @@ impl ProviderStore {
             read_versioned_json(&credential_index_path, "credential index", &notices)?;
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(60))
+            // No whole-request timeout: it killed legitimate long SSE streams
+            // (agent runs well past 60s). Streaming runs enforce an IDLE timeout
+            // on each chunk; bounded JSON call sites set a per-request timeout
+            // (wps_06 A1).
+            // Provider endpoints must never redirect: following one would resend
+            // the bearer credential to the new target (wps_06 N-3).
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent("Office-Agentic/2.0")
             .build()?;
         Ok(Self {
@@ -306,7 +313,7 @@ impl ProviderStore {
                     id.clone(),
                     AuthStatus {
                         configured: true,
-                        auth_type: "api",
+                        auth_type: AuthType::Api,
                     },
                 )
             })
@@ -356,7 +363,11 @@ impl ProviderStore {
         if let Some(error) = rollback {
             let pid = provider_id.clone();
             let prev = previous.clone();
-            tokio::task::spawn_blocking(move || -> AppResult<()> {
+            // wps_10 D1: a failed rollback means the on-disk index (no key) and
+            // the OS credential store (new key retained) disagree. Log loudly —
+            // only the provider id and keyring error string are emitted, never
+            // any secret material.
+            let rollback_outcome = tokio::task::spawn_blocking(move || -> AppResult<()> {
                 let entry = keyring::Entry::new(KEYRING_SERVICE, &pid)?;
                 match prev {
                     Some(value) => entry.set_password(&value),
@@ -365,7 +376,15 @@ impl ProviderStore {
                 .map_err(Into::into)
             })
             .await
-            .map_err(|_| AppError::internal("credential store task panicked"))??;
+            .map_err(|_| AppError::internal("credential store task panicked"))?;
+            if let Err(rollback_error) = rollback_outcome {
+                log::error!(
+                    "set_api_key index persist failed for provider {provider_id} and credential \
+                     rollback also failed; credential store may retain the new key while the \
+                     index says unconfigured: {rollback_error}"
+                );
+                return Err(rollback_error);
+            }
             return Err(error);
         }
         Ok(())
@@ -409,15 +428,37 @@ impl ProviderStore {
             }
         };
         if let Some(error) = rollback {
+            log::warn!(
+                "credential index persist failed for provider {provider_id} after key deletion, \
+                 attempting credential rollback: {error}"
+            );
             // Roll the credential back if it existed before the delete.
             if let Some(value) = previous {
                 let pid = provider_id.clone();
-                tokio::task::spawn_blocking(move || -> AppResult<()> {
+                let rollback_outcome = tokio::task::spawn_blocking(move || -> AppResult<()> {
                     let entry = keyring::Entry::new(KEYRING_SERVICE, &pid)?;
                     entry.set_password(&value).map_err(Into::into)
                 })
                 .await
-                .map_err(|_| AppError::internal("credential store task panicked"))??;
+                .map_err(|_| AppError::internal("credential store task panicked"))?;
+                // wps_10 D1: a failed restore leaves the index claiming a key
+                // that the OS store no longer holds; make that visible. Only
+                // provider id and keyring error text are logged.
+                if let Err(rollback_error) = rollback_outcome {
+                    log::error!(
+                        "remove_api_key index persist failed for provider {provider_id} and \
+                         credential restore also failed; credential is gone but the index still \
+                         lists it: {rollback_error}"
+                    );
+                    return Err(rollback_error);
+                }
+            } else {
+                // There was no previous key to restore: the index (says configured) and the
+                // OS store (no entry) now disagree until the next auth_status reconcile.
+                log::error!(
+                    "remove_api_key index persist failed for provider {provider_id} and no prior \
+                     credential existed to restore; index and credential store are inconsistent"
+                );
             }
             return Err(error);
         }
@@ -481,7 +522,19 @@ where
 pub struct AuthStatus {
     pub configured: bool,
     #[serde(rename = "type")]
-    pub auth_type: &'static str,
+    pub auth_type: AuthType,
+}
+
+/// Credential mechanism advertised by the host (wps_03 D8). Only API keys are
+/// issued today, but the closed enum keeps an OAuth future typed on both sides
+/// of the IPC boundary instead of as a free-form string.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export))]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthType {
+    Api,
+    Oauth,
 }
 
 pub fn validate_base_url(value: &str) -> AppResult<String> {

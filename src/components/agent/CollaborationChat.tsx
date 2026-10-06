@@ -118,11 +118,16 @@ export function CollaborationChat({
     [events],
   )
   const cacheRateLabel = `${(cacheSummary.hitRate * 100).toFixed(1)}%`
-  const cacheTooltip = t('agentUi.cacheRate', {
-    rate: cacheRateLabel,
-    read: cacheSummary.cacheReadTokens,
-    total: cacheSummary.cacheReadTokens + cacheSummary.cacheMissTokens,
-  })
+  const cacheTooltip = [
+    t('agentUi.cacheRate', {
+      rate: cacheRateLabel,
+      read: cacheSummary.cacheReadTokens,
+      total: cacheSummary.cacheReadTokens + cacheSummary.cacheMissTokens,
+    }),
+    cacheSummary.reasoningTokens > 0
+      ? t('agentUi.reasoningTokens', { count: cacheSummary.reasoningTokens })
+      : '',
+  ].filter(Boolean).join('\n')
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
@@ -153,6 +158,8 @@ export function CollaborationChat({
         return t('agentUi.lineRunCancelled')
       case 'conflict':
         return p.detail || t('agentUi.lineConflict')
+      case 'eventsTruncated':
+        return t('agentUi.lineEventsTruncated', { count: p.count })
       case 'error':
         return t('agentUi.lineError', { error: p.error })
       default:

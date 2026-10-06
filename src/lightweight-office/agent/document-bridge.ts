@@ -8,6 +8,7 @@ import type {
   DocumentPosition,
 } from '@/types/document'
 import { LiveOperationQueue } from './live-operation-queue'
+import { errorMessage } from '@/platform/app-error'
 import { readFileBuffer } from '../utils/file-io'
 import { escapeHtmlText } from '../editors/notepad-tables'
 
@@ -251,7 +252,7 @@ export const documentBridge = {
           if (operation.runId) runRevisions.set(operation.runId, state.revision)
           return { ...normalized, operationId, revision: state.revision }
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
+          const message = errorMessage(error)
           emitDocumentEvent('operation-rejected', operation, { message })
           return { success: false, operationId, revision: state.revision, error: message }
         } finally {

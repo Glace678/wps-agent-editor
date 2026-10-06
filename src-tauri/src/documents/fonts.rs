@@ -5,7 +5,6 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
     io::Read,
-    path::Path,
     sync::OnceLock,
 };
 
@@ -196,14 +195,11 @@ fn opaque_font_id(source: &Source, face_index: u32, post_script_name: &str) -> S
     hex::encode(hash.finalize())
 }
 
-fn path_key(path: &Path) -> String {
-    let value = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) {
-        value.to_ascii_lowercase()
-    } else {
-        value
-    }
-}
+// Font identity reuses the single path-key implementation from the file
+// services (wps_09 C-1 / wps_10 C2): no case folding here either — system
+// font paths are stored as fontdb reports them and the same face always
+// reports the same string, which is all the hash requires.
+use crate::files::path_key;
 
 pub fn list_system_fonts(language: Option<String>) -> Vec<SystemFont> {
     catalog()

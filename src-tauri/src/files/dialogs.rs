@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
-use crate::error::AppResult;
+use crate::error::{codes, AppResult};
 
 use super::{app_error, models::FileDialogKind};
 
@@ -81,7 +81,7 @@ pub fn select_save_file(app: &AppHandle, default_name: Option<&str>) -> AppResul
 fn file_path_to_path(path: FilePath) -> AppResult<PathBuf> {
     path.into_path().map_err(|error| {
         app_error(
-            "invalid-path",
+            codes::INVALID_PATH,
             format!("The selected path is not local: {error}"),
         )
     })

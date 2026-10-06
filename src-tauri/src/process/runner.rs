@@ -17,6 +17,11 @@ use tokio::{io::AsyncReadExt, process::Command};
 /// actually executes (review report P4).
 const COMPILE_TIMEOUT: Duration = Duration::from_secs(120);
 const RUN_TIMEOUT: Duration = Duration::from_secs(30);
+/// Grace period for draining stdout/stderr after the child has exited. A
+/// backgrounded grandchild (`node server.js &`, `nohup … &`) inherits the pipe
+/// fds and keeps the read task from ever reaching EOF; without this bound
+/// `process_run_code` would hang forever and leak a tokio task (wps_02 D-1).
+const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -131,15 +136,59 @@ pub async fn run_file(file_path: &Path) -> AppResult<CodeRunResult> {
         stderr: "No runtime is configured for this file".into(),
         error_code: Some("runtime-missing"),
     });
+    // Same truncation policy as the success path (wps_09 C-2): the merged
+    // stderr may have accumulated one missing-runtime message per run spec.
     Ok(CodeRunResult {
         success: false,
         exit_code: None,
-        stdout,
-        stderr: format!("{stderr}{}", result.stderr),
+        stdout: truncate_output(stdout),
+        stderr: truncate_output(format!("{stderr}{}", result.stderr)),
         command: display.join("\n"),
         duration_ms: started.elapsed().as_millis() as u64,
         error_code: Some("runtime-missing"),
     })
+}
+
+/// Whether the runner can execute files with this (lowercased) extension on the
+/// current platform. This is the union of every arm in [`build_plan`]; it backs
+/// the open/executable-bit policy, which must not block scripts the product can
+/// run (review report wps_09 A-1).
+pub fn is_runner_supported_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "js" | "mjs"
+            | "cjs"
+            | "jsx"
+            | "ts"
+            | "tsx"
+            | "py"
+            | "pyw"
+            | "c"
+            | "cc"
+            | "cpp"
+            | "cxx"
+            | "java"
+            | "go"
+            | "rs"
+            | "kt"
+            | "kts"
+            | "swift"
+            | "dart"
+            | "rb"
+            | "php"
+            | "pl"
+            | "pm"
+            | "lua"
+            | "r"
+            | "jl"
+            | "sh"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "ps1"
+            | "bat"
+            | "cmd"
+    )
 }
 
 async fn build_plan(file: &Path, temp: &TempDir) -> AppResult<Option<RunPlan>> {
@@ -279,7 +328,33 @@ fn spec<'a>(command: &str, args: impl IntoIterator<Item = &'a str>) -> CommandSp
 
 pub(crate) fn bundled_esbuild_path() -> PathBuf {
     if let Some(path) = std::env::var_os("WAE_ESBUILD_PATH") {
-        return PathBuf::from(path);
+        let candidate = PathBuf::from(path);
+        // wps_01 N-11: an unverified override could redirect the sidecar/
+        // debugger to any binary path. Honor it only when the target is a
+        // file located inside the application's own directory tree, and log
+        // the decision (same-user env injection is not a privilege boundary,
+        // but the redirect must be both contained and visible in logs).
+        if candidate.is_file() {
+            match esbuild_override_is_contained(&candidate) {
+                Ok(true) => {
+                    log::info!("using WAE_ESBUILD_PATH override: {}", candidate.display());
+                    return candidate;
+                }
+                Ok(false) => log::warn!(
+                    "ignoring WAE_ESBUILD_PATH override because {} is outside the application directory",
+                    candidate.display()
+                ),
+                Err(error) => log::warn!(
+                    "ignoring WAE_ESBUILD_PATH override {} after path resolution failure: {error}",
+                    candidate.display()
+                ),
+            }
+        } else {
+            log::warn!(
+                "ignoring WAE_ESBUILD_PATH override because it is not a file: {}",
+                candidate.display()
+            );
+        }
     }
     let file_name = if cfg!(windows) {
         "esbuild.exe"
@@ -302,6 +377,26 @@ pub(crate) fn bundled_esbuild_path() -> PathBuf {
         .into_iter()
         .find(|path| path.is_file())
         .unwrap_or_else(|| PathBuf::from(file_name))
+}
+
+/// Whether the `WAE_ESBUILD_PATH` candidate resides in the application's own
+/// directory tree (the executable's directory or its parent — the same two
+/// roots searched by the bundled-path fallback below). wps_01 N-11.
+fn esbuild_override_is_contained(candidate: &Path) -> std::io::Result<bool> {
+    let Some(executable) = std::env::current_exe().ok() else {
+        return Ok(false);
+    };
+    let Some(app_dir) = executable.parent() else {
+        return Ok(false);
+    };
+    let roots = [app_dir.to_path_buf(), app_dir.parent().unwrap_or(app_dir).to_path_buf()];
+    let candidate = std::fs::canonicalize(candidate)?;
+    for root in roots {
+        if candidate.starts_with(&root) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 async fn execute(spec: &CommandSpec, cwd: &Path, timeout: Duration) -> CommandOutput {
@@ -336,6 +431,7 @@ async fn execute(spec: &CommandSpec, cwd: &Path, timeout: Duration) -> CommandOu
         }
     };
     let pid = child.id();
+    reaper::bind_tokio_child(&child);
     let stdout_task = child
         .stdout
         .take()
@@ -438,9 +534,19 @@ async fn output_from_tasks(
 }
 
 async fn join_output(task: Option<tokio::task::JoinHandle<(Vec<u8>, bool)>>) -> (Vec<u8>, bool) {
-    match task {
-        Some(task) => task.await.unwrap_or_default(),
-        None => (Vec::new(), false),
+    let Some(mut task) = task else {
+        return (Vec::new(), false);
+    };
+    match tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, &mut task).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(_)) => (Vec::new(), false),
+        Err(_) => {
+            // The child exited but a descendant still holds the pipe. Abort the
+            // read task and return whatever was captured, flagged truncated so
+            // the result message explains the missing tail.
+            task.abort();
+            (Vec::new(), true)
+        }
     }
 }
 

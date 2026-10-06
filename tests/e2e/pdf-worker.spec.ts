@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import path from 'node:path'
+import { selfValidateMockPayloads, validateMockResponses } from './support/mock-payloads'
+import { e2eStepTimeout, e2eTestTimeout } from './support/timeouts'
 
 function sourceUrl(relativePath: string): string {
   return `/@fs/${path.resolve(relativePath).replaceAll('\\', '/')}`
@@ -45,6 +47,8 @@ async function installPdfDesktopMock(page: Page, fixture = MINIMAL_PDF_BASE64): 
     let modifiedAt = 1_788_825_600_000
     let readCount = 0
     let saveCount = 0
+    // D2: record every mock response for runtime contract validation.
+    const mockResponses: Array<{ command: string; result: unknown }> = []
 
     const binaryBytes = (value: unknown): Uint8Array | null => {
       if (value instanceof Uint8Array) return value
@@ -58,7 +62,7 @@ async function installPdfDesktopMock(page: Page, fixture = MINIMAL_PDF_BASE64): 
       return null
     }
 
-    const invoke = async (command: string, args?: unknown): Promise<unknown> => {
+    const handleInvoke = async (command: string, args?: unknown): Promise<unknown> => {
       if (command === 'plugin:event|listen') return 1
       if (command === 'plugin:event|unlisten') return null
       if (command === 'files_get_home') return { path: '/mock/home', grantId: 'home-grant' }
@@ -108,6 +112,11 @@ async function installPdfDesktopMock(page: Page, fixture = MINIMAL_PDF_BASE64): 
       if (command === 'documents_set_current_file') return { success: true }
       return { success: true }
     }
+    const invoke = async (command: string, args?: unknown): Promise<unknown> => {
+      const result = await handleInvoke(command, args)
+      mockResponses.push({ command, result })
+      return result
+    }
 
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -122,12 +131,27 @@ async function installPdfDesktopMock(page: Page, fixture = MINIMAL_PDF_BASE64): 
       __WAE_PDF_READ_COUNT__: 0,
       __WAE_PDF_SAVE_COUNT__: 0,
       __WAE_SAVED_PDF__: [],
+      __WAE_MOCK_RESPONSES__: mockResponses,
     })
   }, fixture)
 }
 
+// D2: validate the installPdfDesktopMock responses against the generated
+// contract. The ad-hoc inline mocks in the pure-worker tests return only
+// trivial values, so validation is scoped to this mock.
+test.afterEach(async ({ page }) => {
+  selfValidateMockPayloads()
+  const responses = await page.evaluate(() =>
+    (window as unknown as {
+      __WAE_MOCK_RESPONSES__?: Array<{ command: string; result: unknown }>
+    }).__WAE_MOCK_RESPONSES__ ?? [],
+  )
+  const contractErrors = validateMockResponses(responses)
+  expect(contractErrors, `mock payload contract violations:\n${contractErrors.join('\n')}`).toEqual([])
+})
+
 test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async ({ page }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(e2eTestTimeout(90_000))
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))
   await page.addInitScript(() => {
@@ -167,13 +191,33 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
   })
   await page.goto('/')
 
-  const result = await page.evaluate(async ({ clientUrl, coordinateUrl, fixture }) => {
-    const withTimeout = <T,>(label: string, promise: Promise<T>): Promise<T> => Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        window.setTimeout(() => reject(new Error(`${label} timed out`)), 20_000)
-      }),
-    ])
+  const result = await page.evaluate(async ({ clientUrl, coordinateUrl, fixture, stepTimeoutMs }) => {
+    const withTimeout = <T,>(
+      label: string,
+      promise: Promise<T>,
+      onTimeout?: () => void,
+    ): Promise<T> => {
+      let timer = 0
+      const timeout = new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => {
+          // C5: 超时时主动拆除 worker 客户端，避免挂死的 worker 继续占用页面；
+          // dispose 幂等，finally 里再调一次也安全。
+          if (onTimeout) {
+            try {
+              onTimeout()
+            } catch {
+              /* cleanup must not mask the timeout error */
+            }
+          }
+          reject(new Error(`${label} timed out after ${stepTimeoutMs}ms`))
+        }, stepTimeoutMs)
+      })
+      return Promise.race([promise, timeout]).finally(() => {
+        // C5: 操作先完成时必须清掉定时器，否则它稍后会对一个无人处理的
+        // Promise 触发 reject（unhandled rejection）。
+        window.clearTimeout(timer)
+      })
+    }
     const { MuPdfWorkerClient } = await withTimeout(
       'client import',
       import(clientUrl) as Promise<typeof import('../../src/lightweight-office/pdf/mupdf-client')>,
@@ -185,8 +229,9 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
     const source = Uint8Array.from(atob(fixture), (character) => character.charCodeAt(0)).buffer
     const client = new MuPdfWorkerClient(`test-${crypto.randomUUID()}`)
     try {
-      const opened = await withTimeout('open', client.open(source))
-      const rendered = await withTimeout('render', client.render(0, 240, 0))
+      const disposeClient = () => client.dispose()
+      const opened = await withTimeout('open', client.open(source), disposeClient)
+      const rendered = await withTimeout('render', client.render(0, 240, 0), disposeClient)
       const annotation = {
         id: crypto.randomUUID(),
         type: 'text' as const,
@@ -204,11 +249,11 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
         underline: true,
         color: '#0F6CBD',
       }
-      const inserted = await withTimeout('insert', client.upsertText(annotation))
-      const layer = await withTimeout('text layer', client.loadTextLayer(0))
-      const undone = await withTimeout('undo', client.undo())
-      const redone = await withTimeout('redo', client.redo())
-      const saved = await withTimeout('save', client.save())
+      const inserted = await withTimeout('insert', client.upsertText(annotation), disposeClient)
+      const layer = await withTimeout('text layer', client.loadTextLayer(0), disposeClient)
+      const undone = await withTimeout('undo', client.undo(), disposeClient)
+      const redone = await withTimeout('redo', client.redo(), disposeClient)
+      const saved = await withTimeout('save', client.save(), disposeClient)
       const savedBytes = new Uint8Array(saved.data)
       const savedHeader = new TextDecoder().decode(savedBytes.slice(0, 5))
       const reopenData = saved.data.slice(0)
@@ -231,7 +276,11 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
       client.dispose()
       const reopenedClient = new MuPdfWorkerClient(`reopen-${crypto.randomUUID()}`)
       try {
-        const reopened = await withTimeout('reopen', reopenedClient.open(reopenData))
+        const reopened = await withTimeout(
+          'reopen',
+          reopenedClient.open(reopenData),
+          () => reopenedClient.dispose(),
+        )
         return {
           pageCount: opened.pages.length,
           canAnnotate: opened.canAnnotate,
@@ -261,6 +310,7 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
     clientUrl: sourceUrl('src/lightweight-office/pdf/mupdf-client.ts'),
     coordinateUrl: sourceUrl('src/lightweight-office/pdf/pdf-coordinates.ts'),
     fixture: MINIMAL_PDF_BASE64,
+    stepTimeoutMs: e2eStepTimeout(),
   })
 
   expect(result).toMatchObject({
@@ -284,7 +334,7 @@ test('MuPDF worker edits, journals, saves, and reopens WAE annotations', async (
 })
 
 test('PDF editor portals its menus and persists edits through Ctrl+S', async ({ page }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(e2eTestTimeout(90_000))
   await installPdfDesktopMock(page)
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))
@@ -462,7 +512,7 @@ test('PDF editor portals its menus and persists edits through Ctrl+S', async ({ 
 })
 
 test('MuPDF worker replaces body text via redaction and restores it through undo', async ({ page }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(e2eTestTimeout(90_000))
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))
   await page.addInitScript(() => {
@@ -496,22 +546,43 @@ test('MuPDF worker replaces body text via redaction and restores it through undo
   })
   await page.goto('/')
 
-  const result = await page.evaluate(async ({ clientUrl, fixture }) => {
-    const withTimeout = <T,>(label: string, promise: Promise<T>): Promise<T> => Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        window.setTimeout(() => reject(new Error(`${label} timed out`)), 20_000)
-      }),
-    ])
+  const result = await page.evaluate(async ({ clientUrl, fixture, stepTimeoutMs }) => {
+    const withTimeout = <T,>(
+      label: string,
+      promise: Promise<T>,
+      onTimeout?: () => void,
+    ): Promise<T> => {
+      let timer = 0
+      const timeout = new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => {
+          // C5: 超时时主动拆除 worker 客户端，避免挂死的 worker 继续占用页面；
+          // dispose 幂等，finally 里再调一次也安全。
+          if (onTimeout) {
+            try {
+              onTimeout()
+            } catch {
+              /* cleanup must not mask the timeout error */
+            }
+          }
+          reject(new Error(`${label} timed out after ${stepTimeoutMs}ms`))
+        }, stepTimeoutMs)
+      })
+      return Promise.race([promise, timeout]).finally(() => {
+        // C5: 操作先完成时必须清掉定时器，否则它稍后会对一个无人处理的
+        // Promise 触发 reject（unhandled rejection）。
+        window.clearTimeout(timer)
+      })
+    }
     const { MuPdfWorkerClient } = await withTimeout(
       'client import',
       import(clientUrl) as Promise<typeof import('../../src/lightweight-office/pdf/mupdf-client')>,
     )
     const source = Uint8Array.from(atob(fixture), (character) => character.charCodeAt(0)).buffer
     const client = new MuPdfWorkerClient(`body-${crypto.randomUUID()}`)
+    const disposeClient = () => client.dispose()
     try {
-      await withTimeout('open', client.open(source))
-      const before = await withTimeout('text layer', client.loadTextLayer(0))
+      await withTimeout('open', client.open(source), disposeClient)
+      const before = await withTimeout('text layer', client.loadTextLayer(0), disposeClient)
       const line = before.lines[0]
       const replacement = {
         id: crypto.randomUUID(),
@@ -533,22 +604,27 @@ test('MuPDF worker replaces body text via redaction and restores it through undo
       const replaced = await withTimeout(
         'replace body',
         client.replaceBodyText(0, line, replacement),
+        disposeClient,
       )
       // worker 侧缓存仍持有旧层：在 UI 中替换后会显式 invalidate
       client.invalidateTextLayer(0)
-      const after = await withTimeout('reload layer', client.loadTextLayer(0))
-      const undone = await withTimeout('undo', client.undo())
+      const after = await withTimeout('reload layer', client.loadTextLayer(0), disposeClient)
+      const undone = await withTimeout('undo', client.undo(), disposeClient)
       client.invalidateTextLayer(0)
-      const restored = await withTimeout('restored layer', client.loadTextLayer(0))
-      await withTimeout('redo', client.redo())
+      const restored = await withTimeout('restored layer', client.loadTextLayer(0), disposeClient)
+      await withTimeout('redo', client.redo(), disposeClient)
       client.invalidateTextLayer(0)
-      const redone = await withTimeout('redone layer', client.loadTextLayer(0))
-      const saved = await withTimeout('save', client.save())
+      const redone = await withTimeout('redone layer', client.loadTextLayer(0), disposeClient)
+      const saved = await withTimeout('save', client.save(), disposeClient)
 
       client.dispose()
       const reopenedClient = new MuPdfWorkerClient(`body-reopen-${crypto.randomUUID()}`)
       try {
-        const reopened = await withTimeout('reopen', reopenedClient.open(saved.data.slice(0)))
+        const reopened = await withTimeout(
+          'reopen',
+          reopenedClient.open(saved.data.slice(0)),
+          () => reopenedClient.dispose(),
+        )
         return {
           original: line.text,
           annotationCount: replaced.annotations.length,
@@ -573,6 +649,7 @@ test('MuPDF worker replaces body text via redaction and restores it through undo
   }, {
     clientUrl: sourceUrl('src/lightweight-office/pdf/mupdf-client.ts'),
     fixture: buildTextPdfBase64('Hello Body Text'),
+    stepTimeoutMs: e2eStepTimeout(),
   })
 
   expect(result.original).toBe('Hello Body Text')
@@ -589,7 +666,7 @@ test('MuPDF worker replaces body text via redaction and restores it through undo
 })
 
 test('MuPDF worker erases a body line when the replacement text is empty', async ({ page }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(e2eTestTimeout(90_000))
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))
   await page.addInitScript(() => {
@@ -623,22 +700,43 @@ test('MuPDF worker erases a body line when the replacement text is empty', async
   })
   await page.goto('/')
 
-  const result = await page.evaluate(async ({ clientUrl, fixture }) => {
-    const withTimeout = <T,>(label: string, promise: Promise<T>): Promise<T> => Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        window.setTimeout(() => reject(new Error(`${label} timed out`)), 20_000)
-      }),
-    ])
+  const result = await page.evaluate(async ({ clientUrl, fixture, stepTimeoutMs }) => {
+    const withTimeout = <T,>(
+      label: string,
+      promise: Promise<T>,
+      onTimeout?: () => void,
+    ): Promise<T> => {
+      let timer = 0
+      const timeout = new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => {
+          // C5: 超时时主动拆除 worker 客户端，避免挂死的 worker 继续占用页面；
+          // dispose 幂等，finally 里再调一次也安全。
+          if (onTimeout) {
+            try {
+              onTimeout()
+            } catch {
+              /* cleanup must not mask the timeout error */
+            }
+          }
+          reject(new Error(`${label} timed out after ${stepTimeoutMs}ms`))
+        }, stepTimeoutMs)
+      })
+      return Promise.race([promise, timeout]).finally(() => {
+        // C5: 操作先完成时必须清掉定时器，否则它稍后会对一个无人处理的
+        // Promise 触发 reject（unhandled rejection）。
+        window.clearTimeout(timer)
+      })
+    }
     const { MuPdfWorkerClient } = await withTimeout(
       'client import',
       import(clientUrl) as Promise<typeof import('../../src/lightweight-office/pdf/mupdf-client')>,
     )
     const source = Uint8Array.from(atob(fixture), (character) => character.charCodeAt(0)).buffer
     const client = new MuPdfWorkerClient(`erase-${crypto.randomUUID()}`)
+    const disposeClient = () => client.dispose()
     try {
-      await withTimeout('open', client.open(source))
-      const line = (await withTimeout('text layer', client.loadTextLayer(0))).lines[0]
+      await withTimeout('open', client.open(source), disposeClient)
+      const line = (await withTimeout('text layer', client.loadTextLayer(0), disposeClient)).lines[0]
       const erased = await withTimeout(
         'erase',
         client.replaceBodyText(0, line, {
@@ -658,9 +756,10 @@ test('MuPDF worker erases a body line when the replacement text is empty', async
           underline: false,
           color: line.color ?? '#000000',
         }),
+        disposeClient,
       )
       client.invalidateTextLayer(0)
-      const after = await withTimeout('reload layer', client.loadTextLayer(0))
+      const after = await withTimeout('reload layer', client.loadTextLayer(0), disposeClient)
       return {
         annotations: erased.annotations.length,
         canUndo: erased.canUndo,
@@ -672,6 +771,7 @@ test('MuPDF worker erases a body line when the replacement text is empty', async
   }, {
     clientUrl: sourceUrl('src/lightweight-office/pdf/mupdf-client.ts'),
     fixture: buildTextPdfBase64('Erase Me Please'),
+    stepTimeoutMs: e2eStepTimeout(),
   })
 
   expect(result.annotations).toBe(0)
@@ -681,7 +781,7 @@ test('MuPDF worker erases a body line when the replacement text is empty', async
 })
 
 test('PDF editor edits original body text in place and saves it', async ({ page }) => {
-  test.setTimeout(90_000)
+  test.setTimeout(e2eTestTimeout(90_000))
   await installPdfDesktopMock(page, buildTextPdfBase64('Hello Body Text'))
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))

@@ -1,4 +1,5 @@
 import { desktopApi } from '@/platform'
+import { errorMessage } from '@/platform/app-error'
 import { subscribeDesktopEvent } from '@/lib/desktop-events'
 import { useEffect } from 'react'
 import { documentBridge } from './document-bridge'
@@ -15,7 +16,7 @@ export function useAgentBridge() {
       try {
         result = await documentBridge.execute(command)
       } catch (error) {
-        result = { success: false, error: error instanceof Error ? error.message : String(error) }
+        result = { success: false, error: errorMessage(error) }
       }
       // If the bridge (or its host) has torn down, do not attempt to send back:
       // a rejected send here would otherwise be an unhandled rejection and the

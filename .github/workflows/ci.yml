@@ -29,13 +29,21 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
             libxdo-dev patchelf
       - run: npm ci
+      - run: npm run check:engine-patches
       - run: node scripts/check-version.mjs
       - run: npm run check:sensitive
       - run: node scripts/release/test-release-contract.mjs
+      # Audit gate supports time-boxed exceptions in audit-exceptions.json so a
+      # fresh upstream advisory cannot permanently freeze releases.
       - name: Audit all dependencies (production + development)
-        run: npm audit --audit-level=high
+        run: node scripts/check-npm-audit.mjs --mode full
       - name: Audit production dependencies only
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/check-npm-audit.mjs --mode production
+      - name: Verify Windows installer hook ProgID coverage
+        run: >-
+          node scripts/release/verify-bundle-associations.mjs
+          --platform windows
+          --hooks src-tauri/windows/installer-hooks.nsh
       - run: npm run check:i18n
       - run: npm run check:providers
       - run: npm run test:web-canaries
@@ -44,7 +52,16 @@ jobs:
       - run: npm run build:web
       - run: node scripts/release/check-bundle-inputs.mjs
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      # C5: CI runners are slower than dev machines — widen whole-test and
+      # per-step timeouts via env instead of inflating local defaults.
+      - name: Run e2e tests
+        run: npm run test:e2e
+        env:
+          WAE_E2E_TEST_TIMEOUT_MS: '120000'
+          WAE_E2E_STEP_TIMEOUT_MS: '45000'
+          # D3: widen perf budgets on slower CI runners rather than inflating
+          # local defaults or hiding slow paths behind large timeouts.
+          WAE_PERF_BUDGET_FACTOR: '3'
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml
@@ -86,6 +103,7 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev \
             libxdo-dev patchelf
       - run: npm ci
+      - run: npm run check:engine-patches
       - run: npm run prepare:sidecar -- --target ${{ matrix.target }}
       - name: Build and audit renderer
         run: |

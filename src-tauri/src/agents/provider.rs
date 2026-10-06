@@ -1,6 +1,9 @@
 use crate::{
     error::{AppError, AppResult},
-    providers::store::{ProviderProtocol, ProviderStore},
+    providers::{
+        sse_limits::{bounded_sse_bytes, RESPONSE_HEADERS_TIMEOUT, SSE_IDLE_TIMEOUT},
+        store::{ProviderProtocol, ProviderStore},
+    },
 };
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
@@ -238,8 +241,7 @@ async fn complete_openai(
     let mut body = json!({
         "model": model,
         "messages": outbound_messages,
-        "stream": true,
-        "stream_options": { "include_usage": true }
+        "stream": true
     });
     if let Some(effort) = openai_reasoning_effort(reasoning) {
         body["reasoning_effort"] = Value::String(effort);
@@ -252,10 +254,6 @@ async fn complete_openai(
         body["prompt_cache_key"] =
             Value::String(prompt_cache_key(&provider.id, context.conversation_id));
     }
-    let mut request = store.client.post(url).json(&body);
-    if !provider.is_local {
-        request = request.bearer_auth(store.api_key(&provider.id).await?);
-    }
     let observe = |_: &str, value: &Value| {
         if let Some(observer) = context.on_delta {
             if let Some(delta) = openai_event_delta(value)? {
@@ -264,7 +262,37 @@ async fn complete_openai(
         }
         Ok(())
     };
-    let payload = send_provider_payload(request, context.cancellation, Some(&observe)).await?;
+    // wps_06 A2: some strict OpenAI-compatible gateways reject the
+    // `stream_options` argument with HTTP 400. Try with it (needed so a final
+    // usage frame is emitted), and on a 400 naming the field, retry the request
+    // once without it.
+    let mut payload = None;
+    for include_stream_options in [true, false] {
+        let mut retry_body = body.clone();
+        if include_stream_options {
+            retry_body["stream_options"] = json!({ "include_usage": true });
+        }
+        let mut request = store.client.post(url.clone()).json(&retry_body);
+        if !provider.is_local {
+            request = request.bearer_auth(store.api_key(&provider.id).await?);
+        }
+        match send_provider_payload(request, context.cancellation, Some(&observe)).await {
+            Ok(value) => {
+                payload = Some(value);
+                break;
+            }
+            Err(error)
+                if include_stream_options && error_rejects_stream_options(&error) =>
+            {
+                log::warn!(
+                    "provider rejected stream_options with HTTP 400; retrying without it: {error}"
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    let payload = payload
+        .expect("the request loop either sets a payload or returns the last error");
     let (text, usage) = match payload {
         ProviderPayload::Json(value) => {
             check_provider_error(&value)?;
@@ -476,8 +504,15 @@ async fn send_provider_payload(
     observer: Option<&EventObserver<'_>>,
 ) -> AppResult<ProviderPayload> {
     let response = tokio::select! {
+        biased;
         _ = cancellation.cancelled() => return Err(cancelled_error()),
         response = request.send() => response?,
+        _ = tokio::time::sleep(RESPONSE_HEADERS_TIMEOUT) => {
+            return Err(AppError::new(
+                "provider-timeout",
+                "The provider did not return response headers in time",
+            ));
+        }
     };
     let status = response.status();
     if response
@@ -516,13 +551,21 @@ async fn send_provider_payload(
         return Ok(ProviderPayload::Json(value));
     }
 
-    let mut stream = response.bytes_stream().eventsource();
+    // Byte-level frame cap while the body streams (wps_06 N-5).
+    let mut stream = bounded_sse_bytes(response).eventsource();
     let mut events = Vec::new();
     let mut total_bytes = 0usize;
     loop {
         let next = tokio::select! {
+            biased;
             _ = cancellation.cancelled() => return Err(cancelled_error()),
             next = stream.next() => next,
+            _ = tokio::time::sleep(SSE_IDLE_TIMEOUT) => {
+                return Err(AppError::new(
+                    "provider-timeout",
+                    "The provider connection timed out while waiting for the next SSE event",
+                ));
+            }
         };
         let Some(event) = next else { break };
         let event = event.map_err(|error| {
@@ -666,7 +709,9 @@ fn parse_openai_events(events: Vec<(String, Value)>) -> AppResult<(String, Agent
             append_content(&mut text, content)?;
         }
         if let Some(reported) = value.get("usage") {
-            usage = openai_usage(Some(reported));
+            // wps_06 F3: merge field-by-field; a later partial usage chunk must
+            // not erase cache numbers or the measured flag from an earlier one.
+            merge_openai_stream_usage(&mut usage, reported);
         }
         validate_response_text(&text)?;
     }
@@ -895,6 +940,11 @@ fn openai_usage(value: Option<&Value>) -> AgentCacheUsage {
         },
         cache_write_tokens: 0,
         completion_tokens: uint(value.get("completion_tokens")).unwrap_or(0),
+        // wps_06 F2: o-series reasoning detail (already included in completion).
+        reasoning_tokens: value
+            .pointer("/completion_tokens_details/reasoning_tokens")
+            .and_then(|detail| uint(Some(detail)))
+            .unwrap_or(0),
         total_tokens: uint(value.get("total_tokens")).unwrap_or(0),
         hit_rate: 0.0,
     };
@@ -903,6 +953,48 @@ fn openai_usage(value: Option<&Value>) -> AgentCacheUsage {
     }
     usage.refresh_hit_rate();
     usage
+}
+
+/// Merges a usage object carried on an OpenAI streaming chunk into the running
+/// totals instead of replacing it (wps_06 F3). Some compatible gateways emit
+/// usage on more than one chunk — an earlier chunk carrying cache detail and a
+/// later one omitting it — so fields are updated only when the incoming chunk
+/// actually reports a (non-zero) value, and `measured` is set-only/never
+/// cleared. All chunks of one stream belong to one request, so `requests` is
+/// not incremented here.
+fn merge_openai_stream_usage(usage: &mut AgentCacheUsage, reported: &Value) {
+    let incoming = openai_usage(Some(reported));
+    usage.measured |= incoming.measured;
+    if incoming.prompt_tokens > 0 {
+        usage.prompt_tokens = incoming.prompt_tokens;
+    }
+    if incoming.cache_read_tokens > 0 {
+        usage.cache_read_tokens = incoming.cache_read_tokens;
+    }
+    if incoming.cache_miss_tokens > 0 {
+        usage.cache_miss_tokens = incoming.cache_miss_tokens;
+    }
+    if incoming.completion_tokens > 0 {
+        usage.completion_tokens = incoming.completion_tokens;
+    }
+    if incoming.reasoning_tokens > 0 {
+        usage.reasoning_tokens = incoming.reasoning_tokens;
+    }
+    if incoming.total_tokens > 0 {
+        usage.total_tokens = incoming.total_tokens;
+    }
+    if usage.measured {
+        // Derive the miss side from prompt/read when the chunk did not state it.
+        usage.cache_miss_tokens = usage
+            .cache_miss_tokens
+            .max(usage.prompt_tokens.saturating_sub(usage.cache_read_tokens));
+    }
+    if usage.total_tokens == 0 {
+        usage.total_tokens = usage
+            .prompt_tokens
+            .saturating_add(usage.completion_tokens);
+    }
+    usage.refresh_hit_rate();
 }
 
 fn anthropic_usage(value: Option<&Value>) -> AgentCacheUsage {
@@ -922,6 +1014,9 @@ fn anthropic_usage(value: Option<&Value>) -> AgentCacheUsage {
         cache_miss_tokens: if measured { input } else { 0 },
         cache_write_tokens: cache_write,
         completion_tokens: output,
+        // Anthropic folds thinking tokens into output_tokens with no separate
+        // field in this usage shape.
+        reasoning_tokens: 0,
         total_tokens: prompt.saturating_add(output),
         hit_rate: 0.0,
     };
@@ -934,6 +1029,9 @@ fn google_usage(value: Option<&Value>) -> AgentCacheUsage {
     let prompt = uint(value.get("promptTokenCount")).unwrap_or(0);
     let cached = uint(value.get("cachedContentTokenCount")).unwrap_or(0);
     let completion = uint(value.get("candidatesTokenCount")).unwrap_or(0);
+    // wps_06 F2: thinking tokens are billed but NOT included in
+    // candidatesTokenCount; surface them as the reasoning sub-count.
+    let reasoning = uint(value.get("thoughtsTokenCount")).unwrap_or(0);
     let measured = value.get("cachedContentTokenCount").is_some();
     let mut usage = AgentCacheUsage {
         measured,
@@ -947,8 +1045,12 @@ fn google_usage(value: Option<&Value>) -> AgentCacheUsage {
         },
         cache_write_tokens: 0,
         completion_tokens: completion,
-        total_tokens: uint(value.get("totalTokenCount"))
-            .unwrap_or_else(|| prompt.saturating_add(completion)),
+        reasoning_tokens: reasoning,
+        total_tokens: uint(value.get("totalTokenCount")).unwrap_or_else(|| {
+            prompt
+                .saturating_add(completion)
+                .saturating_add(reasoning)
+        }),
         hit_rate: 0.0,
     };
     usage.refresh_hit_rate();
@@ -1029,6 +1131,19 @@ fn prompt_cache_key(provider_id: &str, conversation_id: &str) -> String {
 /// speculatively.
 fn provider_supports_prompt_cache_key(provider: &ResolvedProvider) -> bool {
     matches!(provider.protocol, ProviderProtocol::Openai) || provider.api.contains("opencode.ai")
+}
+
+/// Whether a failed provider request was a 400 specifically rejecting the
+/// `stream_options` argument, which justifies the fieldless retry (wps_06 A2).
+fn error_rejects_stream_options(error: &AppError) -> bool {
+    use crate::error::codes;
+    if error.code != codes::PROVIDER_HTTP_ERROR || !error.message.contains("400") {
+        return false;
+    }
+    error
+        .message
+        .to_ascii_lowercase()
+        .contains("stream_options")
 }
 
 fn append_endpoint(base: &str, endpoint: &str) -> String {

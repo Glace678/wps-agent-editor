@@ -98,63 +98,53 @@ function calculateAnchoredScroll(params: {
   assert.doesNotMatch(wordEditor, /setIsZooming/, 'WordEditor must not toggle isZooming')
 }
 
-// 4. 结构性断言：补丁脚本包含三处 book/zoom 关键补丁
+// 4. 结构性断言：提交的 patch-package 补丁包含全部 book/zoom 关键改动，
+//    Vite 缓存失效逻辑迁到 clear-vite-cache.mjs。
 {
-  const patchScript = read('scripts/patch-superdoc-word-layout.mjs')
+  const patchContent = read('patches/superdoc+1.44.0.patch')
+  // Keep only added lines (minus the '+++' file header): unchanged context and
+  // removed lines would otherwise break sequence matching across the diff.
+  const added = patchContent
+    .split('\n')
+    .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+    .map((line) => line.slice(1))
+    .join('\n')
   assert.match(
-    patchScript,
+    added,
     /layoutMode === "book"/,
-    'patch-superdoc-word-layout must patch book mode in #applyZoom',
+    'committed superdoc patch must change book mode in #applyZoom',
   )
+  // setZoom 尾部：补丁后仅 semantic flow 才挂全量重绘；两条新增语句相邻。
   assert.match(
-    patchScript,
-    /skip full document re-render on zoom in paginated modes/,
-    'patch script must skip the full rerender on zoom (seamless wheel zoom)',
-  )
-  assert.match(
-    patchScript,
-    /pair book-mode pages two-up from the first page/,
-    'patch script must pair book-mode pages two-up from the first page',
-  )
-  // setZoom 尾部：仅 semantic flow 才挂全量重绘。补丁脚本此处使用
-  // 真实换行和字面 \t 转义；同时支持 Git 的 LF / CRLF 检出。
-  assert.match(
-    patchScript,
-    /if \(this\.#isSemanticFlowMode\(\)\) \{\r?\n(?:\\t)+this\.#pendingDocChange = true;\r?\n(?:\\t)+this\.#scheduleRerender\(\);/,
+    added,
+    /this\.#pendingDocChange = true;\s+this\.#scheduleRerender\(\);/,
     'setZoom patch must gate pendingDocChange/scheduleRerender behind semantic flow mode',
   )
   // renderBookMode：从第 0 页开始两页一排（Word 多页排法）
   assert.match(
-    patchScript,
+    added,
     /for \(let i = 0; i < pages\.length; i \+= 2\)/,
     'renderBookMode patch must iterate spreads from page 0',
   )
   // #applyZoom 视口高度：必须显式设置为缩放后高度（负 margin 补偿在本
   // 应用 DOM 链中不收缩滚动区，留空 height 会导致缩小后页面下方出现
-  // 数千 px 可滚动空白）。补丁脚本中这些字符串是模板字面量，反引号/$
-  // 带反斜杠转义。
+  // 数千 px 可滚动空白）。新增行保留原始模板字面量。
   assert.match(
-    patchScript,
-    /size the vertical viewport host to the scaled height in #applyZoom/,
-    'patch script must size the vertical viewport host explicitly',
-  )
-  // 补丁脚本里目标字符串是嵌套在模板字面量中的，原始字节里反引号/$ 带
-  // 反斜杠转义（\` \${），这里按原始字节匹配。
-  assert.match(
-    patchScript,
-    /viewportHost\.style\.height = \\`\\\$\{scaledHeight\}px\\`;/,
-    'patch script must set explicit scaled height on the book/vertical viewport host',
+    added,
+    /viewportHost\.style\.height = `\$\{scaledHeight\}px`;/,
+    'patch must set explicit scaled height on the book/vertical viewport host',
   )
   assert.match(
-    patchScript,
-    /viewportHost\.style\.height = \\`\\\$\{scaledHeight\$1\}px\\`;/,
-    'patch script must set explicit scaled height on the horizontal viewport host',
+    added,
+    /viewportHost\.style\.height = `\$\{scaledHeight\$1\}px`;/,
+    'patch must set explicit scaled height on the horizontal viewport host',
   )
-  // 补丁后必须失效 Vite 依赖预打包缓存，否则 dev server 重启仍跑旧引擎
+  // 缓存失效脚本必须仍清理 Vite 依赖预打包缓存，否则 dev server 重启跑旧引擎
+  const cacheScript = read('scripts/clear-vite-cache.mjs')
   assert.match(
-    patchScript,
+    cacheScript,
     /'\.vite'/,
-    'patch script must clear the Vite dependency prebundle cache',
+    'clear-vite-cache must invalidate the Vite dependency prebundle cache',
   )
 }
 

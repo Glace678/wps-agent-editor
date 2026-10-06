@@ -160,7 +160,7 @@ jobs:
           cargo install cargo-cyclonedx --version 0.5.9 --locked
           cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust
           mv src-tauri/sbom-rust.json artifacts/sbom-rust.cdx.json
-          git archive --format=zip --output="artifacts/WPS-Agent-Editor-${GITHUB_REF_NAME}-source.zip" HEAD
+          git archive --format=zip --output="artifacts/Office-Agentic-${GITHUB_REF_NAME}-source.zip" HEAD
       - name: Validate six targets and generate checksums
         env:
           REQUIRE_RELEASE_MATRIX: '1'

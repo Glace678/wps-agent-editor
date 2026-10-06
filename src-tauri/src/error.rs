@@ -64,9 +64,12 @@ pub mod codes {
     pub const DEBUG_START_FAILED: &str = "debug-start-failed";
     pub const DEBUG_TRANSPILE_FAILED: &str = "debug-transpile-failed";
     pub const DEBUGGER_BUSY: &str = "debugger-busy";
+    pub const EVENT_BACKPRESSURE: &str = "event-backpressure";
     pub const FILE_TOO_LARGE: &str = "file-too-large";
     pub const INSPECTOR_CONNECTION_FAILED: &str = "inspector-connection-failed";
     pub const PTY_ERROR: &str = "pty-error";
+    pub const PTY_WRITE_BUSY: &str = "pty-write-busy";
+    pub const PTY_WRITE_TIMEOUT: &str = "pty-write-timeout";
     pub const SESSION_ALREADY_ACTIVE: &str = "session-already-active";
     pub const SESSION_ENDED: &str = "session-ended";
     pub const SESSION_LIMIT: &str = "session-limit";
@@ -91,9 +94,12 @@ pub mod codes {
     pub const UNSUPPORTED_DATA_VERSION: &str = "unsupported-data-version";
 
     // Files / app shell.
+    pub const ACCESS_DENIED: &str = "access-denied";
     pub const CLIPBOARD_FAILED: &str = "clipboard-failed";
     pub const CLIPBOARD_UNAVAILABLE: &str = "clipboard-unavailable";
     pub const CLIPBOARD_WRITE_FAILED: &str = "clipboard-write-failed";
+    pub const EXECUTABLE_FILE_BLOCKED: &str = "executable-file-blocked";
+    pub const INVALID_PATH: &str = "invalid-path";
     pub const OPEN_FAILED: &str = "open-failed";
     pub const UNAVAILABLE: &str = "unavailable";
 
@@ -182,9 +188,12 @@ pub mod codes {
         DEBUG_START_FAILED,
         DEBUG_TRANSPILE_FAILED,
         DEBUGGER_BUSY,
+        EVENT_BACKPRESSURE,
         FILE_TOO_LARGE,
         INSPECTOR_CONNECTION_FAILED,
         PTY_ERROR,
+        PTY_WRITE_BUSY,
+        PTY_WRITE_TIMEOUT,
         SESSION_ALREADY_ACTIVE,
         SESSION_ENDED,
         SESSION_LIMIT,
@@ -205,9 +214,12 @@ pub mod codes {
         REQUEST_TOO_LARGE,
         RESPONSE_TOO_LARGE,
         UNSUPPORTED_DATA_VERSION,
+        ACCESS_DENIED,
         CLIPBOARD_FAILED,
         CLIPBOARD_UNAVAILABLE,
         CLIPBOARD_WRITE_FAILED,
+        EXECUTABLE_FILE_BLOCKED,
+        INVALID_PATH,
         OPEN_FAILED,
         UNAVAILABLE,
         UPDATE_BACKUP_CHANGED,
@@ -426,11 +438,9 @@ mod tests {
 
     /// i18n guard: every registered code must have an entry under `errors`
     /// in the English locale. The locale is a TS module, so we read it as
-    /// text (review report E1). Today the locale does not yet define an
-    /// `errors` section (frontend gap, tracked separately); in that case the
-    /// test prints the missing-key list and passes, so that landing the
-    /// section later turns this into a hard coverage assertion instead of
-    /// silently shipping a failing suite.
+    /// text and extract the section with brace matching (review report D2:
+    /// the old test skipped everything when the section was absent and so
+    /// always passed).
     #[test]
     fn registered_codes_have_english_locale_entries() {
         let locale_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -440,27 +450,39 @@ mod tests {
             .join("i18n")
             .join("locales")
             .join("en.ts");
-        let Ok(source) = std::fs::read_to_string(&locale_path) else {
-            eprintln!(
-                "i18n guard: locale file not found at {}; skipping coverage check",
+        let source = std::fs::read_to_string(&locale_path).unwrap_or_else(|error| {
+            panic!(
+                "i18n guard: cannot read English locale at {}: {error}",
                 locale_path.display()
-            );
-            return;
-        };
-        let Some(start) = source.find("errors: {") else {
-            let missing = codes::ALL.join(", ");
-            eprintln!(
-                "i18n guard: en.ts has no `errors` section yet; {} codes pending entries: {missing}",
-                codes::ALL.len()
-            );
-            return;
-        };
-        let body = &source[start..];
-        let end = body.find('}').unwrap_or(body.len());
-        let block = &body[..end];
+            )
+        });
+        let section = source.find("errors: {").expect(
+            "i18n guard: en.ts has no `errors` section; every code in codes::ALL needs an entry",
+        );
+        let block_start = section + "errors: ".len();
+        let bytes = source.as_bytes();
+        let mut depth = 0_usize;
+        let mut end = block_start;
+        for (index, &byte) in bytes.iter().enumerate().skip(block_start) {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = index;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(depth, 0, "i18n guard: unbalanced braces in `errors` section");
+        let block = &source[block_start..=end];
         for code in codes::ALL {
             assert!(
-                block.contains(&format!("{code}:")) || block.contains(&format!("'{code}':")),
+                block.contains(&format!("'{code}':"))
+                    || block.contains(&format!("\"{code}\":"))
+                    || block.contains(&format!("{code}:")),
                 "error code `{code}` has no entry in en.ts `errors` section"
             );
         }

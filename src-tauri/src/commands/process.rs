@@ -173,6 +173,11 @@ pub async fn process_terminal_start(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> AppResult<TerminalStartResult> {
+    // wps_01 N-9: a terminal inherits the full powers of the user (the child
+    // can cd and write anywhere the user can), so starting one from a
+    // read-only grant contradicted the read/write capability split. Both
+    // grant-backed paths now require a writable directory grant. The grantless
+    // default (the user's home) stays, as no read-only grant is involved there.
     let cwd = match request.cwd {
         Some(path) => state.files.access.resolve(
             window.label(),
@@ -181,13 +186,13 @@ pub async fn process_terminal_start(
                 .grant_id
                 .as_deref()
                 .ok_or_else(|| crate::error::AppError::denied("A directory grant is required"))?,
-            false,
+            true,
             Some(true),
         )?,
         None if request.grant_id.is_some() => state.files.access.resolve_grant(
             window.label(),
             request.grant_id.as_deref().expect("grant id checked"),
-            false,
+            true,
             Some(true),
         )?,
         None => state.files.home_dir().to_path_buf(),

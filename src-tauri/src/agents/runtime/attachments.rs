@@ -482,7 +482,7 @@ pub(super) fn attachment_signature(
     // must not be served to a later larger-budget request.
     digest.update([0]);
     digest.update(maximum_chars.to_le_bytes());
-    for attachment in &message.attachments {
+    for attachment in message.attachments.as_deref().unwrap_or(&[]) {
         digest.update([0]);
         digest.update(attachment.path.as_bytes());
         digest.update([0]);
@@ -490,7 +490,7 @@ pub(super) fn attachment_signature(
         digest.update([0]);
         digest.update(attachment.name.as_bytes());
         digest.update([0]);
-        digest.update(attachment.source.as_bytes());
+        digest.update(attachment.source.as_str().as_bytes());
     }
     hex::encode(digest.finalize())
 }

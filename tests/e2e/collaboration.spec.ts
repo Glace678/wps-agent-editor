@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { AgentRunTaskRequest } from '../../src/types/generated/AgentRunTaskRequest'
+import { selfValidateMockPayloads, validateMockResponses } from './support/mock-payloads'
 
 interface ScriptedEvent {
   type: string
@@ -41,6 +42,37 @@ async function installStreamingCollaborationMock(
     let callbackId = 0
     let messageIndex = 0
     const channelCallbacks = new Map<number, (message: unknown) => void>()
+    // D1: un-whitelisted commands are recorded for the afterEach assertion.
+    const unknownCommands: string[] = []
+    // D2: record every mock response for runtime contract validation.
+    const mockResponses: Array<{ command: string; result: unknown }> = []
+    // C6: counted stream gate. pauseAfter frames queue individual waiters
+    // instead of overwriting one global resolver — multiple concurrent holds
+    // are representable, and the test can assert the outstanding hold count.
+    const streamGate = {
+      holds: 0,
+      waiters: [] as Array<() => void>,
+      acquire(): Promise<void> {
+        this.holds += 1
+        return new Promise<void>((resolve) => {
+          this.waiters.push(resolve)
+        })
+      },
+      releaseOne(): number {
+        const resolve = this.waiters.shift()
+        if (resolve) {
+          this.holds -= 1
+          resolve()
+        }
+        return this.holds
+      },
+      releaseAll(): number {
+        const pending = this.waiters.splice(0)
+        this.holds = 0
+        for (const resolve of pending) resolve()
+        return 0
+      },
+    }
     const agents = ['director', 'peer'].map((id) => ({
       id,
       name: id === 'director' ? 'Director' : 'Peer',
@@ -63,7 +95,8 @@ async function installStreamingCollaborationMock(
         unregisterCallback(id: number) {
           channelCallbacks.delete(id)
         },
-        async invoke(command: string, args?: Record<string, unknown>) {
+        invoke: (() => {
+          const handleInvoke = async (command: string, args?: Record<string, unknown>) => {
           switch (command) {
             case 'plugin:event|listen': return ++callbackId
             case 'plugin:event|unlisten': return null
@@ -89,6 +122,15 @@ async function installStreamingCollaborationMock(
               discovered: 0, imported: 0, updated: 0, skipped: 0,
               failed: 0, messages: 0, failures: [],
             }
+            case 'app_i18n_set_language':
+            case 'app_theme_set':
+            case 'app_startup_healthy':
+            case 'documents_set_current_file':
+              return { success: true }
+            case 'app_take_recovery_notices':
+              return []
+            case 'files_session_save':
+              return null
             case 'agents_run_task': {
               const request = (args as { request?: Record<string, unknown> })?.request
               const channel = (args as { onEvent?: unknown })?.onEvent
@@ -100,11 +142,10 @@ async function installStreamingCollaborationMock(
                 const { pauseAfter, ...wire } = event
                 callback?.({ index: messageIndex++, message: { ...wire, runId: request?.runId } })
                 if (pauseAfter) {
-                  // Hold the stream until the test releases it, so incremental
-                  // render states are observable deterministically.
-                  await new Promise<void>((resolve) => {
-                    ;(window as unknown as { __WAE_STREAM_RELEASE__: () => void }).__WAE_STREAM_RELEASE__ = resolve
-                  })
+                  // Hold the stream until the test releases this specific
+                  // wait, so incremental render states are observable
+                  // deterministically.
+                  await streamGate.acquire()
                 }
               }
               return agents.map((agent) => ({
@@ -117,14 +158,30 @@ async function installStreamingCollaborationMock(
                 cacheUsage: scripted.at(-1)?.cacheUsage ?? null,
               }))
             }
-            default: return { success: true }
+            default:
+              unknownCommands.push(command)
+              return { success: true }
           }
-        },
+          }
+          return async (command: string, args?: Record<string, unknown>) => {
+            const result = await handleInvoke(command, args)
+            mockResponses.push({ command, result })
+            return result
+          }
+        })(),
       },
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+      __WAE_UNKNOWN_COMMANDS__: unknownCommands,
+      __WAE_MOCK_RESPONSES__: mockResponses,
+      __WAE_STREAM_GATE__: {
+        holdCount: () => streamGate.holds,
+        releaseOne: () => streamGate.releaseOne(),
+        releaseAll: () => streamGate.releaseAll(),
+      },
     })
   }, events)
 }
+
 
 function cacheUsage(cacheReadTokens: number, cacheMissTokens: number, promptTokens: number) {
   const read = cacheReadTokens
@@ -205,11 +262,23 @@ test('renders the collaboration transcript and the aggregated cache readout', as
   await expect(page.getByTestId('collaboration-chat')).toBeVisible()
   await expect(page.getByTestId('collaboration-task')).toHaveText('Summarize the contract')
 
-  const releaseStream = () => page.evaluate(() => (
-    window as unknown as { __WAE_STREAM_RELEASE__: () => void }
-  ).__WAE_STREAM_RELEASE__())
+  // page.evaluate structured-clones its return value, so functions on the
+  // gate object would not survive; invoke the gate method inside the page.
+  const gateCall = (method: 'holdCount' | 'releaseOne' | 'releaseAll') =>
+    page.evaluate(
+      (m) =>
+        (
+          window as unknown as {
+            __WAE_STREAM_GATE__: Record<'holdCount' | 'releaseOne' | 'releaseAll', () => number>
+          }
+        ).__WAE_STREAM_GATE__[m](),
+      method,
+    )
+  const releaseStream = () => gateCall('releaseOne')
   const speechBody = page.getByTestId('collaboration-speech').locator('p')
 
+  // C6: frame 4 parks with exactly one outstanding hold.
+  await expect.poll(() => gateCall('holdCount')).toBe(1)
   // Incremental update: the first delta renders alone while the stream is held.
   await expect(speechBody).toHaveText('Planning the split')
 
@@ -218,8 +287,13 @@ test('renders the collaboration transcript and the aggregated cache readout', as
   await releaseStream()
   await expect(speechBody).toHaveText('Planning the split of work.')
 
+  // C6: frame 5 parked under a fresh wait — the old waiter was consumed and
+  // the hold count is back to exactly one.
+  await expect.poll(() => gateCall('holdCount')).toBe(1)
   // Release the remaining events (delegation, cache reports, run complete).
   await releaseStream()
+  // C6: no waiters may remain once the stream ran to completion.
+  await expect.poll(() => gateCall('holdCount')).toBe(0)
 
   // Exactly one speech bubble: the two stream frames merged, not rendered twice.
   await expect(page.getByTestId('collaboration-speech')).toHaveCount(1)
@@ -298,6 +372,10 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     let callbackId = 0
     const requests: unknown[] = []
+    // D1: un-whitelisted commands are recorded for the afterEach assertion.
+    const unknownCommands: string[] = []
+    // D2: record every mock response for runtime contract validation.
+    const mockResponses: Array<{ command: string; result: unknown }> = []
     const agents = ['director', 'peer'].map((id) => ({
       id,
       name: id,
@@ -315,7 +393,8 @@ test.beforeEach(async ({ page }) => {
       __TAURI_INTERNALS__: {
         transformCallback: () => ++callbackId,
         unregisterCallback() {},
-        async invoke(command: string, args?: Record<string, unknown>) {
+        invoke: (() => {
+          const handleInvoke = async (command: string, args?: Record<string, unknown>) => {
           switch (command) {
             case 'plugin:event|listen': return ++callbackId
             case 'plugin:event|unlisten': return null
@@ -341,16 +420,52 @@ test.beforeEach(async ({ page }) => {
               discovered: 0, imported: 0, updated: 0, skipped: 0,
               failed: 0, messages: 0, failures: [],
             }
+            case 'app_i18n_set_language':
+            case 'app_theme_set':
+            case 'app_startup_healthy':
+            case 'documents_set_current_file':
+              return { success: true }
+            case 'app_take_recovery_notices':
+              return []
+            case 'files_session_save':
+              return null
             case 'agents_run_task':
               requests.push(args?.request)
               return []
-            default: return { success: true }
+            default:
+              unknownCommands.push(command)
+              return { success: true }
           }
-        },
+          }
+          return async (command: string, args?: Record<string, unknown>) => {
+            const result = await handleInvoke(command, args)
+            mockResponses.push({ command, result })
+            return result
+          }
+        })(),
       },
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+      __WAE_UNKNOWN_COMMANDS__: unknownCommands,
+      __WAE_MOCK_RESPONSES__: mockResponses,
     })
   })
+})
+
+// D1: no test may leave the app calling commands the active mock never
+// whitelisted. The streaming mock overwrites __WAE_UNKNOWN_COMMANDS__ with
+// its own recorder when it replaces __TAURI_INTERNALS__.
+// D2: mock responses are validated at runtime against the generated contract.
+test.afterEach(async ({ page }) => {
+  selfValidateMockPayloads()
+  const [unknown, responses] = await page.evaluate(() => [
+    (window as unknown as { __WAE_UNKNOWN_COMMANDS__?: string[] }).__WAE_UNKNOWN_COMMANDS__ ?? [],
+    (window as unknown as {
+      __WAE_MOCK_RESPONSES__?: Array<{ command: string; result: unknown }>
+    }).__WAE_MOCK_RESPONSES__ ?? [],
+  ])
+  expect(unknown, `unmocked invoke commands: ${unknown.join(', ')}`).toEqual([])
+  const contractErrors = validateMockResponses(responses)
+  expect(contractErrors, `mock payload contract violations:\n${contractErrors.join('\n')}`).toEqual([])
 })
 
 for (const mode of ['directed', 'parallel'] as const) {

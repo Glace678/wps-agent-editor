@@ -37,7 +37,12 @@ const config = {
   plugins: {
     updater: {
       pubkey: publicKey,
-      endpoints: [`https://github.com/${repository}/releases/latest/download/latest.json`],
+      // wps_08 #2: never point at the mutable "latest" Release. Any signed
+      // Release flipped out of prerelease (a manual hotfix or UI misclick)
+      // would instantly become the update source for every install. The
+      // manifest is published only to the rolling `stable-channel` Release by
+      // the promote job, after the staging smokes pass.
+      endpoints: [`https://github.com/${repository}/releases/download/stable-channel/latest.json`],
       windows: { installMode: 'passive' },
     },
   },
@@ -51,7 +56,7 @@ if (target.endsWith('-pc-windows-msvc')) {
   config.bundle.windows = {
     certificateThumbprint: thumbprint,
     digestAlgorithm: 'sha256',
-    timestampUrl: 'http://timestamp.comodoca.com',
+    timestampUrl: 'https://timestamp.sectigo.com',
   }
 }
 

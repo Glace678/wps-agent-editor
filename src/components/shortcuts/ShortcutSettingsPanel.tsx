@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   areShortcutChordsEquivalent,
@@ -82,6 +82,21 @@ export function ShortcutSettingsPanel({ onClose }: { onClose?: () => void }) {
     bindings: ShortcutBinding[]
   } | null>(null)
   const latchedModifiers = useRef<ShortcutModifier[]>([])
+  // #7: one-shot "saved" flash timer must be tracked and cleaned on unmount.
+  const savedFlashTimerRef = useRef<number | null>(null)
+
+  const flashSaved = () => {
+    setSavedFlash(true)
+    if (savedFlashTimerRef.current !== null) window.clearTimeout(savedFlashTimerRef.current)
+    savedFlashTimerRef.current = window.setTimeout(() => {
+      savedFlashTimerRef.current = null
+      setSavedFlash(false)
+    }, 1200)
+  }
+
+  useEffect(() => () => {
+    if (savedFlashTimerRef.current !== null) window.clearTimeout(savedFlashTimerRef.current)
+  }, [])
 
   const rows = useMemo(() => {
     const q = filter.trim().toLowerCase()
@@ -117,8 +132,7 @@ export function ShortcutSettingsPanel({ onClose }: { onClose?: () => void }) {
     latchedModifiers.current = []
     setOverrides({})
     saveChordOverrides({})
-    setSavedFlash(true)
-    window.setTimeout(() => setSavedFlash(false), 1200)
+    flashSaved()
   }
 
   const resetOne = (id: string) => {
@@ -154,6 +168,15 @@ export function ShortcutSettingsPanel({ onClose }: { onClose?: () => void }) {
     event: ReactKeyboardEvent<HTMLInputElement>,
     binding: ShortcutBinding,
   ) => {
+    // #9: Escape cancels recording instead of being captured as a binding.
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      stopRecording(binding.id)
+      event.currentTarget.blur()
+      return
+    }
+
     event.preventDefault()
     event.stopPropagation()
 
@@ -184,8 +207,7 @@ export function ShortcutSettingsPanel({ onClose }: { onClose?: () => void }) {
     saveChordOverrides(next)
     setRecordingId(null)
     setDraftChord('')
-    setSavedFlash(true)
-    window.setTimeout(() => setSavedFlash(false), 1200)
+    flashSaved()
     event.currentTarget.blur()
   }
 

@@ -29,6 +29,7 @@ import type {
   ConversationSaveRequest,
   ConversationSummary,
 } from './generated'
+import type { ErrorCode } from './generated/ErrorCode'
 
 export type DesktopRuntime = 'tauri' | 'web'
 
@@ -46,23 +47,15 @@ export type DesktopPlatform =
   | 'netbsd'
   | 'unknown'
 
+// Every Rust-emitted code (generated from codes::ALL) plus the three codes the
+// renderer mints itself when the desktop boundary fails before any backend
+// response exists. The (string & {}) escape hatch is gone (wps_09 B-2): a typo
+// in a code literal is now a type error.
 export type AppErrorCode =
-  | 'access-denied'
-  | 'cancelled'
-  | 'dependency-missing'
+  | ErrorCode
   | 'desktop-api-unavailable'
-  | 'executable-file-blocked'
-  | 'file-too-large'
-  | 'internal'
-  | 'invalid-argument'
-  | 'invalid-binary'
   | 'invalid-response'
   | 'invoke-failed'
-  | 'io-error'
-  | 'not-found'
-  | 'permission-denied'
-  | 'unsupported'
-  | (string & {})
 
 export type AppErrorData = Omit<RustAppError, 'code' | 'details' | 'messageKey' | 'retryable'> & {
   code: AppErrorCode
@@ -320,6 +313,14 @@ export interface AppApi {
   toggleFullscreen: () => Promise<void>
   close: () => Promise<void>
   quit: () => Promise<void>
+  /** Dirty tabs resolved: allow this window to close (wps_10 A1). */
+  confirmClose: () => Promise<void>
+  /** Dirty tabs resolved: ack the coordinated app quit (wps_10 A1). */
+  confirmQuit: () => Promise<void>
+  /** Cancel the coordinated app quit for every window (wps_10 A1). */
+  cancelQuit: () => Promise<void>
+  /** Dirty tabs resolved: perform the reload (wps_10 A1). */
+  confirmReload: (force?: boolean) => Promise<void>
   checkForUpdate: () => Promise<{
     available: boolean
     currentVersion: string

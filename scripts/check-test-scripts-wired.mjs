@@ -45,12 +45,28 @@ const driverCommands = fs.readdirSync(scriptsDir, { withFileTypes: true })
 
 const referenceText = [packageCommands, collectWorkflowCommands(), driverCommands].join('\n')
 
-// Token-boundary match: the filename must appear as a standalone argument/path,
-// never as a substring of another identifier. `test-foo.ts` must not match
-// `test-foo.ts.bak` or `not-test-foo.tsx`.
-function isReferenced(name) {
+// B6: a bare mention of the filename (documentation text, a string literal, a
+// commented-out reference) must NOT count as wiring evidence. Require an
+// executable invocation verb within the text immediately preceding the
+// filename: `node scripts/test-x.mjs`, `tsx scripts/test-x.ts`, spawn/exec
+// calls that pass the script as an argument.
+const INVOCATION_GAP = String.raw`[^\n]{0,160}?`
+const INVOCATION_VERBS = [
+  'node',
+  'npx',
+  'tsx',
+  'spawnSync',
+  'spawn',
+  'execFileSync',
+  'execSync',
+  'execFile',
+  'exec',
+].join('|')
+function isInvoked(name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(`(?:^|[^\\w.-])${escaped}(?:[^\\w.-]|$)`)
+  const pattern = new RegExp(
+    `\\b(?:${INVOCATION_VERBS})\\b${INVOCATION_GAP}${escaped}(?![\\w.-])`,
+  )
   return pattern.test(referenceText)
 }
 
@@ -63,7 +79,7 @@ const testFiles = fs.readdirSync(scriptsDir, { withFileTypes: true })
 const unwired = testFiles.filter((name) => (
   !structural.has(name)
   && !KNOWN_STANDALONE.has(name)
-  && !isReferenced(name)
+  && !isInvoked(name)
 ))
 
 if (unwired.length) {

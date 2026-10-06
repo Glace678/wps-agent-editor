@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { desktopApi } from '@/platform'
+import { errorMessage as platformErrorMessage } from '@/platform/app-error'
 import type {
   PdfFontDescriptor,
   PdfRotation,
@@ -106,5 +107,5 @@ export function editedPdfName(path: string): string {
 }
 
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return platformErrorMessage(error)
 }

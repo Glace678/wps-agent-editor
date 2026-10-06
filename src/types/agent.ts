@@ -35,6 +35,12 @@ export interface AgentAttachment {
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
+  /**
+   * Renderer-only stable identity used as the React key. Minted when the
+   * message is created and carried through streaming completion, so finishing
+   * a stream never remounts the bubble (wps_09 A-3).
+   */
+  id?: string
   timestamp?: number
   attachments?: AgentAttachment[]
   cacheUsage?: AgentCacheUsage
@@ -51,6 +57,8 @@ export interface AgentCacheUsage {
   cacheMissTokens: number
   cacheWriteTokens: number
   completionTokens: number
+  /** Reasoning/thinking tokens (subset of completion for OpenAI; separate for Google). */
+  reasoningTokens: number
   totalTokens: number
   hitRate: number
 }
@@ -60,6 +68,8 @@ export interface AgentTaskResult {
   agentName: string
   providerId: string
   model: string
+  /** Per-call identity; keys stream placeholders when the same agent runs more than once in a run. */
+  invocationToken: string
   response: string
   toolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }>
   cacheUsage: AgentCacheUsage
@@ -94,6 +104,9 @@ export type AgentCollaborationEventType =
   | 'run-paused'
   | 'run-cancelled'
   | 'run-complete'
+  // Synthetic renderer-only marker inserted when the in-memory event trace is
+  // trimmed; never emitted by the backend (wps_06 D2).
+  | 'events-truncated'
   | 'error'
 
 /** Serializable trace event emitted by the main process while a collaboration runs. */

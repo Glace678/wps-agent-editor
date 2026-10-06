@@ -910,7 +910,14 @@ const app: AppApi = {
   },
   toggleFullscreen: () => appVoid(DESKTOP_COMMANDS.app.toggleFullscreen),
   close: () => appVoid(DESKTOP_COMMANDS.app.close),
+  confirmClose: () => appVoid(DESKTOP_COMMANDS.app.closeConfirm),
   quit: () => appVoid(DESKTOP_COMMANDS.app.quit),
+  confirmQuit: () => appVoid(DESKTOP_COMMANDS.app.quitConfirm),
+  cancelQuit: () => appVoid(DESKTOP_COMMANDS.app.quitCancel),
+  confirmReload: (force = false) => appVoid(
+    DESKTOP_COMMANDS.app.reloadConfirm,
+    { request: { force } },
+  ),
   checkForUpdate: async () => {
     const value = await desktopTransport.invoke<unknown>(DESKTOP_COMMANDS.app.checkForUpdate)
     if (!isRecord(value)

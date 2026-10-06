@@ -23,6 +23,21 @@ const currentSpec = releaseArtifactSpec(current.tag, args.platform, args.arch, a
 for (const path of [previousSpec.primaryPath, currentSpec.primaryPath, currentSpec.latestPath]) {
   if (!(await stat(path).catch(() => null))?.isFile()) throw new Error(`Updater smoke input is missing: ${path}`)
 }
+// Internal release-fixtures package (tamper/invalid-install metadata and bins).
+if (!args['fixtures-directory']) {
+  throw new Error('--fixtures-directory <path> is required (internal release-fixtures artifact)')
+}
+const fixturesDirectory = resolve(args['fixtures-directory'])
+for (const name of [
+  'latest-tampered.json',
+  'latest-invalid-install.json',
+  currentSpec.invalidInstallName,
+  currentSpec.invalidInstallSignatureName,
+]) {
+  if (!(await stat(resolve(fixturesDirectory, name)).catch(() => null))?.isFile()) {
+    throw new Error(`Fixtures directory is missing ${name}: ${fixturesDirectory}`)
+  }
+}
 
 for (const tag of [previous.tag, current.tag]) {
   const result = spawnSync('gh', ['release', 'view', tag, '--repo', repository, '--json', 'isDraft,tagName'], {
@@ -65,6 +80,7 @@ async function runHook(outputPath, injectHealthFailure) {
     '--current-tag', current.tag,
     '--platform-key', currentSpec.platformKey,
     '--repository', repository,
+    '--fixture-package', fixturesDirectory,
     '--report', outputPath,
   ]
   if (injectHealthFailure) hookArgs.push('--inject-health-failure')

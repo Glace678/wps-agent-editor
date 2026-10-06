@@ -77,11 +77,13 @@ export function initializeLanguage(): LanguageCode {
 }
 
 export function getAppLanguage(): LanguageCode {
-  return initializeLanguage()
+  // #4: must stay pure — useSyncExternalStore calls this during render.
+  // initializeLanguage() (DOM lang/dir writes + native menu IPC) runs once at
+  // startup (renderer/main.tsx); setAppLanguage keeps the DOM in sync after.
+  return getLanguage()
 }
 
 export function setAppLanguage(language: LanguageCode): void {
-  initializeLanguage()
   if (!languageCodes.has(language)) return
 
   const changed = getLanguage() !== language
@@ -130,7 +132,6 @@ export function useTranslation(): TranslationApi {
 }
 
 if (typeof window !== 'undefined') {
-  initializeLanguage()
   window.addEventListener('storage', (event) => {
     if (event.key !== APP_LANGUAGE_STORAGE_KEY) return
     const language = normalizeLanguage(event.newValue)

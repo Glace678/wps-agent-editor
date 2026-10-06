@@ -469,20 +469,31 @@ function wrapText(
       continue
     }
     let line = ''
+    // F10: maintain the current line's width incrementally instead of
+    // re-measuring the whole candidate per character (was O(n^2) calls into
+    // encodeCharacter/advanceGlyph on long paragraphs).
+    let lineWidth = 0
     for (const character of paragraph) {
-      const candidate = line + character
+      const charWidth = glyphAdvance(font, character, fontSize)
       const availableWidth = Math.max(1, maxWidth - (lines.length === 0 ? firstLineIndent : 0))
-      if (line && glyphAdvance(font, candidate, fontSize) > availableWidth + PDF_TEXT_WRAP_TOLERANCE) {
+      if (line && lineWidth + charWidth > availableWidth + PDF_TEXT_WRAP_TOLERANCE) {
+        const candidate = line + character
         const breakAt = wrapWords ? candidate.lastIndexOf(' ') : -1
         if (breakAt > 0) {
           lines.push(candidate.slice(0, breakAt))
           line = candidate.slice(breakAt + 1)
+          // The new `line` is the trailing word only; each character is
+          // re-measured at most once across successive word breaks, so the
+          // whole wrap stays linear in the paragraph length.
+          lineWidth = glyphAdvance(font, line, fontSize)
         } else {
           lines.push(line)
           line = character
+          lineWidth = charWidth
         }
       } else {
-        line = candidate
+        line += character
+        lineWidth += charWidth
       }
     }
     lines.push(line)
@@ -1071,7 +1082,11 @@ async function handleRequest(request: PdfWorkerRequest): Promise<WorkerResult> {
   }
 
   if (request.type === 'close') {
-    // 幂等：关闭已关闭/陈旧的文档直接返回成功，而不是抛 stale-document。
+    // Idempotent close (behavior change, wps_09 A-5): closing an already
+    // closed or stale document returns { closed: true } instead of throwing
+    // stale-document, so a duplicated close (unmount + tab switch) cannot
+    // surface a spurious error. Registered here as the externally observable
+    // protocol change; no renderer path relies on the stale throw.
     if (current && current.documentId === request.documentId) disposeCurrent()
     return { result: { closed: true } }
   }

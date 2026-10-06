@@ -6,6 +6,7 @@ import type {
   ConversationSummary,
 } from '@/types/generated'
 import { dedupeAgentAttachments } from '@/lib/agent-attachments'
+import { capCollaborationEvents } from '@/lib/collaboration-events'
 
 // Defensive replay guard for `agent-stream` frames. Frames are accumulated per
 // operationId: each frame carries an *incremental* content delta and the store
@@ -19,6 +20,12 @@ const lastStreamDeltaByOperation = new Map<string, string>()
 function streamOperationKey(event: AgentCollaborationEvent): string {
   return `${event.runId}|${event.operationId ?? ''}`
 }
+
+// wps_06 E1: stream placeholders are keyed per invocation (`inv:<agent>:
+// <token>`), while completions may still arrive addressed by the run id
+// (single-chat path / error results). Remembers the most recent invocation
+// key per (agent, runId) so such completions still land on the right bubble.
+const lastStreamKeyByRun = new Map<string, string>()
 
 interface AgentState {
   agents: AgentConfig[]
@@ -39,8 +46,14 @@ interface AgentState {
   setAgents: (agents: AgentConfig[]) => void
   setActiveAgentId: (id: string | null) => void
   addMessage: (agentId: string, message: ChatMessage) => void
-  appendAssistantStream: (agentId: string, runId: string, content: string) => void
-  completeAssistantStream: (agentId: string, runId: string, message: ChatMessage) => void
+  appendAssistantStream: (agentId: string, streamKey: string, runId: string, content: string) => void
+  completeAssistantStream: (agentId: string, runIdOrKey: string, message: ChatMessage) => void
+  /**
+   * Finalizes every streaming bubble belonging to `runId` (or all runs when
+   * null), preserving partial text. Empty cancelled bubbles are dropped.
+   * wps_06 A4: stop/error used to leave placeholders spinning forever.
+   */
+  settleStreamingMessages: (runId: string | null, outcome: 'cancelled' | 'error') => void
   clearMessages: (agentId: string) => void
   ensureConversationId: (agentId: string) => string
   loadConversation: (agentId: string, conversation: ConversationRecord) => void
@@ -86,27 +99,43 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         [agentId]: [...(state.messages[agentId] || []), { ...message, timestamp: Date.now() }],
       },
     })),
-  appendAssistantStream: (agentId, runId, content) => set((state) => {
+  appendAssistantStream: (agentId, streamKey, runId, content) => set((state) => {
     if (!content) return {}
+    lastStreamKeyByRun.set(`${agentId}|${runId}`, streamKey)
     const current = state.messages[agentId] || []
-    const index = current.findIndex((message) => message.streamingRunId === runId)
+    const index = current.findIndex((message) => message.streamingRunId === streamKey)
     const next = [...current]
     if (index < 0) {
       next.push({
+        id: crypto.randomUUID(),
         role: 'assistant',
         content,
         timestamp: Date.now(),
-        streamingRunId: runId,
+        streamingRunId: streamKey,
       })
     } else {
       next[index] = { ...next[index], content: `${next[index].content}${content}` }
     }
     return { messages: { ...state.messages, [agentId]: next } }
   }),
-  completeAssistantStream: (agentId, runId, message) => set((state) => {
+  completeAssistantStream: (agentId, runIdOrKey, message) => set((state) => {
     const current = state.messages[agentId] || []
-    const index = current.findIndex((entry) => entry.streamingRunId === runId)
-    const completed = { ...message, timestamp: Date.now(), streamingRunId: undefined }
+    let index = current.findIndex((entry) => entry.streamingRunId === runIdOrKey)
+    // wps_06 E1: fall back to the latest invocation key of this (agent, run).
+    if (index < 0) {
+      const aliased = lastStreamKeyByRun.get(`${agentId}|${runIdOrKey}`)
+      if (aliased !== undefined) {
+        index = current.findIndex((entry) => entry.streamingRunId === aliased)
+      }
+    }
+    // Carry the placeholder's stable id onto the completed bubble; mint one
+    // only when completion arrives without a streamed placeholder.
+    const completed = {
+      ...message,
+      id: index >= 0 ? current[index].id : crypto.randomUUID(),
+      timestamp: Date.now(),
+      streamingRunId: undefined,
+    }
     if (index < 0) {
       return { messages: { ...state.messages, [agentId]: [...current, completed] } }
     }
@@ -114,25 +143,107 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     next[index] = completed
     return { messages: { ...state.messages, [agentId]: next } }
   }),
+  settleStreamingMessages: (runId, outcome) => set((state) => {
+    // Collect the stream keys recorded for the targeted run(s): the map is
+    // keyed `${agentId}|${runId}`.
+    const keysByAgent = new Map<string, Set<string>>()
+    for (const [mapKey, streamKey] of lastStreamKeyByRun) {
+      const separator = mapKey.indexOf('|')
+      const mappedAgentId = mapKey.slice(0, separator)
+      const mappedRunId = mapKey.slice(separator + 1)
+      if (runId !== null && mappedRunId !== runId) continue
+      let set = keysByAgent.get(mappedAgentId)
+      if (!set) {
+        set = new Set()
+        keysByAgent.set(mappedAgentId, set)
+      }
+      set.add(streamKey)
+    }
+    const messages = { ...state.messages }
+    let changed = false
+    for (const [agentId, keys] of keysByAgent) {
+      const current = messages[agentId]
+      if (!current) continue
+      const next: ChatMessage[] = []
+      let agentChanged = false
+      for (const message of current) {
+        if (message.streamingRunId && keys.has(message.streamingRunId)) {
+          agentChanged = true
+          // A cancelled bubble with no text never rendered real content.
+          if (outcome === 'cancelled' && message.content.trim() === '') {
+            continue
+          }
+          next.push({ ...message, streamingRunId: undefined })
+        } else {
+          next.push(message)
+        }
+      }
+      if (agentChanged) {
+        messages[agentId] = next
+        changed = true
+      }
+    }
+    // Also catch any streaming bubble whose runId mapping was never recorded
+    // (e.g. stream frames with an unparseable operationId) when a specific
+    // run settles, and always when settling every run.
+    for (const [agentId, current] of Object.entries(state.messages)) {
+      if (current.some((message) => message.streamingRunId !== undefined && !keysByAgent.get(agentId)?.has(message.streamingRunId))) {
+        const keys = keysByAgent.get(agentId)
+        const next: ChatMessage[] = []
+        let agentChanged = false
+        for (const message of current) {
+          const stray = message.streamingRunId !== undefined && (runId === null || !keys?.has(message.streamingRunId))
+          if (stray && runId === null) {
+            agentChanged = true
+            if (outcome === 'cancelled' && message.content.trim() === '') continue
+            next.push({ ...message, streamingRunId: undefined })
+          } else {
+            next.push(message)
+          }
+        }
+        if (agentChanged) {
+          messages[agentId] = next
+          changed = true
+        }
+      }
+    }
+    if (!changed) return {}
+    for (const [mapKey] of lastStreamKeyByRun) {
+      const separator = mapKey.indexOf('|')
+      if (runId === null || mapKey.slice(separator + 1) === runId) {
+        lastStreamKeyByRun.delete(mapKey)
+      }
+    }
+    return { messages }
+  }),
   clearMessages: (agentId) =>
     set((state) => ({
       messages: { ...state.messages, [agentId]: [] },
       conversationIds: { ...state.conversationIds, [agentId]: crypto.randomUUID() },
     })),
-  // Review §08-2.1: read-then-conditional-set outside the set() callback. The
-  // previous version computed the result inside set() and smuggled it out via an
-  // outer closure, which depended on zustand applying set synchronously.
+  // wps_09 A-2: the fast path stays outside set(), but the mint is a
+  // check-and-set inside the set() callback so two interleaved calls cannot
+  // both mint and have the later write win. The authoritative value is read
+  // back after set (zustand applies set synchronously).
   ensureConversationId: (agentId) => {
     const existing = get().conversationIds[agentId]
     if (existing) return existing
-    const conversationId = crypto.randomUUID()
-    set({ conversationIds: { ...get().conversationIds, [agentId]: conversationId } })
-    return conversationId
+    set((state) => (
+      state.conversationIds[agentId]
+        ? {}
+        : { conversationIds: { ...state.conversationIds, [agentId]: crypto.randomUUID() } }
+    ))
+    return get().conversationIds[agentId]
   },
   loadConversation: (agentId, conversation) => set((state) => ({
     messages: {
       ...state.messages,
-      [agentId]: conversation.messages.map((message) => ({ ...message })),
+      // ConversationMessage has no renderer id; mint one for the session so
+      // loaded bubbles have stable keys for as long as they stay in the store.
+      [agentId]: conversation.messages.map((message) => ({
+        ...message,
+        id: crypto.randomUUID(),
+      })),
     },
     conversationIds: {
       ...state.conversationIds,
@@ -222,11 +333,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       lastStreamDeltaByOperation.set(streamOperationKey(event), event.content ?? '')
     }
     return {
-      collaborationEvents: [...state.collaborationEvents, event].slice(-500),
+      // wps_06 D2: bounded retention with protected run boundaries and an
+      // inserted truncation marker instead of a silent blind slice.
+      collaborationEvents: capCollaborationEvents([...state.collaborationEvents, event]),
     }
   }),
   clearCollaborationEvents: () => {
     lastStreamDeltaByOperation.clear()
+    lastStreamKeyByRun.clear()
     return set({ collaborationEvents: [] })
   },
 }))

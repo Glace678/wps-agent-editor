@@ -74,6 +74,38 @@ interface DocumentZoomValue {
 
 const DocumentZoomContext = createContext<DocumentZoomValue | null>(null)
 
+/**
+ * 命令式缩放桥：供顶层菜单等无法使用 hook/快捷键上下文的入口显式调用。
+ * - defaultZoomBridge：DocumentZoom provider 挂载时注册（PDF/Word 等消费上下文的编辑器）
+ * - overrideZoomBridge：自管缩放的编辑器（Excel/文本/代码/演示）注册的优先实现
+ */
+export type DocumentZoomCommand = 'zoomIn' | 'zoomOut' | 'zoomReset'
+
+export interface DocumentZoomBridge {
+  zoomIn: () => void
+  zoomOut: () => void
+  zoomReset: () => void
+}
+
+let defaultZoomBridge: DocumentZoomBridge | null = null
+let overrideZoomBridge: DocumentZoomBridge | null = null
+
+/** 自管缩放的编辑器注册覆盖桥；返回注销函数（仅注销自身，避免新旧实例互踩） */
+export function registerDocumentZoomOverride(bridge: DocumentZoomBridge): () => void {
+  overrideZoomBridge = bridge
+  return () => {
+    if (overrideZoomBridge === bridge) overrideZoomBridge = null
+  }
+}
+
+/** 菜单等外部入口显式调用缩放命令；返回是否被消费 */
+export function invokeDocumentZoomCommand(command: DocumentZoomCommand): boolean {
+  const bridge = overrideZoomBridge ?? defaultZoomBridge
+  if (!bridge) return false
+  bridge[command]()
+  return true
+}
+
 export function useDocumentZoom(): DocumentZoomValue {
   const value = useContext(DocumentZoomContext)
   if (!value) {
@@ -179,6 +211,14 @@ export function DocumentZoom({ children }: DocumentZoomProps) {
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [zoomIn, zoomOut, zoomReset])
+
+  // 命令式桥：菜单（App.tsx runZoomMenuAction）显式调用，替代旧的合成事件路径。
+  useEffect(() => {
+    defaultZoomBridge = { zoomIn, zoomOut, zoomReset }
+    return () => {
+      defaultZoomBridge = null
+    }
   }, [zoomIn, zoomOut, zoomReset])
 
   useEffect(() => {

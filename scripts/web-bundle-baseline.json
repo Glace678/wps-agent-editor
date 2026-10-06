@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-09-08",
-  "initialGzipBytes": 1732048,
+  "commitSha": "8234cb9c22dea4d6a248f8c8fa3b88832a706e83",
+  "recordedAt": "2026-10-05",
+  "initialGzipBytes": 1754170,
   "maxRegressionPercent": 10
 }

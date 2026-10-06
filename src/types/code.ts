@@ -41,7 +41,9 @@ export type DebugEvent =
   | { event: 'output'; kind: 'stdout' | 'stderr'; text: string }
   | { event: 'breakpoint-verified'; file: string; line: number }
   | { event: 'eval-result'; id: string; result?: string; error?: string }
-  | { event: 'error'; message: string }
+  // wps_10 D2: error events identify themselves by a stable messageKey the
+  // renderer localizes; `message` remains only for older backends/diagnostics.
+  | { event: 'error'; messageKey?: string; message?: string }
   | { event: 'exit'; code: number | null }
 
 export type RoutedDebugEvent = DebugEvent & {

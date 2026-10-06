@@ -53,6 +53,11 @@ jobs:
           for name in UPDATER_KEY UPDATER_KEY_PASSWORD UPDATER_PUBLIC_KEY WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_KEYCHAIN_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_CONTENT; do
             test -n "${!name}" || { echo "Missing required release secret: $name" >&2; exit 1; }
           done
+      - name: Verify updater public key matches repository copy
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node scripts/release/check-updater-key-consistency.mjs
 
   build:
     needs: preflight
@@ -137,6 +142,8 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
           security import "$RUNNER_TEMP/certificate.p12" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          # Certificate bytes no longer needed once inside the keychain.
+          rm -f "$RUNNER_TEMP/certificate.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
       - name: Generate release-only updater and signing config
@@ -163,6 +170,17 @@ jobs:
         run: |
           export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
           npx tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}' --config "$RUNNER_TEMP/tauri-release.json"
+      - name: Clean up Apple signing materials
+        if: ${{ always() && matrix.platform == 'macos' }}
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          # Notarization finished (or the build failed); remove the App Store
+          # Connect API key and destroy the temporary keychain with its private
+          # key instead of leaving both on the recycled runner.
+          rm -f "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          security delete-keychain build.keychain || true
       - name: Build signed Linux updater bundle
         if: matrix.platform == 'linux'
         shell: bash
@@ -248,13 +266,22 @@ jobs:
           cargo install cargo-cyclonedx --version 0.5.9 --locked
           cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --override-filename sbom-rust
           mv src-tauri/sbom-rust.json artifacts/sbom-rust.cdx.json
-          git archive --format=zip --output="artifacts/WPS-Agent-Editor-${GITHUB_REF_NAME}-source.zip" HEAD
+          git archive --format=zip --output="artifacts/Office-Agentic-${GITHUB_REF_NAME}-source.zip" HEAD
       - name: Validate and finalize metadata
         env:
           REQUIRE_RELEASE_MATRIX: '1'
         run: |
           node scripts/release/check-artifacts.mjs artifacts
-          node scripts/release/finalize-release.mjs artifacts
+          node scripts/release/finalize-release.mjs artifacts --fixtures-dir release-fixtures
+      - name: Publish internal updater fixtures artifact
+        # Tamper/invalid-install fixtures are consumed by the staging workflow
+        # but must never appear on the public GitHub Release.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-fixtures
+          path: release-fixtures/*
+          if-no-files-found: error
+          retention-days: 90
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
         with:
           subject-path: artifacts/*
@@ -263,4 +290,7 @@ jobs:
           draft: false
           prerelease: true
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          # finalize-release already asserted an exact 19-file public set, so a
+          # missing or extra asset cannot be hidden by the glob.
           files: artifacts/*

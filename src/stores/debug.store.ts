@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { t } from '@/lib/i18n/translate'
+import type { TranslationKey } from '@/lib/i18n/types'
 import type {
   DebugEvent,
   DebugFrame,
@@ -176,6 +178,15 @@ export const useDebugStore = create<DebugState>((set, get) => ({
   clearConsole: () => set({ consoleLines: [] }),
 }))
 
+// #3: cross-window breakpoint sync. Breakpoints toggled in another window are
+// written to localStorage; merge them into this window's store.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== BREAKPOINT_STORAGE_KEY) return
+    useDebugStore.setState({ breakpoints: loadBreakpoints() })
+  })
+}
+
 export function handleDebugEvent(event: DebugEvent): void {
   const store = useDebugStore.getState()
   switch (event.event) {
@@ -200,10 +211,22 @@ export function handleDebugEvent(event: DebugEvent): void {
         store.addConsoleLine({ kind: 'eval', text: event.result })
       }
       break
-    case 'error':
-      store.addConsoleLine({ kind: 'err', text: event.message })
-      store.setStatus('error', event.message)
+    case 'error': {
+      // wps_10 D2: resolve the stable messageKey from the backend instead of
+      // displaying a raw internal message. Raw text (older backends, or an
+      // unknown key) is kept off the status bar and only enters the console
+      // line, which is the diagnostic surface.
+      let localized: string | undefined
+      if (event.messageKey) {
+        const translated = t(event.messageKey as TranslationKey)
+        if (translated !== event.messageKey) localized = translated
+      }
+      const raw = event.message
+      store.addConsoleLine({ kind: 'err', text: localized ?? raw ?? t('debugger.monitorFailed' as TranslationKey) })
+      store.setStatus('error', localized ?? t('debugger.monitorFailed' as TranslationKey))
+      if (raw && raw !== localized) console.warn('[debug] backend error event:', raw)
       break
+    }
     case 'exit':
       store.endSession('调试会话已结束。')
       break

@@ -236,7 +236,24 @@ function annotateSlideNodes(viewer: PptxViewer, slideIndex: number, slideElement
   const nodes = viewer.presentationData?.slides[slideIndex]?.nodes ?? []
   if (nodes.length === 0) return
   const children = Array.from(slideElement.children)
-  const nodeElements = children.slice(Math.max(0, children.length - nodes.length))
+
+  // F13: this renderer version exposes no node-id -> element map, so the
+  // old "last N children" guess mislabeled every element if the renderer
+  // inserted extra decorations or skipped an unrenderable node. Leading
+  // children may be the renderer's known background decorations (gradient
+  // SVG, picture div); strip those, then require the remaining elements to
+  // line up 1:1 with the slide nodes. Any other mismatch skips annotation,
+  // so animations can never attach to wrong elements.
+  const isBackgroundDecoration = (element: Element): boolean =>
+    element.hasAttribute('data-pptx-background-gradient')
+    || element.hasAttribute('data-pptx-background-image')
+  let firstNodeChild = 0
+  while (firstNodeChild < children.length && isBackgroundDecoration(children[firstNodeChild])) {
+    firstNodeChild += 1
+  }
+  const nodeElements = children.slice(firstNodeChild)
+  if (nodeElements.length !== nodes.length) return
+
   nodes.forEach((node, index) => {
     const element = nodeElements[index]
     if (element instanceof HTMLElement) element.dataset.presentationNodeId = String(node.id)

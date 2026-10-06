@@ -16,16 +16,22 @@ function parseArguments(argv) {
     const argument = argv[index]
     if (!argument.startsWith('--')) fail(`Unexpected argument: ${argument}`)
     const name = argument.slice(2)
-    if (!['platform', 'root', 'report'].includes(name)) fail(`Unknown option: ${argument}`)
+    if (!['platform', 'root', 'report', 'hooks'].includes(name)) fail(`Unknown option: ${argument}`)
     const value = argv[index + 1]
     if (!value || value.startsWith('--')) fail(`${argument} requires a value`)
     options[name] = value
     index += 1
   }
-  if (!['macos', 'linux'].includes(options.platform)) {
-    fail('--platform must be macos or linux')
+  if (!['macos', 'linux', 'windows'].includes(options.platform)) {
+    fail('--platform must be macos, linux, or windows')
   }
-  if (!options.root) fail('--root is required')
+  if (options.platform === 'windows') {
+    // Windows verification cross-checks the NSIS hardening hooks against the
+    // ProgID names declared in tauri.conf.json; there is no extracted bundle.
+    if (!options.hooks) fail('--hooks must point at the NSIS installer hooks file for windows')
+  } else if (!options.root) {
+    fail('--root is required')
+  }
   return options
 }
 
@@ -64,7 +70,46 @@ function expectedAssociations(config) {
       extensions.add(extension)
     }
   }
-  return { associations, extensions, mimeTypes }
+  // Windows ProgIDs are the unique `name` fields; the NSIS POSTINSTALL hook must
+  // harden exactly this set.
+  const progIds = new Set(associations.map((association) => association.name))
+  return { associations, extensions, mimeTypes, progIds }
+}
+
+async function verifyWindowsHooks(hooksPath, expected) {
+  const source = await readFile(resolve(hooksPath), 'utf8')
+
+  // Every hardened open command must use SHCTX and a quoted executable path.
+  const commandLines = source
+    .split(/\r?\n/)
+    .filter((line) => line.includes('WriteRegStr'))
+  if (commandLines.length === 0) fail('NSIS hooks file contains no WriteRegStr open-command hardening')
+  for (const line of commandLines) {
+    if (!line.includes('SHCTX')) fail(`NSIS hook does not register in the install context (SHCTX): ${line.trim()}`)
+    if (!line.includes('office-agentic.exe')) fail(`NSIS hook does not target office-agentic.exe: ${line.trim()}`)
+  }
+
+  const hooked = new Set()
+  const hookEntry = /WAE_WRITE_SAFE_OPEN_COMMAND\s+"([^"]+)"/g
+  let match
+  while ((match = hookEntry.exec(source)) !== null) hooked.add(match[1])
+
+  const missing = [...expected.progIds].filter((name) => !hooked.has(name))
+  const extra = [...hooked].filter((name) => !expected.progIds.has(name))
+  if (missing.length || extra.length) {
+    fail(
+      `NSIS hook ProgID coverage must match tauri.conf.json one-to-one; ` +
+        `missing hardening: [${missing.join(', ')}], hooks for unknown ProgIDs: [${extra.join(', ')}]`,
+    )
+  }
+
+  return {
+    metadataFile: resolve(hooksPath),
+    expectedExtensionCount: expected.extensions.size,
+    verifiedExtensionCount: null,
+    expectedMimeTypeCount: expected.mimeTypes.size,
+    verifiedMimeTypeCount: null,
+  }
 }
 
 function readPlistAsJson(infoPath) {
@@ -203,10 +248,11 @@ async function verifyLinux(root, expected) {
 const options = parseArguments(process.argv.slice(2))
 const config = JSON.parse(await readFile(configPath, 'utf8'))
 const expected = expectedAssociations(config)
-const root = resolve(options.root)
-const verification = options.platform === 'macos'
-  ? await verifyMacos(root, expected)
-  : await verifyLinux(root, expected)
+const verification = options.platform === 'windows'
+  ? await verifyWindowsHooks(options.hooks, expected)
+  : options.platform === 'macos'
+    ? await verifyMacos(resolve(options.root), expected)
+    : await verifyLinux(resolve(options.root), expected)
 
 const report = {
   schemaVersion: 1,

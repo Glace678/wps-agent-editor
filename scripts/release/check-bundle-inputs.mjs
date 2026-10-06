@@ -60,6 +60,14 @@ for (const path of files) {
 if (rawBytes > rawLimit) throw new Error(`Renderer is ${rawBytes} bytes; limit is ${rawLimit}`)
 if (gzipBytes > gzipLimit) throw new Error(`Renderer gzip sum is ${gzipBytes} bytes; limit is ${gzipLimit}`)
 
+// Defense in depth: when the release public key is present in the environment
+// (tag builds), it must be the same key as the repository copy. The preflight
+// job runs the dedicated check; this keeps the guard beside the bundle inputs.
+if (process.env.TAURI_UPDATER_PUBLIC_KEY?.trim()) {
+  const { assertUpdaterKeyConsistency } = await import('./check-updater-key-consistency.mjs')
+  await assertUpdaterKeyConsistency(process.env.TAURI_UPDATER_PUBLIC_KEY)
+}
+
 const tauriConfig = JSON.parse(await readFile(resolve(root, 'src-tauri/tauri.conf.json'), 'utf8'))
 const externalBin = tauriConfig.bundle?.externalBin
 if (JSON.stringify(externalBin) !== JSON.stringify(['binaries/esbuild'])) {

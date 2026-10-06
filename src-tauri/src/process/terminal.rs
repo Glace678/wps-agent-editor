@@ -11,6 +11,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc::{self, SyncSender},
         Arc, OnceLock,
     },
     time::{Duration, Instant},
@@ -22,19 +23,40 @@ const MAX_SESSIONS_PER_WINDOW: usize = 4;
 const MIN_COLS: u16 = 10;
 const MAX_COLS: u16 = 1000;
 const MAX_WRITE_BYTES: usize = 256 * 1024;
+/// Writes waiting behind a stuck writer before `write` fails fast with
+/// `pty-write-busy` (backpressure; wps_02 D-6).
+const MAX_PENDING_WRITES: usize = 4;
+/// Total time a write may take before the caller gets `pty-write-timeout`
+/// (wps_02 D-5).
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const REAPER_INTERVAL: Duration = Duration::from_secs(60);
+/// Output coalescing window/buffer used on Unix (wps_02 D-6).
+#[cfg(unix)]
+const COALESCE_WINDOW: Duration = Duration::from_millis(8);
+#[cfg(unix)]
+const MAX_COALESCE_BYTES: usize = 64 * 1024;
 
-type PtyWriter = Box<dyn Write + Send>;
 type PtyChild = Box<dyn Child + Send + Sync>;
+
+/// One queued terminal write with a private reply channel.
+struct WriteRequest {
+    bytes: Vec<u8>,
+    reply: mpsc::Sender<std::io::Result<()>>,
+}
 
 struct TerminalSession {
     id: String,
     window_label: String,
     cwd: PathBuf,
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<PtyWriter>,
+    /// Bounded channel into the per-session writer thread; never a lock held
+    /// across a blocking PTY write.
+    write_requests: SyncSender<WriteRequest>,
     child: Mutex<PtyChild>,
     pid: Option<u32>,
+    /// File recording this session's process-group leader, so the group can be
+    /// killed at next startup if our process died without reaping it (wps_02 D-3).
+    orphan_marker: Option<PathBuf>,
     output_bytes: AtomicUsize,
     stopping: AtomicBool,
     started: Instant,
@@ -71,6 +93,74 @@ fn sessions() -> &'static Mutex<HashMap<String, Arc<TerminalSession>>> {
 
 fn key(window_label: &str, session_id: &str) -> String {
     format!("{window_label}\u{1f}{session_id}")
+}
+
+// --- Orphan-session markers (Unix; wps_02 D-3) -----------------------------
+// portable_pty cannot install PR_SET_PDEATHSIG for us, so a session whose
+// parent process crashes would otherwise keep running under init. Each live
+// session records its group leader on disk; the file is removed on every
+// explicit teardown. Markers left behind are reaped at the next startup.
+
+fn orphan_dir(window: &WebviewWindow) -> Option<PathBuf> {
+    use tauri::Manager;
+    let dir = window
+        .app_handle()
+        .path()
+        .app_data_dir()
+        .ok()?
+        .join("terminal-pids");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+fn orphan_marker_path(window: &WebviewWindow, label: &str, id: &str) -> Option<PathBuf> {
+    // label/id are restricted to filename-safe characters at validation time.
+    Some(orphan_dir(window)?.join(format!("{label}__{id}.json")))
+}
+
+#[cfg(unix)]
+fn record_orphan_marker(marker: &PathBuf, group_leader: i32) {
+    let payload = serde_json::json!({ "pgid": group_leader }).to_string();
+    let _ = std::fs::write(marker, payload);
+}
+
+fn clear_orphan_marker(session: &TerminalSession) {
+    if let Some(marker) = &session.orphan_marker {
+        let _ = std::fs::remove_file(marker);
+    }
+}
+
+/// Kill process groups left by a crashed previous instance and clear their
+/// markers. Called once during startup setup. Best effort only.
+pub fn reap_orphan_sessions(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Ok(data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let dir = data_dir.join("terminal-pids");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(group) = value.get("pgid").and_then(|value| value.as_i64()) {
+                    if let Ok(group) = i32::try_from(group) {
+                        #[cfg(unix)]
+                        unsafe {
+                            libc::kill(-group, libc::SIGKILL);
+                        }
+                        // On Windows the killing is handled through the
+                        // kill-on-close job object; the marker is still cleared.
+                        #[cfg(not(unix))]
+                        let _ = group;
+                    }
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 fn shell_command() -> PathBuf {
@@ -125,6 +215,26 @@ pub fn start(
         .master
         .take_writer()
         .map_err(|error| AppError::new(codes::PTY_ERROR, error.to_string()))?;
+    // Dedicated writer thread owns the blocking PTY writer. Callers queue
+    // bounded requests and time out instead of holding an IPC thread inside a
+    // blocking write forever (wps_02 D-5/D-6). Started before the child is
+    // spawned so a thread-creation failure needs no child cleanup.
+    let (write_sender, write_receiver) =
+        mpsc::sync_channel::<WriteRequest>(MAX_PENDING_WRITES);
+    let writer_started = std::thread::Builder::new()
+        .name("pty-writer".to_owned())
+        .spawn(move || {
+            let mut writer = writer;
+            while let Ok(request) = write_receiver.recv() {
+                let outcome = writer.write_all(&request.bytes).and_then(|_| writer.flush());
+                let _ = request.reply.send(outcome);
+            }
+        });
+    if let Err(error) = writer_started {
+        return Err(AppError::internal(format!(
+            "Failed to start terminal writer thread: {error}"
+        )));
+    }
     let mut command = CommandBuilder::new(shell_command());
     command.cwd(&cwd);
     command.env("TERM", "xterm-256color");
@@ -136,16 +246,26 @@ pub fn start(
         .spawn_command(command)
         .map_err(|error| AppError::new(codes::PTY_ERROR, error.to_string()))?;
     let pid = child.process_id();
+    // portable_pty only exposes the group-leader pid on Unix (the method is
+    // absent from the trait on Windows, where job-object binding is used).
+    #[cfg(unix)]
+    let group_leader = child.process_group_leader();
     drop(pair.slave);
 
+    // Capture the raw master fd for the reader thread's poll() before the
+    // master is moved into the session (Unix).
+    #[cfg(unix)]
+    let reader_fd = pair.master.as_raw_fd().unwrap_or_default();
+    let orphan_marker = orphan_marker_path(&window, &label, &id);
     let session = Arc::new(TerminalSession {
         id,
         window_label: label.clone(),
         cwd,
         master: Mutex::new(pair.master),
-        writer: Mutex::new(writer),
+        write_requests: write_sender,
         child: Mutex::new(child),
         pid,
+        orphan_marker,
         output_bytes: AtomicUsize::new(0),
         stopping: AtomicBool::new(false),
         started: Instant::now(),
@@ -185,7 +305,36 @@ pub fn start(
         stop_session(&session);
         return Err(error);
     }
-    spawn_reader(session.clone(), reader);
+    // Parent-death binding (wps_02 D-3). Windows: assign into the kill-on-close
+    // job. Unix: record the group leader so a crashed instance is reaped next startup.
+    #[cfg(windows)]
+    if let Some(pid) = session.pid {
+        reaper::bind_pid(pid);
+    }
+    #[cfg(unix)]
+    if let (Some(marker), Some(group)) = (&session.orphan_marker, group_leader) {
+        record_orphan_marker(marker, group);
+    }
+    #[cfg(unix)]
+    let spawn_result = spawn_reader(session.clone(), reader, reader_fd);
+    #[cfg(not(unix))]
+    let spawn_result = spawn_reader(session.clone(), reader);
+    if let Err(error) = spawn_result {
+        // Thread creation failed (rlimit/thread exhaustion): roll the registered
+        // session back so the quota slot is not held until the 8 h reaper and no
+        // output-less zombie session remains (wps_02 D-10).
+        sessions()
+            .lock()
+            .remove(&key(&label, &session.id));
+        stop_session(&session);
+        log::error!(
+            "Failed to start PTY reader thread for session {}: {error}",
+            session.id
+        );
+        return Err(AppError::internal(format!(
+            "Failed to start terminal reader: {error}"
+        )));
+    }
     ensure_reaper();
     Ok(start_result(&session))
 }
@@ -195,11 +344,41 @@ pub fn write(window: &WebviewWindow, session_id: &str, data: String) -> AppResul
         return Err(AppError::invalid("Terminal input is invalid or too large"));
     }
     let session = get(window.label(), session_id)?;
-    let mut writer = session.writer.lock();
-    writer
-        .write_all(data.as_bytes())
-        .and_then(|_| writer.flush())
-        .map_err(AppError::from)
+    if session.stopping.load(Ordering::SeqCst) {
+        return Err(AppError::new(
+            codes::SESSION_ENDED,
+            "The terminal session has ended",
+        ));
+    }
+    let (reply, outcome) = mpsc::channel();
+    // Bounded enqueue: when a previous write is stuck and the queue is full,
+    // fail fast with `pty-write-busy` instead of piling up pending writes.
+    session
+        .write_requests
+        .try_send(WriteRequest {
+            bytes: data.into_bytes(),
+            reply,
+        })
+        .map_err(|_| {
+            AppError::new(
+                codes::PTY_WRITE_BUSY,
+                "The terminal is not accepting input right now",
+            )
+        })?;
+    match outcome.recv_timeout(WRITE_TIMEOUT) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(error.into()),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(AppError::new(
+            codes::PTY_WRITE_TIMEOUT,
+            "The terminal did not accept the input in time",
+        )),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(AppError::internal(
+            "The terminal writer thread stopped unexpectedly",
+        )),
+    }
+    // The stuck-write window: a timed-out request may still complete when the
+    // child resumes; later requests queue behind it until the queue reports
+    // busy. Stopping the session kills the child and unblocks the writer.
 }
 
 pub fn resize(window: &WebviewWindow, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
@@ -273,26 +452,135 @@ fn start_result(session: &TerminalSession) -> TerminalStartResult {
     }
 }
 
-fn spawn_reader(session: Arc<TerminalSession>, mut reader: Box<dyn Read + Send>) {
+fn spawn_reader(
+    session: Arc<TerminalSession>,
+    mut reader: Box<dyn Read + Send>,
+    #[cfg(unix)] reader_fd: i32,
+) -> std::io::Result<()> {
     std::thread::Builder::new()
         .name(format!("pty-reader-{}", session.id))
-        .spawn(move || {
+        // Mutability of batch/keep/hit_limit/eof is consumed only by the
+        // Unix-gated coalescing block.
+        .spawn(#[allow(unused_mut)] move || {
             let mut buffer = [0_u8; 8192];
-            loop {
+            // The 4 MiB notice fires once; over-limit bytes are drained and
+            // discarded while the session itself stays alive (wps_10 B2).
+            let mut limit_notice_sent = false;
+            'read: loop {
+                // Unix: poll with a bounded timeout so an idle, stopping session
+                // exits promptly instead of sitting in a blocking read.
+                #[cfg(unix)]
+                {
+                    let mut can_read = false;
+                    while !can_read {
+                        match wait_readable(reader_fd, 250, &session.stopping) {
+                            Ok(true) => can_read = true,
+                            Ok(false) => {
+                                if session.stopping.load(Ordering::SeqCst) {
+                                    break 'read;
+                                }
+                            }
+                            // wps_10 D1: a poll failure kills the reader thread;
+                            // previously the session died silently.
+                            Err(error) => {
+                                log::warn!(
+                                    "PTY reader poll failed, ending reader for session {}: {error}",
+                                    session.id
+                                );
+                                break 'read;
+                            }
+                        }
+                    }
+                }
                 let count = match reader.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
+                    // wps_10 D1: reader-thread death must leave a trace. EOF is
+                    // the normal child-exit path (debug level); a read error is
+                    // unexpected and warned. Both still reap and emit_exit below.
+                    Ok(0) => {
+                        log::debug!("PTY reader reached EOF for session {}", session.id);
+                        break;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => {
+                        log::warn!(
+                            "PTY reader read failed, ending reader for session {}: {error}",
+                            session.id
+                        );
+                        break;
+                    }
                     Ok(count) => count,
                 };
                 let previous = session.output_bytes.fetch_add(count, Ordering::Relaxed);
-                if previous >= OUTPUT_LIMIT_BYTES {
-                    break;
+                let mut keep = if previous >= OUTPUT_LIMIT_BYTES {
+                    0
+                } else {
+                    count.min(OUTPUT_LIMIT_BYTES - previous)
+                };
+                let mut batch = String::from_utf8_lossy(&buffer[..keep]).into_owned();
+                let mut over_limit = keep < count;
+                let mut eof = false;
+
+                // Coalesce further bytes that are already queued, within a short
+                // window, so high-throughput output emits one event instead of
+                // one per read (Unix only; wps_02 D-6).
+                #[cfg(unix)]
+                {
+                    let deadline = Instant::now() + COALESCE_WINDOW;
+                    'coalesce: while !over_limit && batch.len() < MAX_COALESCE_BYTES {
+                        let timeout = deadline
+                            .saturating_duration_since(Instant::now())
+                            .as_millis()
+                            .min(i32::MAX as u128) as i32;
+                        match wait_readable(reader_fd, timeout + 1, &session.stopping) {
+                            Ok(true) => {}
+                            _ => break 'coalesce,
+                        }
+                        match reader.read(&mut buffer) {
+                            Ok(0) => {
+                                eof = true;
+                                break 'coalesce;
+                            }
+                            Err(error)
+                                if error.kind() == std::io::ErrorKind::Interrupted =>
+                            {
+                                continue 'coalesce
+                            }
+                            Err(error) => {
+                                log::debug!(
+                                    "PTY output coalescing ended on read error for session {}: {error}",
+                                    session.id
+                                );
+                                break 'coalesce;
+                            }
+                            Ok(extra) => {
+                                let previous =
+                                    session.output_bytes.fetch_add(extra, Ordering::Relaxed);
+                                keep = if previous >= OUTPUT_LIMIT_BYTES {
+                                    0
+                                } else {
+                                    extra.min(OUTPUT_LIMIT_BYTES - previous)
+                                };
+                                batch.push_str(&String::from_utf8_lossy(&buffer[..keep]));
+                                if keep < extra {
+                                    over_limit = true;
+                                }
+                            }
+                        }
+                    }
                 }
-                let keep = count.min(OUTPUT_LIMIT_BYTES - previous);
-                let text = String::from_utf8_lossy(&buffer[..keep]);
-                emit_output(&session, &text);
-                if keep < count {
-                    emit_output(&session, "\r\n[terminal output limit reached]\r\n");
-                    break;
+
+                if !batch.is_empty() {
+                    emit_output(&session, &batch);
+                }
+                if over_limit && !limit_notice_sent {
+                    emit_output(
+                        &session,
+                        "\r\n[terminal output limit reached; further output is discarded, session stays active]\r\n",
+                    );
+                    limit_notice_sent = true;
+                }
+                if eof {
+                    break 'read;
                 }
             }
             if !session.stopping.swap(true, Ordering::SeqCst) {
@@ -309,9 +597,32 @@ fn spawn_reader(session: Arc<TerminalSession>, mut reader: Box<dyn Read + Send>)
             sessions()
                 .lock()
                 .remove(&key(&session.window_label, &session.id));
+            clear_orphan_marker(&session);
             emit_exit(&session, code);
-        })
-        .ok();
+        })?;
+    Ok(())
+}
+
+/// Poll `fd` for input. Returns true when readable, false on timeout.
+#[cfg(unix)]
+fn wait_readable(fd: i32, timeout_ms: i32, stopping: &AtomicBool) -> std::io::Result<bool> {
+    if stopping.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
+    let mut pollfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let ready = unsafe { libc::poll(&mut pollfd as *mut _, 1, timeout_ms) };
+    if ready < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EINTR) {
+            return Ok(false);
+        }
+        return Err(error);
+    }
+    Ok(ready > 0 && pollfd.revents & libc::POLLIN != 0)
 }
 
 fn ensure_reaper() {
@@ -347,6 +658,7 @@ fn stop_session(session: &TerminalSession) {
     }
     reaper::terminate_process_tree_sync(session.pid);
     let _ = session.child.lock().kill();
+    clear_orphan_marker(session);
 }
 
 fn emit_output(session: &TerminalSession, text: &str) {

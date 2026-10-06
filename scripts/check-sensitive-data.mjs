@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -43,6 +43,52 @@ try {
   process.exit(2)
 }
 
+// B4: git ls-files excludes .gitignore'd files — precisely where local
+// secrets end up. Explicitly cover (a) known build-output directories and
+// (b) ignored .env* files at the repo root. node_modules is intentionally
+// not content-scanned (postinstall patches are verified separately by
+// scripts/check-engine-patches.mjs).
+const gitVisibleCount = files.length
+const seenFiles = new Set(files.map((file) => file.replaceAll('\\', '/')))
+function walkDirectory(relativeDir, list, depth = 0) {
+  const absoluteDir = path.join(root, relativeDir)
+  let entries
+  try {
+    entries = readdirSync(absoluteDir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const entryRelative = path
+      .join(relativeDir, entry.name)
+      .replaceAll('\\', '/')
+    if (entry.isDirectory()) {
+      // Skip Vite caches and dependency trees inside build output.
+      if (depth < 12 && entry.name !== 'node_modules' && entry.name !== '.vite') {
+        walkDirectory(entryRelative, list, depth + 1)
+      }
+    } else if (!seenFiles.has(entryRelative)) {
+      seenFiles.add(entryRelative)
+      list.push(entryRelative)
+    }
+  }
+}
+const extraIgnoredFiles = []
+for (const buildDir of ['out', 'dist']) {
+  if (existsSync(path.join(root, buildDir))) walkDirectory(buildDir, extraIgnoredFiles)
+}
+try {
+  for (const entry of readdirSync(root)) {
+    if (/^\.env(?:\..+)?$/.test(entry) && !seenFiles.has(entry)) {
+      seenFiles.add(entry)
+      extraIgnoredFiles.push(entry)
+    }
+  }
+} catch {
+  /* root unreadable: the main enumeration below still runs */
+}
+files.push(...extraIgnoredFiles)
+
 const sensitiveFile = /(^|\/)(?:auth|recent-files|agents|custom-providers|provider-base-urls)\.json$|(^|\/)file-history\//i
 const environmentFile = /(^|\/)\.env(?:\..+)?$/i
 const allowedEnvironmentExample = /(^|\/)\.env\.example$/i
@@ -57,38 +103,79 @@ const privateKey = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g
 // 3 single-quote inner, 4 unquoted token.
 const literalCredential = /\b(?:password|passwd|api_?key|access_?token|client_?secret)\b\s*[:=]\s*(?:`((?:[^`\\]|\\.)*)`|"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^\s#"'`,;]+))/gi
 const personalPath = /[A-Z]:[\\/]Users[\\/](?!Public(?:[\\/]|\b))[^\\/\s'"]+|\/(?:Users|home)\/(?!Shared(?:\/|\b))[^\/\s'"]+/gi
-const safeLiteral = /^(?:example|sample|placeholder|dummy|test|missing|change[-_ ]?me|do-not-persist)/i
+// B2: safe placeholders must end at a known placeholder word; a real secret
+// pasted after "test-" ("test-9f8a2b…") no longer matches. Length-capped too.
+const safeLiteral = /^(?:example|sample|placeholder|dummy|test|missing|change[-_ ]?me|do-not-persist)(?:[-_ ](?:key|token|secret|password|passwd|value|here|string|me|\d+))*$/i
 // Values that are code, types, or variable references rather than real secrets.
 const codeLikeValue = /^(?:string|boolean|number|object|any|unknown|null|undefined|true|false|\{\}|\[\]|\(\))$/i
-const codeExpression = /^(?:process|import|require|console|this|self|window|globalThis|env|typeof|new|return)\b|\$\{|process\.env|[({[<]|=>/
+// B2: dropped the leading-bracket `[({[<]` exemption — a real credential
+// wrapped in parens must be reported. Only recognisable code references skip:
+// keyword references, template expressions, function/method calls (`t(…)`,
+// `store.api_key(…)`) and single identifiers wrapped in JSX braces (`{apiKey}`).
+const codeExpression = /^(?:process|import|require|console|this|self|window|globalThis|env|typeof|new|return)\b|\$\{|process\.env|=>|^[A-Za-z_$][\w$.]*\s*\(|^\{[A-Za-z_$][\w$.]*\}$/
+// PowerShell cmdlet shape (`ConvertTo-SecureString`, PascalCase Verb-Noun) —
+// code, not a credential.
+const powershellCmdlet = /^[A-Z][a-z]+(?:[A-Z][a-z]+)?-[A-Z][a-zA-Z]+(?:-[A-Z][a-zA-Z]+)*$/
+// B2: unquoted values shorter than this with no digit/symbol are treated as
+// identifiers; longer values are real passwords even without symbols.
+const UNQUOTED_MIN_LENGTH = 12
+
+// Rule sets per file class (B4). The heuristic literal/path rules are aimed at
+// source files; build output (out/, dist/) and third-party patch files are
+// scanned only for unambiguous provider tokens and private-key armor.
+const RULES_TOKENS = ['provider-token', 'private-key-content']
+const RULES_SOURCE = [
+  ...RULES_TOKENS,
+  'personal-absolute-path',
+  'literal-credential',
+  'user-data-file',
+  'environment-file',
+  'key-file',
+]
 const findings = []
 
 function report(file, rule) {
   findings.push({ file: file.replaceAll('\\', '/'), rule })
 }
 
-function scanText(text, normalized) {
-  if (highConfidenceSecret.test(text)) report(normalized, 'provider-token')
+function scanText(text, normalized, { exemptPersonalPath = false, rules = RULES_SOURCE } = {}) {
+  if (rules.includes('provider-token') && highConfidenceSecret.test(text)) {
+    report(normalized, 'provider-token')
+  }
   highConfidenceSecret.lastIndex = 0
-  if (privateKey.test(text)) report(normalized, 'private-key-content')
+  if (rules.includes('private-key-content') && privateKey.test(text)) {
+    report(normalized, 'private-key-content')
+  }
   privateKey.lastIndex = 0
-  if (personalPath.test(text)) report(normalized, 'personal-absolute-path')
+  // B3: review-doc directories may quote host paths legitimately, but they
+  // are NOT exempt from token/key scanning.
+  if (
+    rules.includes('personal-absolute-path')
+    && !exemptPersonalPath
+    && personalPath.test(text)
+  ) {
+    report(normalized, 'personal-absolute-path')
+  }
   personalPath.lastIndex = 0
 
+  if (!rules.includes('literal-credential')) return
   for (const match of text.matchAll(literalCredential)) {
     const unquoted = match[4]
     const raw = (match[1] ?? match[2] ?? match[3] ?? unquoted ?? '')
       .trim()
       .replace(/[)\]:;,]+$/, '')
     if (raw.length < 6) continue
-    if (safeLiteral.test(raw)) continue
+    if (raw.length <= 32 && safeLiteral.test(raw)) continue
     if (codeLikeValue.test(raw)) continue
     if (codeExpression.test(raw)) continue
-    // Unquoted assignments: only flag values that look like a real secret (a digit
-    // or a symbol), so TypeScript type annotations (`apiKey: string`) and
-    // PowerShell cmdlets (`password = ConvertTo-SecureString`) are not false
-    // positives. Quoted/backtick values keep the looser length/placeholder check.
-    if (unquoted !== undefined && !/\d|[!@#$%^&*=+?]/.test(raw)) continue
+    if (powershellCmdlet.test(raw)) continue
+    // Unquoted assignments: short values with no digit/symbol are identifiers
+    // (type annotations); anything long enough to be a real password is
+    // flagged even without symbols (B2).
+    if (unquoted !== undefined) {
+      const hasDigitOrSymbol = /\d|[!@#$%^&*=+?\-]/.test(raw)
+      if (!hasDigitOrSymbol && raw.length < UNQUOTED_MIN_LENGTH) continue
+    }
     report(normalized, 'literal-credential')
   }
 }
@@ -98,7 +185,7 @@ function scanText(text, normalized) {
 // (containing a NUL byte) skip the content scan, matching the previous behavior.
 // If a file cannot be opened or read, fail closed: report it explicitly instead
 // of silently treating it as clean.
-async function scanFileContent(absolute, normalized) {
+async function scanFileContent(absolute, normalized, options) {
   let handle
   try {
     handle = await open(absolute, 'r')
@@ -112,7 +199,7 @@ async function scanFileContent(absolute, normalized) {
     for await (const chunk of stream) {
       if (chunk.includes('\0')) return
       const window = carry + chunk
-      scanText(window, normalized)
+      scanText(window, normalized, options)
       carry = window.slice(-512)
     }
   } catch {
@@ -124,22 +211,32 @@ async function scanFileContent(absolute, normalized) {
 
 for (const file of files) {
   const normalized = file.replaceAll('\\', '/')
-  // NONE narrow allowlist: code-review-fixes/ holds internal static-review reports
-  // (this task's reconciliation docs), not shipped source or test fixtures. Those
-  // documents legitimately quote host absolute paths and sample snippets while
-  // explaining fixes, which would trip personal-path rules. Skip the whole
-  // directory from ALL scanning (classification + content), not just one rule.
-  // Keep this regex tight to this single directory.
-  if (/(^|\/)code-review-fixes\//.test(normalized)) continue
-  if (sensitiveFile.test(normalized)) report(normalized, 'user-data-file')
-  if (environmentFile.test(normalized) && !allowedEnvironmentExample.test(normalized)) {
+  // B3: review-doc exemptions anchored to the repo root (the old regex also
+  // matched any nested path). Those directories keep full token/key scanning;
+  // only their legitimately quoted host paths skip the personal-path rule.
+  const exemptPersonalPath = /^(?:code-review-fixes|code-review-fixes-2)\//.test(normalized)
+    || normalized === '全量审查修复对账文档.md'
+  // B4: build output and third-party patch files get token/key scanning only;
+  // heuristic literal/path rules stay reserved for source files.
+  const isBuildOutput = /^(?:out|dist)\//.test(normalized)
+  const isPatchFile = /^patches\/.+\.(?:patch|diff)$/.test(normalized)
+  const rules = isBuildOutput || isPatchFile ? RULES_TOKENS : RULES_SOURCE
+
+  if (rules.includes('user-data-file') && sensitiveFile.test(normalized)) {
+    report(normalized, 'user-data-file')
+  }
+  if (rules.includes('environment-file')
+    && environmentFile.test(normalized)
+    && !allowedEnvironmentExample.test(normalized)) {
     report(normalized, 'environment-file')
   }
-  if (keyFile.test(normalized)) report(normalized, 'private-key-file')
+  if (rules.includes('key-file') && keyFile.test(normalized)) {
+    report(normalized, 'private-key-file')
+  }
 
   const absolute = path.join(root, file)
   if (!existsSync(absolute) || !statSync(absolute).isFile()) continue
-  await scanFileContent(absolute, normalized)
+  await scanFileContent(absolute, normalized, { exemptPersonalPath, rules })
 }
 
 const unique = [...new Map(findings.map((finding) => (
@@ -154,4 +251,9 @@ if (unique.length > 0) {
   process.exit(1)
 }
 
-console.log(`Sensitive data check passed: ${files.length} tracked/untracked files inspected.`)
+const ignoredNote = extraIgnoredFiles.length > 0
+  ? ` + ${extraIgnoredFiles.length} .gitignore'd files (build dirs out/dist, root .env*)`
+  : ''
+console.log(
+  `Sensitive data check passed: ${gitVisibleCount} git-visible files${ignoredNote} inspected.`,
+)

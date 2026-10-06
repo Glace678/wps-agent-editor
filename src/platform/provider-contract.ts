@@ -7,11 +7,9 @@ import type {
   ProviderDefinition,
 } from '@/types/provider'
 
-// Tauri serializes Rust u64 values as JSON numbers. ts-rs models the wider
-// in-memory integer as bigint, so the transport boundary must narrow it explicitly.
-export type CustomProviderWire = Omit<GeneratedCustomProviderConfig, 'createdAt'> & {
-  createdAt: number
-}
+// The generated type now models createdAt as number (Rust u64 is serialized as
+// a JSON number over Tauri IPC); no hand-written narrowing is needed.
+export type CustomProviderWire = GeneratedCustomProviderConfig
 
 export type ProviderDefinitionWire = GeneratedProviderDefinition
 

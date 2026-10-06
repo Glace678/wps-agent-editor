@@ -27,6 +27,13 @@ export function useGlobalOfficeShortcutListener(enabled = true): void {
         return
       }
 
+      // Never touch keys while an IME composition is active (keyCode 229 is the
+      // legacy signal on platforms that predate event.isComposing): otherwise
+      // chord matching would hijack IME interactions such as Ctrl+Space.
+      if (event.isComposing || event.keyCode === 229) {
+        return
+      }
+
       // Ignore pure modifier presses
       if (event.key === 'Control' || event.key === 'Shift' || event.key === 'Alt' || event.key === 'Meta') {
         return

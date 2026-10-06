@@ -26,6 +26,11 @@ const GUARDIAN_SEAL_FLAG: &str = "--wae-update-health-seal";
 const GUARDIAN_PAYLOAD_ENV: &str = "WAE_UPDATE_GUARDIAN_PAYLOAD";
 pub(crate) const ROLLBACK_PREFIX: &str = "--wae-update-rollback=";
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// Absolute ceiling for a transaction stuck in AwaitingHealth, measured from
+/// `created_at_unix_ms`. Survives guardian restarts and bounds the case where
+/// the new version hangs *alive* (deadlocked UI never reports healthy)
+/// (wps_02 D-7).
+const AWAITING_HEALTH_ABSOLUTE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const MAX_BACKUP_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_BACKUP_ENTRIES: u64 = 20_000;
@@ -506,7 +511,7 @@ impl UpdateHealthTransaction {
 
         let mut budget = CopyBudget::default();
         if let Err(error) = copy_path(&canonical_target, &backup_path, &mut budget) {
-            let _ = remove_path(backup_path.parent().unwrap_or(backup_path.as_path()));
+            remove_path_logged(backup_path.parent().unwrap_or(backup_path.as_path()));
             return Err(error);
         }
         let backup_digest_sha256 = payload_digest(&backup_path)?;
@@ -525,8 +530,8 @@ impl UpdateHealthTransaction {
             &guardian.payload_path,
             &mut guardian_budget,
         ) {
-            let _ = remove_path(backup_path.parent().unwrap_or(backup_path.as_path()));
-            let _ = remove_path(&guardian.payload_path);
+            remove_path_logged(backup_path.parent().unwrap_or(backup_path.as_path()));
+            remove_path_logged(&guardian.payload_path);
             return Err(error);
         }
         let guardian_digest_sha256 = payload_digest(&guardian.payload_path)?;
@@ -583,9 +588,15 @@ impl UpdateHealthTransaction {
         .map_err(|error| {
             state.stage = HealthStage::Aborted;
             state.error = Some(format!("Cannot start update health guardian: {error}"));
-            let _ = commit_state(&paths.state, &mut state, &guardian_secret);
-            let _ = remove_path(&state.backup_path);
-            let _ = remove_path(&guardian.payload_path);
+            // wps_10 D1: if even the abort state cannot be persisted, the on-disk
+            // transaction lies about what happened; make that loud.
+            if let Err(commit_error) = commit_state(&paths.state, &mut state, &guardian_secret) {
+                log::error!(
+                    "failed to persist aborted update-health state after guardian spawn failure: {commit_error}"
+                );
+            }
+            remove_path_logged(&state.backup_path);
+            remove_path_logged(&guardian.payload_path);
             AppError::new(
                 codes::UPDATE_HEALTH_GUARDIAN_FAILED,
                 format!("Cannot start update health guardian: {error}"),
@@ -594,13 +605,21 @@ impl UpdateHealthTransaction {
         let guardian_identity = match wait_for_process_identity(child.id()) {
             Ok(identity) => identity,
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                if let Err(kill_error) = child.kill() {
+                    log::warn!("kill of unidentified guardian failed: {kill_error}");
+                }
+                if let Err(wait_error) = child.wait() {
+                    log::warn!("reap of unidentified guardian failed: {wait_error}");
+                }
                 state.stage = HealthStage::Aborted;
                 state.error = Some(format!("Cannot identify update health guardian: {error}"));
-                let _ = commit_state(&paths.state, &mut state, &guardian_secret);
-                let _ = remove_path(&state.backup_path);
-                let _ = remove_path(&guardian.payload_path);
+                if let Err(commit_error) = commit_state(&paths.state, &mut state, &guardian_secret) {
+                    log::error!(
+                        "failed to persist aborted update-health state after guardian identity failure: {commit_error}"
+                    );
+                }
+                remove_path_logged(&state.backup_path);
+                remove_path_logged(&guardian.payload_path);
                 return Err(AppError::new(
                     codes::UPDATE_HEALTH_GUARDIAN_FAILED,
                     format!("Cannot identify update health guardian: {error}"),
@@ -658,7 +677,20 @@ pub(crate) fn record_startup(app: &tauri::AppHandle) -> AppResult<()> {
             clean_orphan_storage(&paths)?;
             return Ok(());
         }
-        Err(error) => return Err(error),
+        Err(error) => {
+            // D-4: a truncated / externally modified transaction.json used to
+            // bubble out of setup and make the application unlaunchable with
+            // no self-service recovery. Treat an unreadable state as a dead
+            // transaction: quarantine it and continue as if none existed.
+            if recover_from_corrupt_state(&paths).is_ok() {
+                log::warn!(
+                    "Quarantined corrupt update transaction state after read failure: {}",
+                    error
+                );
+                return Ok(());
+            }
+            return Err(error);
+        }
     };
     let guardian_secret = read_guardian_secret(&paths)?;
     verify_state_auth(&state, &guardian_secret)?;
@@ -913,10 +945,21 @@ fn run_guardian(state_path: &Path, transaction_id: &str, guardian_secret: &str) 
             }
             HealthStage::Aborted => {
                 validate_storage_scope(state_path, &state)?;
-                let _ = remove_path(&state.backup_path);
+                remove_path_logged(&state.backup_path);
                 return Ok(());
             }
             HealthStage::AwaitingHealth => {
+                // Absolute deadline first: even while the owner process is
+                // still alive (hung new version) and independent of this
+                // guardian's process lifetime (the timer is anchored in the
+                // persisted state, not in owner_exit_observed).
+                let absolute_deadline = state
+                    .created_at_unix_ms
+                    .saturating_add(AWAITING_HEALTH_ABSOLUTE_TIMEOUT.as_millis() as u64);
+                if unix_time_ms().is_ok_and(|now| now >= absolute_deadline) {
+                    rollback(state_path, state, guardian_secret)?;
+                    return Ok(());
+                }
                 if is_same_process(&state.owner_process_identity) {
                     owner_exit_observed = None;
                 } else if owner_exit_observed
@@ -1078,7 +1121,7 @@ fn finalize_healthy(
     state.stage = HealthStage::Finalized;
     state.error = None;
     commit_state(state_path, &mut state, guardian_secret)?;
-    let _ = remove_path(&state.backup_path);
+    remove_path_logged(&state.backup_path);
     Ok(())
 }
 
@@ -1150,7 +1193,7 @@ fn restore_payload(state: &HealthState) -> AppResult<()> {
     let mut budget = CopyBudget::default();
     copy_path(&state.backup_path, &staging, &mut budget)?;
     if let Err(error) = verify_payload_digest(&staging, &state.backup_digest_sha256) {
-        let _ = remove_path(&staging);
+        remove_path_logged(&staging);
         return Err(error);
     }
 
@@ -1159,12 +1202,19 @@ fn restore_payload(state: &HealthState) -> AppResult<()> {
     }
     if let Err(error) = rename_with_retry(&staging, &state.target_path) {
         if failed.exists() {
-            let _ = rename_with_retry(&failed, &state.target_path);
+            // wps_10 D1: this is the emergency restore of the original target;
+            // if it fails the application binary is missing from its path.
+            if let Err(restore_error) = rename_with_retry(&failed, &state.target_path) {
+                log::error!(
+                    "rollback restore of {} failed after rename failure: {restore_error}",
+                    state.target_path.display()
+                );
+            }
         }
-        let _ = remove_path(&staging);
+        remove_path_logged(&staging);
         return Err(error);
     }
-    let _ = remove_path(&failed);
+    remove_path_logged(&failed);
     Ok(())
 }
 
@@ -1279,8 +1329,13 @@ fn ensure_guardian_running(
     let identity = match wait_for_process_identity(child.id()) {
         Ok(identity) => identity,
         Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
+            // wps_10 D1: record why the half-started guardian could not be cleaned up.
+            if let Err(kill_error) = child.kill() {
+                log::warn!("kill of unidentified restarted guardian failed: {kill_error}");
+            }
+            if let Err(wait_error) = child.wait() {
+                log::warn!("reap of unidentified restarted guardian failed: {wait_error}");
+            }
             return Err(AppError::new(
                 codes::UPDATE_HEALTH_GUARDIAN_FAILED,
                 format!("Cannot identify restarted update health guardian: {error}"),
@@ -1734,6 +1789,15 @@ fn remove_path(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
+/// Best-effort cleanup that records its cause (wps_10 D1). Dozens of
+/// `remove_path_logged(..)` sites previously made failed guardian/rollback
+/// cleanups invisible; a missing path is still a silent no-op.
+fn remove_path_logged(path: &Path) {
+    if let Err(error) = remove_path(path) {
+        log::warn!("update-health cleanup failed for {}: {error}", path.display());
+    }
+}
+
 fn verify_restore_permissions(target: &Path) -> AppResult<()> {
     use std::io::Write;
 
@@ -1762,7 +1826,10 @@ fn verify_restore_permissions(target: &Path) -> AppResult<()> {
         file.sync_all()?;
         Ok(())
     })();
-    let _ = fs::remove_file(&probe);
+    // wps_10 D1: a leftover write probe is harmless but worth a debug trace.
+    if let Err(error) = fs::remove_file(&probe) {
+        log::debug!("could not remove rollback write probe {}: {error}", probe.display());
+    }
     result
 }
 
@@ -1782,6 +1849,14 @@ fn read_state(path: &Path) -> AppResult<HealthState> {
     let state: HealthState = serde_json::from_slice(&fs::read(path)?)?;
     validate_state(&state)?;
     Ok(state)
+}
+
+/// Quarantine a damaged transaction.json and remove transaction-scoped orphan
+/// storage (backups, guardian copies, the guardian secret), returning the
+/// health directory to the "no active transaction" baseline (wps_02 D-4).
+fn recover_from_corrupt_state(paths: &HealthPaths) -> AppResult<()> {
+    crate::state::quarantine(&paths.state)?;
+    clean_orphan_storage(paths)
 }
 
 fn commit_state(path: &Path, state: &mut HealthState, guardian_secret: &str) -> AppResult<()> {
@@ -2210,6 +2285,29 @@ fn terminate_process_tree_if_same(expected: &ProcessIdentity) -> AppResult<()> {
 /// each node's reported parent before touching it, SIGKILL deepest first,
 /// then wait for /proc/<pid> to disappear — but with plain `kill(2)` instead
 /// of pidfd_send_signal(2) and a polling wait instead of polling the pidfd.
+/// A process frozen with SIGSTOP by the /proc rollback fallback. Drop resumes
+/// it: any early-return error between freeze and SIGKILL (snapshot failure,
+/// tree limit, instability, …) would otherwise leave the application tree
+/// stopped forever (wps_02 D-2; mirrors the pidfd path's LinuxTreeProcess).
+#[cfg(target_os = "linux")]
+struct FrozenProc {
+    pid: u32,
+    depth: usize,
+    suspended: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for FrozenProc {
+    fn drop(&mut self) {
+        if self.suspended {
+            // wps_10 D1: a failed resume would leave the process stopped; trace it.
+            if let Err(error) = kill_linux_pid(self.pid, libc::SIGCONT) {
+                log::debug!("SIGCONT resume failed for frozen pid {}: {error}", self.pid);
+            }
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn terminate_tree_with_proc(expected: &ProcessIdentity) -> AppResult<()> {
     if !valid_process_id(expected.pid) {
@@ -2222,7 +2320,11 @@ fn terminate_tree_with_proc(expected: &ProcessIdentity) -> AppResult<()> {
         return Ok(());
     }
     kill_linux_pid(expected.pid, libc::SIGSTOP)?;
-    let mut frozen: Vec<(u32, usize)> = vec![(expected.pid, 0)];
+    let mut frozen: Vec<FrozenProc> = vec![FrozenProc {
+        pid: expected.pid,
+        depth: 0,
+        suspended: true,
+    }];
     let mut quiet_passes = 0_usize;
     for _ in 0..MAX_PROCESS_TREE_PASSES {
         let links = snapshot_linux_process_links()?;
@@ -2235,17 +2337,21 @@ fn terminate_tree_with_proc(expected: &ProcessIdentity) -> AppResult<()> {
         }
         let mut added = false;
         for descendant in descendants {
-            if frozen.iter().any(|(pid, _)| *pid == descendant.pid) {
+            if frozen.iter().any(|process| process.pid == descendant.pid) {
                 continue;
             }
-            if !frozen.iter().any(|(pid, _)| *pid == descendant.parent_pid) {
+            if !frozen.iter().any(|process| process.pid == descendant.parent_pid) {
                 continue;
             }
             if linux_process_parent_pid(descendant.pid)? != descendant.parent_pid {
                 continue;
             }
             kill_linux_pid(descendant.pid, libc::SIGSTOP)?;
-            frozen.push((descendant.pid, descendant.depth));
+            frozen.push(FrozenProc {
+                pid: descendant.pid,
+                depth: descendant.depth,
+                suspended: true,
+            });
             added = true;
         }
         if added {
@@ -2264,12 +2370,14 @@ fn terminate_tree_with_proc(expected: &ProcessIdentity) -> AppResult<()> {
             "The unhealthy application process tree did not stabilize before rollback",
         ));
     }
-    frozen.sort_by_key(|(_, depth)| std::cmp::Reverse(*depth));
-    for (pid, _) in &frozen {
-        kill_linux_pid(*pid, libc::SIGKILL)?;
+    frozen.sort_by_key(|process| std::cmp::Reverse(process.depth));
+    for process in &mut frozen {
+        kill_linux_pid(process.pid, libc::SIGKILL)?;
+        // SIGKILL delivered; Drop must not attempt a resume of a dying process.
+        process.suspended = false;
     }
-    for (pid, _) in &frozen {
-        wait_for_linux_process_exit(*pid, Duration::from_secs(10))?;
+    for process in &frozen {
+        wait_for_linux_process_exit(process.pid, Duration::from_secs(10))?;
     }
     Ok(())
 }
@@ -2315,7 +2423,10 @@ impl Drop for LinuxTreeProcess {
     fn drop(&mut self) {
         use std::os::fd::AsRawFd;
         if self.suspended && !self.terminated {
-            let _ = pidfd_send_signal(self.pidfd.as_raw_fd(), libc::SIGCONT);
+            // wps_10 D1: failed resume leaves the process suspended; trace it.
+            if let Err(error) = pidfd_send_signal(self.pidfd.as_raw_fd(), libc::SIGCONT) {
+                log::debug!("SIGCONT resume failed for suspended pidfd process: {error}");
+            }
         }
     }
 }
@@ -2865,9 +2976,9 @@ fn macos_child_pids(parent_pid: u32) -> AppResult<Vec<u32>> {
 
 #[cfg(target_os = "macos")]
 fn signal_macos_process_if_same(expected: &ProcessIdentity, signal: i32) -> AppResult<bool> {
-    if query_process_identity(expected.pid).as_ref().ok() != Some(expected)
-        || query_process_identity(expected.pid).as_ref().ok() != Some(expected)
-    {
+    // wps_01 N-12: a duplicated identity query used to be ORed here; one
+    // check suffices (a second query before the signal adds nothing).
+    if query_process_identity(expected.pid).as_ref().ok() != Some(expected) {
         return Ok(false);
     }
     let pid = libc::pid_t::try_from(expected.pid)
@@ -3451,7 +3562,13 @@ fn schedule_guardian_cleanup(state_path: PathBuf, state: HealthState) {
     let transaction_id = state.transaction_id;
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(2));
-        let _ = cleanup_terminal_payloads(&state_path, &transaction_id);
+        // wps_10 D1: this detached thread is the last cleanup chance after a
+        // terminal transaction; swallowing the result hid leftover payloads.
+        if let Err(error) = cleanup_terminal_payloads(&state_path, &transaction_id) {
+            log::warn!(
+                "guardian terminal-payload cleanup failed for transaction {transaction_id}: {error}"
+            );
+        }
     });
 }
 
@@ -4291,6 +4408,37 @@ mod tests {
         assert!(!paths.secret.exists());
         assert_eq!(fs::read_dir(&paths.backups).unwrap().count(), 0);
         assert_eq!(fs::read_dir(&paths.guardians).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn corrupt_transaction_state_is_quarantined_and_does_not_block_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = HealthPaths::new(root.path().to_path_buf());
+        paths.create().unwrap();
+        // Half-written JSON, as a crash mid-update could leave behind.
+        fs::write(&paths.state, br#"{ "transaction_id": "abc", "stage": "#).unwrap();
+        let backup = paths.backups.join("stale");
+        fs::create_dir(&backup).unwrap();
+        fs::write(backup.join("payload"), b"old").unwrap();
+        write_guardian_secret(&paths, TEST_SECRET).unwrap();
+
+        assert!(read_state(&paths.state).is_err());
+        recover_from_corrupt_state(&paths).unwrap();
+
+        assert!(!paths.state.exists());
+        assert_eq!(
+            fs::read_dir(&paths.root)
+                .unwrap()
+                .flatten()
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("transaction.json.corrupt."))
+                .count(),
+            1
+        );
+        assert_eq!(fs::read_dir(&paths.backups).unwrap().count(), 0);
+        assert!(!paths.secret.exists());
     }
 
     #[test]

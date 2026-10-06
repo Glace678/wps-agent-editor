@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join, relative, resolve, sep } from 'node:path'
 
@@ -19,11 +19,13 @@ if (!temporaryOutput.endsWith(join('src', 'types', '.generated-rust-dto-tmp'))) 
 const EXPECTED_DTOS = new Set([
   'AgentAttachment', 'AgentCacheUsage', 'AgentChatRequest', 'AgentCollaborationEvent',
   'AgentConfig', 'AgentDocumentEvent', 'AgentDocumentResult', 'AgentRunTaskRequest',
-  'AgentTaskResult', 'AppError', 'AuthStatus', 'ChatMessage', 'ChatRole',
+  'AgentTaskResult', 'AppError', 'AttachmentSource', 'AuthStatus', 'AuthType',
+  'ChatMessage', 'ChatRole',
+  'CollaborationMode',
   'CodeRunResult', 'CodexImportFailure', 'CodexImportResult', 'CommandSuccess',
   'ConversationMessage', 'ConversationRecord', 'ConversationSaveRequest',
   'ConversationSource', 'ConversationSummary', 'CustomProviderConfig', 'DebugBreakpoint',
-  'DebugCommand', 'DebugStartResult', 'DependencyStatus', 'ExecutedToolCall',
+  'DebugCommand', 'DebugStartResult', 'DependencyStatus', 'ErrorCode', 'ExecutedToolCall',
   'FileDialogKind', 'FileEntry', 'FileOperationResult', 'FileSessionSaveRequest',
   'FileSessionSnapshot', 'FileStatInfo', 'FileVersion', 'GrantedPath', 'OpenedFile',
   'PathAccessRequest', 'PreparedOfficeConverter', 'PreparedOfficeMetadata',
@@ -31,7 +33,41 @@ const EXPECTED_DTOS = new Set([
   'PresentationEditResponseMetadata', 'PresentationSlideText', 'ProviderDefinition',
   'ProviderModel', 'ProviderProtocol', 'RecentFile', 'RecoveryNotice', 'SystemFont',
   'TerminalStartResult', 'UpdateInfo',
+  // ts-rs emits this dependency type for fields typed serde_json::Value.
+  'JsonValue',
 ])
+
+// wps_09 B-2: derive the frontend error-code union straight from the Rust
+// codes::ALL registry (src-tauri/src/error.rs), so the TS union cannot drift
+// from codes the backend actually emits. Only constants listed in ALL are
+// exported.
+function parseRegistryCodes() {
+  const source = readFileSync(join(root, 'src-tauri/src/error.rs'), 'utf8')
+  const constants = new Map()
+  const constantPattern = /pub const ([A-Z0-9_]+): &str =\s*"([a-z0-9-]+)";/g
+  let match
+  while ((match = constantPattern.exec(source)) !== null) constants.set(match[1], match[2])
+
+  const listStart = source.indexOf('pub const ALL: &[&str] = &[')
+  if (listStart < 0) throw new Error('Could not locate codes::ALL in error.rs')
+  const listBody = source.slice(listStart, source.indexOf('];', listStart))
+  const members = listBody.match(/\b[A-Z][A-Z0-9_]+\b/g).filter((name) => name !== 'ALL')
+  const values = []
+  for (const name of members) {
+    const value = constants.get(name)
+    if (!value) throw new Error(`codes::ALL lists ${name}, which has no string constant`)
+    values.push(value)
+  }
+  return [...new Set(values)].sort()
+}
+
+const registryCodes = parseRegistryCodes()
+const errorCodeSource = [
+  '// Generated from src-tauri/src/error.rs codes::ALL by scripts/generate-rust-types.mjs. Do not edit.',
+  'export type ErrorCode =',
+  ...registryCodes.map((value) => `  | '${value}'`),
+  '',
+].join('\n')
 
 const cargoCandidates = [
   process.env.CARGO,
@@ -45,6 +81,8 @@ if (!cargo) throw new Error('Cargo was not found; Rust DTO bindings cannot be ge
 
 await rm(temporaryOutput, { recursive: true, force: true })
 await mkdir(temporaryOutput, { recursive: true })
+// Written before cargo runs so the collect/index step treats it like a DTO.
+await writeFile(join(temporaryOutput, 'ErrorCode.ts'), errorCodeSource)
 const result = spawnSync(
   cargo,
   ['test', '--manifest-path', 'src-tauri/Cargo.toml', 'export_bindings'],
@@ -99,7 +137,20 @@ if (extra.length > 0) {
 }
 
 await Promise.all(files.map(async (file) => {
-  const source = await readFile(file, 'utf8')
+  let source = await readFile(file, 'utf8')
+  // ts-rs cannot express the IPC integer constraint on the JsonValue alias, so
+  // declare it here: the Rust host rewrites any integer outside the JS safe
+  // range (|n| > 2^53 - 1) into a decimal string before the value crosses IPC
+  // (see src-tauri/src/serde_util.rs, wps_03 D10).
+  if (basename(file, '.ts') === 'JsonValue' && !source.includes('wps_03 D10')) {
+    source = `${source.replace(
+      /\n/,
+      '\n// PRECISION CONTRACT (wps_03 D10): any integer with magnitude greater\n'
+        + '// than 2^53 - 1 is encoded as a decimal STRING by the Rust host before\n'
+        + '// crossing IPC, not as a number. Treat string values in integer-shaped\n'
+        + '// fields as exact integers.\n',
+    )}`
+  }
   const normalized = `${source.split(/\r?\n/).map((line) => line.trimEnd()).join('\n').trimEnd()}\n`
   await writeFile(file, normalized)
 }))

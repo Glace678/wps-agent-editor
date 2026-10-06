@@ -1,4 +1,5 @@
 import { desktopApi } from '@/platform'
+import { AppError } from '@/platform/app-error'
 import {
   buildTextIndex,
   PptxViewer,
@@ -96,6 +97,7 @@ import {
   parseOutlineSlides,
 } from '../utils/presentation-outline'
 import { normalizeRenderedPresentationSpaces } from '../utils/presentation-spaces'
+import { registerDocumentZoomOverride } from '@/components/layout/modules/DocumentZoom'
 
 interface PresentationViewerProps {
   filePath: string
@@ -339,7 +341,6 @@ export function PresentationViewer({
   const [viewer, setViewer] = useState<PptxViewer | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<LoadError>(null)
-  const [errorDetail, setErrorDetail] = useState('')
   const [retryToken, setRetryToken] = useState(0)
   const [contentRevision, setContentRevision] = useState(0)
   const [slideCount, setSlideCount] = useState(0)
@@ -586,7 +587,6 @@ export function PresentationViewer({
     setViewer(null)
     setLoading(true)
     setLoadError(null)
-    setErrorDetail('')
     setSlideCount(0)
 
     let nextViewer: PptxViewer
@@ -682,16 +682,16 @@ export function PresentationViewer({
         }
       } catch (error) {
         if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return
-        console.error('[PresentationViewer] Unable to open presentation:', error)
-        const message = error instanceof Error ? error.message : String(error)
+        // wps_10 A3: classify by structured code only; the raw message stays
+        // in the diagnostic console, never in the error UI.
+        const appError = AppError.from(error)
+        console.error('[PresentationViewer] Unable to open presentation:', appError.code, appError.message)
         setLoadError(
           ['ppt', 'odp'].includes(getExtension(filePath))
-            && (message.includes('PRESENTATION_CONVERTER_UNAVAILABLE')
-              || (error instanceof Error && 'code' in error && error.code === 'dependency-missing'))
+            && appError.code === 'dependency-missing'
             ? 'legacy'
             : 'document',
         )
-        setErrorDetail(message.replace(/^Error invoking remote method '[^']+':\s*/i, ''))
         setLoading(false)
       }
     })()
@@ -781,6 +781,16 @@ export function PresentationViewer({
     setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next)))
   }, [])
 
+  // 菜单缩放桥：演示文稿自管缩放状态。
+  useEffect(
+    () => registerDocumentZoomOverride({
+      zoomIn: () => setClampedZoom(zoom + ZOOM_STEP),
+      zoomOut: () => setClampedZoom(zoom - ZOOM_STEP),
+      zoomReset: () => setZoom(100),
+    }),
+    [zoom, setClampedZoom],
+  )
+
   const advancePresentation = useCallback(() => {
     const runtime = animationRuntimeRef.current
     if (runtime && runNextPresentationAnimation(runtime)) return
@@ -788,18 +798,26 @@ export function PresentationViewer({
   }, [currentSlide, goToSlide])
 
   const describeEditError = useCallback((error: unknown) => {
-    const raw = error instanceof Error ? error.message : String(error)
-    const message = raw.replace(/^Error invoking remote method '[^']+':\s*/i, '')
-    if (message.includes('PRESENTATION_CANNOT_DELETE_ONLY_SLIDE')) {
+    const appError = AppError.from(error)
+    // wps_10 A3: classify by the machine-readable code only. The old English
+    // internal-constant substring matching broke whenever the message text or
+    // IPC serialization changed; every one of these failures has carried a
+    // structured code since the error-registry unification.
+    const code = appError.code
+    if (code === 'presentation-cannot-delete-only-slide') {
       return t('presentationViewer.cannotDeleteOnlySlide')
     }
-    if (message.includes('PRESENTATION_EDITOR_UNAVAILABLE')) {
+    if (code === 'dependency-missing') {
       return t('presentationViewer.editorUnavailable')
     }
-    if (message.includes('PRESENTATION_REUSE')) {
+    if (code.startsWith('presentation-reuse')) {
       return t('presentationViewer.reuseFailed')
     }
-    return t('presentationViewer.editFailed', { error: message })
+    // wps_10 D2: for any other code the raw backend message (absolute paths,
+    // LibreOffice stderr fragments, …) must not be interpolated into the UI;
+    // it stays in the diagnostic console and the user sees a generic failure.
+    console.warn('[PresentationViewer] edit operation failed:', code, appError.message)
+    return t('presentationViewer.editFailedGeneric')
   }, [t])
 
   const executeEditOperation = useCallback(async (
@@ -1773,9 +1791,6 @@ export function PresentationViewer({
                     ? t('presentationViewer.legacyUnavailable')
                     : t('presentationViewer.invalidPresentation')}
                 </p>
-                {errorDetail && loadError !== 'legacy' ? (
-                  <p className="max-w-full break-words text-[11px] text-muted-foreground/70">{errorDetail}</p>
-                ) : null}
                 <button
                   type="button"
                   className="presentation-command-button mt-1"

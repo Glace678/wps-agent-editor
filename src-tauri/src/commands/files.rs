@@ -69,7 +69,7 @@ pub async fn files_open(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> AppResult<OpenedFile> {
-    let (file, writable) = state.files.access.resolve_with_permissions(
+    let (file, _writable) = state.files.access.resolve_with_permissions(
         window.label(),
         &path,
         &grant_id,
@@ -77,15 +77,22 @@ pub async fn files_open(
         Some(false),
     )?;
     ensure_file_can_be_opened(&file)?;
-    let recent = if writable {
-        state.files.recent.add(&file, writable).await?
-    } else {
-        state.files.recent.list().await?
-    };
+    // Opening a document in the editor is an explicit user gesture: mint a
+    // writable grant scoped to THIS ONE file, even though the directory/child
+    // grant it was browsed through is read-only (wps_01 N-1). The frontend
+    // keys grants by path, so this new id replaces the read-only one for all
+    // later save/rename/delete calls on the file.
+    let write_grant = state.files.access.grant_existing(
+        window.label(),
+        &file,
+        true,
+        GrantSource::CurrentDocument,
+    )?;
+    let recent = state.files.recent.add(&file, true).await?;
     let _ = state.files.history.snapshot(&file, false).await;
     Ok(OpenedFile {
-        path: path_string(&file)?,
-        grant_id,
+        path: write_grant.path,
+        grant_id: write_grant.grant_id,
         recent: grant_recent(window.label(), &state.files, recent),
     })
 }
@@ -191,10 +198,16 @@ pub async fn files_get_recent(
 
 #[tauri::command]
 pub fn files_get_home(window: WebviewWindow, state: State<'_, AppState>) -> AppResult<GrantedPath> {
+    // Threat-model decision (wps_01 N-1): the home grant is READ-ONLY. Browsing
+    // only needs read; child grants minted during `files_list` inherit that, so
+    // a compromised renderer cannot write/delete arbitrary files under $HOME by
+    // simply walking the tree. Write capability for one explicitly opened file
+    // is minted in `files_open` (GrantSource::CurrentDocument), and every other
+    // write path keeps its own dialog/save-dialog grant.
     state.files.access.grant_existing(
         window.label(),
         state.files.home_dir(),
-        true,
+        false,
         GrantSource::Home,
     )
 }

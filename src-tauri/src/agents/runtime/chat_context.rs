@@ -123,14 +123,16 @@ pub(super) fn portable_chat_context(messages: Vec<ChatMessage>) -> Vec<ChatMessa
         content: format!(
             "This is a portable continuation of a longer saved conversation. The host retained the original request and the most recent context while omitting older messages to stay compatible with external model limits (original message count: {original_count}). Continue the current task from the retained context. Do not claim to remember omitted details; ask for a specific missing detail only when it is essential."
         ),
-        attachments: Vec::new(),
+        attachments: None,
     };
     let first_user_chars = first_user
         .as_ref()
         .map(|message| message.content.chars().count())
         .unwrap_or(0);
+    // wps_06 D1: the budget is measured in characters; the marker content is
+    // English today but the units must match the per-message chars().count().
     let mut remaining_chars = PORTABLE_CONTEXT_CHARS
-        .saturating_sub(marker.content.len())
+        .saturating_sub(marker.content.chars().count())
         .saturating_sub(first_user_chars);
     let mut selected = Vec::new();
     for mut message in messages.into_iter().rev() {
@@ -188,34 +190,115 @@ pub(super) fn portable_message_text(value: &str, available: usize) -> String {
     format!("{prefix}{marker}{suffix}")
 }
 
+/// Locate a real tool fence: the opening ```` ```tool ```` must start a line
+/// and the remainder of that line must be whitespace. This keeps prose such
+/// as "explain the ```` ```tool ```` protocol" from being parsed as a tool
+/// block (wps_06 C1).
+fn find_tool_fence(haystack: &str) -> Option<usize> {
+    let fence = "```tool";
+    let mut search_from = 0;
+    while let Some(relative) = haystack[search_from..].find(fence) {
+        let start = search_from + relative;
+        let at_line_start = start == 0 || haystack.as_bytes().get(start - 1) == Some(&b'\n');
+        if at_line_start {
+            let line_end = haystack[start..]
+                .find('\n')
+                .map(|offset| start + offset)
+                .unwrap_or(haystack.len());
+            if haystack[start + fence.len()..line_end].trim().is_empty() {
+                return Some(start);
+            }
+        }
+        search_from = start + fence.len();
+    }
+    None
+}
+
 pub(super) fn parse_tool_calls(content: &str) -> AppResult<Vec<ParsedToolCall>> {
+    use std::collections::HashSet;
     let mut calls = Vec::new();
+    let mut signatures: HashSet<String> = HashSet::new();
     let mut remaining = content;
-    while let Some(start) = remaining.find("```tool") {
+    while let Some(start) = find_tool_fence(remaining) {
+        // Skip the fence's own line; the JSON body starts after the newline.
         remaining = &remaining[start + "```tool".len()..];
+        let line_end = remaining
+            .find('\n')
+            .unwrap_or(remaining.len());
+        remaining = &remaining[line_end..];
         let Some(end) = remaining.find("```") else {
-            return Err(AppError::new(
-                "invalid-tool-block",
-                "Agent returned an unterminated tool block",
-            ));
+            // Unclosed fence — likely a forgotten closing line. Stop parsing
+            // instead of failing the whole round (wps_06 C1).
+            break;
         };
         let body = remaining[..end].trim();
-        let call: ParsedToolCall = serde_json::from_str(body).map_err(|error| {
-            AppError::new(
-                "invalid-tool-block",
-                format!("Agent returned invalid tool JSON: {error}"),
-            )
-        })?;
-        if call.tool.trim().is_empty() {
-            return Err(AppError::new(
-                "invalid-tool-block",
-                "Agent tool name cannot be empty",
-            ));
+        // Real tool blocks are JSON objects. Anything else is prose/example
+        // text: skip the block and keep scanning.
+        if !body.starts_with('{') {
+            remaining = &remaining[end + 3..];
+            continue;
         }
-        calls.push(call);
+        let call = match serde_json::from_str::<ParsedToolCall>(body) {
+            Ok(call) => call,
+            // Malformed JSON must degrade to plain text, not kill the run.
+            Err(_) => {
+                remaining = &remaining[end + 3..];
+                continue;
+            }
+        };
+        if call.tool.trim().is_empty() {
+            remaining = &remaining[end + 3..];
+            continue;
+        }
+        // Idempotency key: a repeated identical (tool, args) call in the same
+        // answer is executed only once (e.g. insert_text duplicated).
+        let signature = format!(
+            "{}:{}",
+            call.tool,
+            serde_json::to_string(&call.args).unwrap_or_default()
+        );
+        if signatures.insert(signature) {
+            calls.push(call);
+        }
         remaining = &remaining[end + 3..];
     }
     Ok(calls)
+}
+
+/// Remove genuine tool blocks from `content`, leaving ordinary prose (and
+/// fences that do not open a valid tool block) intact. Used when the tool
+/// round limit is reached so the streamed answer is still delivered (C2).
+pub(super) fn strip_tool_blocks(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut remaining = content;
+    while let Some(start) = find_tool_fence(remaining) {
+        result.push_str(&remaining[..start]);
+        let after_fence = &remaining[start + "```tool".len()..];
+        let line_end = after_fence.find('\n').unwrap_or(after_fence.len());
+        let body_region = &after_fence[line_end..];
+        if let Some(end) = body_region.find("```") {
+            let body = body_region[..end].trim();
+            if body.starts_with('{')
+                && serde_json::from_str::<ParsedToolCall>(body)
+                    .is_ok_and(|call| !call.tool.trim().is_empty())
+            {
+                // Real tool block: drop it (plus a single trailing newline).
+                let mut rest = &body_region[end + 3..];
+                if let Some(stripped) = rest.strip_prefix("\r\n") {
+                    rest = stripped;
+                } else if let Some(stripped) = rest.strip_prefix('\n') {
+                    rest = stripped;
+                }
+                remaining = rest;
+                continue;
+            }
+        }
+        // Not a valid block: keep the fence text verbatim.
+        result.push_str("```tool");
+        remaining = after_fence;
+    }
+    result.push_str(remaining);
+    result
 }
 
 pub(super) fn is_document_tool(tool: &str) -> bool {
@@ -328,9 +411,38 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unterminated_tool_blocks() {
-        let error = parse_tool_calls("```tool\n{\"tool\":\"read_document\"}").unwrap_err();
-        assert_eq!(error.code, "invalid-tool-block");
+    fn tolerates_unterminated_tool_blocks() {
+        let calls = parse_tool_calls("```tool\n{\"tool\":\"read_document\"}").unwrap();
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn ignores_inline_fences_and_bad_json() {
+        // Fence not at line start.
+        let calls = parse_tool_calls("use a ```tool fence please").unwrap();
+        assert!(calls.is_empty());
+        // Valid fence position but body is prose, not a JSON object.
+        let calls = parse_tool_calls("```tool\nnot json at all\n```").unwrap();
+        assert!(calls.is_empty());
+        // Trailing text after `tool` on the fence line disqualifies it.
+        let calls = parse_tool_calls("```tool trailing\n{\"tool\":\"read_document\"}\n```").unwrap();
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn deduplicates_repeated_identical_calls() {
+        let content = "```tool\n{\"tool\":\"read_document\",\"args\":{}}\n```\n\
+                        ```tool\n{\"tool\":\"read_document\",\"args\":{}}\n```";
+        let calls = parse_tool_calls(content).unwrap();
+        assert_eq!(calls.len(), 1);
+    }
+
+    #[test]
+    fn strips_only_valid_tool_blocks() {
+        let content = "intro\n```tool\n{\"tool\":\"read_document\",\"args\":{}}\n```\noutro";
+        assert_eq!(strip_tool_blocks(content), "intro\noutro");
+        let prose = "explain the ```tool protocol";
+        assert_eq!(strip_tool_blocks(prose), prose);
     }
 
     #[test]
@@ -369,7 +481,7 @@ mod tests {
         let mut messages = vec![ChatMessage {
             role: ChatRole::User,
             content: "original task".to_owned(),
-            attachments: Vec::new(),
+            attachments: None,
         }];
         for index in 0..100 {
             messages.push(ChatMessage {
@@ -379,7 +491,7 @@ mod tests {
                     ChatRole::User
                 },
                 content: format!("message-{index} {}", "x".repeat(2_000)),
-                attachments: Vec::new(),
+                attachments: None,
             });
         }
         let portable = portable_chat_context(messages);

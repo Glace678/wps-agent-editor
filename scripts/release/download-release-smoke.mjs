@@ -14,16 +14,14 @@ if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
 const spec = releaseArtifactSpec(args.tag, args.platform, args.arch, args.directory || 'smoke-artifacts')
 await mkdir(spec.directory, { recursive: true })
 
+// Public release assets only. Tamper/invalid-install fixtures travel through
+// the internal release-fixtures workflow artifact instead (see finalize-release).
 const names = [...new Set([
   spec.primaryName,
   spec.updaterName,
   spec.signatureName,
-  spec.invalidInstallName,
-  spec.invalidInstallSignatureName,
   'SHA256SUMS',
   'latest.json',
-  'latest-tampered.json',
-  'latest-invalid-install.json',
 ])]
 const commandArgs = ['release', 'download', spec.tag, '--repo', repository, '--dir', spec.directory]
 for (const name of names) commandArgs.push('--pattern', name)

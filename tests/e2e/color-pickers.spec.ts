@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import path from 'node:path'
 import { createMinimalPagedDocx } from './support/minimal-docx'
+import { selfValidateMockPayloads, validateMockResponses } from './support/mock-payloads'
 
 function sourceUrl(relativePath: string): string {
   return `/@fs/${path.resolve(relativePath).replaceAll('\\', '/')}`
@@ -27,6 +28,7 @@ const MODELED_COMMANDS = new Set([
   'documents_list_fonts',
   'providers_auth_status',
   'documents_prepare_word',
+  'files_stat',
   'app_take_startup_files',
   // Startup / lifecycle bridge calls the app issues on boot; these are routine
   // and unrelated to the color-picker flow, so model them rather than failing.
@@ -45,6 +47,8 @@ async function installWordDesktopMock(page: Page): Promise<void> {
     const callbacks = new Map<number, (payload: unknown) => void>()
     let callbackId = 0
     const invocations: Array<{ command: string; args?: unknown; handled: boolean }> = []
+    // D2: record every mock response for runtime contract validation.
+    const mockResponses: Array<{ command: string; result: unknown }> = []
     const encodeWae1 = (metadata: unknown, payload: Uint8Array) => {
       const meta = new TextEncoder().encode(JSON.stringify(metadata))
       const out = new Uint8Array(8 + meta.length + payload.length)
@@ -55,7 +59,7 @@ async function installWordDesktopMock(page: Page): Promise<void> {
       return out
     }
     const modeledSet = new Set<string>(modeled)
-    const invoke = async (command: string, args?: unknown): Promise<unknown> => {
+    const handleInvoke = async (command: string, args?: unknown): Promise<unknown> => {
       const handled = modeledSet.has(command)
       invocations.push({ command, args, handled })
       switch (command) {
@@ -90,6 +94,14 @@ async function installWordDesktopMock(page: Page): Promise<void> {
           }, Uint8Array.from(fixtureBytes))
         case 'app_take_startup_files': return []
         case 'app_take_recovery_notices': return []
+        case 'files_stat':
+          return {
+            exists: true,
+            size: fixtureBytes.length,
+            modifiedAt: 1_788_825_600_000,
+            createdAt: 1_788_825_600_000,
+            extension: 'docx',
+          }
         case 'agents_conversations_list':
         case 'agents_conversations_import_codex': return []
         case 'app_i18n_set_language':
@@ -101,8 +113,14 @@ async function installWordDesktopMock(page: Page): Promise<void> {
           return { success: false, error: `unhandled test command: ${command}` }
       }
     }
+    const invoke = async (command: string, args?: unknown): Promise<unknown> => {
+      const result = await handleInvoke(command, args)
+      mockResponses.push({ command, result })
+      return result
+    }
     Object.assign(window, {
       __WAE_INVOKED_COMMANDS__: invocations,
+      __WAE_MOCK_RESPONSES__: mockResponses,
       __TAURI_INTERNALS__: {
         invoke,
         transformCallback(callback: (payload: unknown) => void) {
@@ -368,6 +386,16 @@ test('Word color picker works inside the editor', async ({ page }, testInfo) => 
   expect(commands).toContain('documents_prepare_word')
   const unhandled = invocations.filter((entry) => !entry.handled).map((entry) => entry.command)
   expect(unhandled).toEqual([])
+
+  // D2: validate this mock's responses against the generated contract.
+  selfValidateMockPayloads()
+  const responses = await page.evaluate(() =>
+    (window as unknown as {
+      __WAE_MOCK_RESPONSES__?: Array<{ command: string; result: unknown }>
+    }).__WAE_MOCK_RESPONSES__ ?? [],
+  )
+  const contractErrors = validateMockResponses(responses)
+  expect(contractErrors, `mock payload contract violations:\n${contractErrors.join('\n')}`).toEqual([])
 
   expect(errors).toEqual([])
 })

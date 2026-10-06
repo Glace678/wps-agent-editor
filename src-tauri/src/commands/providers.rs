@@ -8,7 +8,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 use tauri::State;
 
 #[derive(Debug, Deserialize)]
@@ -96,6 +96,9 @@ pub async fn providers_detect_ollama(
         .providers
         .client
         .get(format!("{root}/api/tags"))
+        // Bounded JSON call: per-request timeout since the shared client no
+        // longer carries a whole-request timeout (wps_06 A1).
+        .timeout(Duration::from_secs(60))
         .send()
         .await?;
     if !response.status().is_success() {
@@ -198,12 +201,37 @@ pub async fn providers_custom_test(
     input: CustomProviderTestInput,
     state: State<'_, AppState>,
 ) -> AppResult<CustomProviderTestResult> {
-    let base_url = validate_base_url(&input.base_url)?;
+    // D3: an empty key used to be sent as an empty Bearer and surface as a
+    // misleading 401 "unauthorized". Report the actual problem so the UI can
+    // point the user at the API-key field.
+    if input.api_key.trim().is_empty() {
+        return Ok(CustomProviderTestResult {
+            success: false,
+            models: vec![],
+            error: Some("missing-api-key"),
+        });
+    }
+    // wps_03 D3: validation failures (malformed URL, embedded credentials,
+    // non-HTTPS URL) must land in the result payload so the UI can highlight
+    // the URL field, instead of propagating as a generic command error.
+    let base_url = match validate_base_url(&input.base_url) {
+        Ok(base_url) => base_url,
+        Err(_) => {
+            return Ok(CustomProviderTestResult {
+                success: false,
+                models: vec![],
+                error: Some("invalid-base-url"),
+            })
+        }
+    };
     let response = state
         .providers
         .client
         .get(format!("{base_url}/models"))
         .bearer_auth(input.api_key)
+        // Bounded JSON call (wps_06 A1); a timeout lands in the error arm
+        // below and is reported as a failed connection.
+        .timeout(Duration::from_secs(60))
         .send()
         .await;
     let response = match response {
@@ -370,6 +398,8 @@ fn custom_definition(provider: CustomProviderConfig) -> ProviderDefinition {
 async fn fetch_models_dev(client: &reqwest::Client) -> AppResult<Vec<ProviderDefinition>> {
     let response = client
         .get("https://models.dev/api.json")
+        // Bounded catalog download: per-request timeout (wps_06 A1).
+        .timeout(Duration::from_secs(60))
         .send()
         .await?
         .error_for_status()?;
@@ -448,9 +478,12 @@ fn merge_with_builtins(remote: Vec<ProviderDefinition>) -> Vec<ProviderDefinitio
         .collect();
     for mut provider in remote {
         if let Some(bundled) = providers.get(&provider.id) {
-            if provider.api.is_empty() {
-                provider.api.clone_from(&bundled.api);
-            }
+            // N-4: the API endpoint is the trust anchor — completion requests
+            // send the user's API key to it. Remote catalog content (models.dev
+            // compromise / poisoning) must never redirect a built-in provider:
+            // only an explicit user override via set_base_url can do that.
+            provider.api.clone_from(&bundled.api);
+            provider.default_api.clone_from(&bundled.default_api);
             if provider.npm.is_empty() {
                 provider.npm.clone_from(&bundled.npm);
             }
@@ -521,6 +554,37 @@ mod tests {
             ollama.is_local,
             "bundled local flag must survive a remote refresh"
         );
+    }
+
+    #[test]
+    fn merge_keeps_bundled_api_when_remote_redirects_endpoint() {
+        // A poisoned models.dev response returns a built-in provider with an
+        // attacker-controlled api; the merge must keep the bundled endpoint so
+        // the user's key can never be silently redirected (wps_01 N-4).
+        let remote = vec![ProviderDefinition {
+            id: "openai".into(),
+            name: "OpenAI".into(),
+            api: "https://attacker.example/v1".into(),
+            npm: String::new(),
+            doc: None,
+            env: vec![],
+            protocol: ProviderProtocol::Openai,
+            models: vec![],
+            default_model: None,
+            default_api: Some("https://attacker.example/v1".into()),
+            is_api_overridden: false,
+            is_custom: false,
+            is_local: false,
+        }];
+        let merged = merge_with_builtins(remote);
+        let openai = merged
+            .iter()
+            .find(|provider| provider.id == "openai")
+            .expect("openai present");
+        assert_eq!(openai.api, "https://api.openai.com/v1");
+        // The bundled catalog leaves default_api to apply_base_url_override,
+        // but it must never retain the remote value either.
+        assert_ne!(openai.default_api.as_deref(), Some("https://attacker.example/v1"));
     }
 
     #[test]

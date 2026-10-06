@@ -1,7 +1,8 @@
 use crate::{
     agents::{
         conversations::{
-            CodexImportResult, ConversationRecord, ConversationSaveRequest, ConversationSummary,
+            validate_conversation_id, CodexImportResult, ConversationRecord,
+            ConversationSaveRequest, ConversationSummary,
         },
         models::{
             AgentChatRequest, AgentCollaborationEvent, AgentDocumentEvent, AgentDocumentResult,
@@ -45,7 +46,14 @@ pub async fn agents_conversations_get(
     id: String,
     state: State<'_, AppState>,
 ) -> AppResult<ConversationRecord> {
-    state.conversations.get(id.trim())
+    // Conversation reads/writes run whole-file fs IO plus fsync-backed atomic
+    // saves; keep them off the async runtime threads (wps_02 D-8), matching the
+    // codex import path.
+    let store = state.conversations.clone();
+    let id = id.trim().to_owned();
+    tokio::task::spawn_blocking(move || store.get(&id))
+        .await
+        .map_err(|error| AppError::internal(format!("Conversation load task failed: {error}")))?
 }
 
 #[tauri::command]
@@ -53,7 +61,10 @@ pub async fn agents_conversations_save(
     request: ConversationSaveRequest,
     state: State<'_, AppState>,
 ) -> AppResult<ConversationRecord> {
-    state.conversations.save(request)
+    let store = state.conversations.clone();
+    tokio::task::spawn_blocking(move || store.save(request))
+        .await
+        .map_err(|error| AppError::internal(format!("Conversation save task failed: {error}")))?
 }
 
 #[tauri::command]
@@ -61,7 +72,11 @@ pub async fn agents_conversations_delete(
     id: String,
     state: State<'_, AppState>,
 ) -> AppResult<bool> {
-    state.conversations.delete(id.trim())
+    let store = state.conversations.clone();
+    let id = id.trim().to_owned();
+    tokio::task::spawn_blocking(move || store.delete(&id))
+        .await
+        .map_err(|error| AppError::internal(format!("Conversation delete task failed: {error}")))?
 }
 
 #[tauri::command]
@@ -97,11 +112,9 @@ pub async fn agents_chat(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(&agent.id)
         .trim();
-    if conversation_id.len() > 256 {
+    if let Err(error) = validate_conversation_id(conversation_id) {
         state.agent_runtime.finish_run(&run_id);
-        return Err(AppError::invalid(
-            "Agent conversation id cannot exceed 256 bytes",
-        ));
+        return Err(error);
     }
     let result = run_agent_chat(
         AgentExecutionContext {

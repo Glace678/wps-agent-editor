@@ -13,33 +13,57 @@ import { cn } from '@/lib/utils'
 import { AGENT_COLLABORATION_ENABLED } from '@/lib/agent-collaboration'
 import { usePanelStore } from '@/stores/panel.store'
 import type { AppMenuAction } from '@/types/app-menu'
+import { shortcutLabel } from '@/lib/menu-shortcut-label'
 
 type AppMenuTop = 'file' | 'edit' | 'view' | 'agent' | 'help'
 type AppMenuEntry = 'separator' | readonly [AppMenuAction, TranslationKey, string?]
 
+// Shortcut hints go through shortcutLabel (platform-aware; wps_10 C1). The
+// zoom-in hint is '=' because that is the physical key on standard layouts.
 const menus: ReadonlyArray<{ top: AppMenuTop; label: TranslationKey; items: readonly AppMenuEntry[] }> = [
   { top: 'file', label: 'menu.file', items: [
-    ['open-file', 'menu.openFile', 'Ctrl+O'], ['open-folder', 'menu.openFolder', 'Ctrl+Shift+O'], 'separator',
-    ['save', 'menu.save', 'Ctrl+S'], ['print', 'menu.print', 'Ctrl+P'], 'separator', ['quit', 'menu.quit', 'Alt+F4'],
+    ['open-file', 'menu.openFile', shortcutLabel('Ctrl', 'O')],
+    ['open-folder', 'menu.openFolder', shortcutLabel('Ctrl', 'Shift', 'O')],
+    'separator',
+    ['save', 'menu.save', shortcutLabel('Ctrl', 'S')],
+    ['print', 'menu.print', shortcutLabel('Ctrl', 'P')],
+    'separator',
+    ['quit', 'menu.quit', shortcutLabel('Alt', 'F4')],
   ] },
   { top: 'edit', label: 'menu.edit', items: [
-    ['undo', 'menu.undo', 'Ctrl+Z'], ['redo', 'menu.redo', 'Ctrl+Y'], 'separator',
-    ['cut', 'menu.cut', 'Ctrl+X'], ['copy', 'menu.copy', 'Ctrl+C'], ['paste', 'menu.paste', 'Ctrl+V'], 'separator',
-    ['select-all', 'menu.selectAll', 'Ctrl+A'],
+    ['undo', 'menu.undo', shortcutLabel('Ctrl', 'Z')],
+    ['redo', 'menu.redo', shortcutLabel('Ctrl', 'Y')],
+    'separator',
+    ['cut', 'menu.cut', shortcutLabel('Ctrl', 'X')],
+    ['copy', 'menu.copy', shortcutLabel('Ctrl', 'C')],
+    ['paste', 'menu.paste', shortcutLabel('Ctrl', 'V')],
+    'separator',
+    ['select-all', 'menu.selectAll', shortcutLabel('Ctrl', 'A')],
   ] },
   { top: 'view', label: 'menu.view', items: [
-    ['reload', 'menu.reload', 'Ctrl+R'], ['force-reload', 'menu.forceReload', 'Ctrl+Alt+Shift+R'],
+    ['reload', 'menu.reload', shortcutLabel('Ctrl', 'R')],
+    ['force-reload', 'menu.forceReload', shortcutLabel('Ctrl', 'Alt', 'Shift', 'R')],
     ...(import.meta.env.DEV
-      ? [['toggle-dev-tools', 'menu.toggleDevTools', 'Ctrl+Shift+I'] as const, 'separator' as const]
+      ? [[
+        'toggle-dev-tools',
+        'menu.toggleDevTools',
+        shortcutLabel('Ctrl', 'Shift', 'I'),
+      ] as const, 'separator' as const]
       : []),
-    ['reset-zoom', 'menu.resetZoom', 'Ctrl+0'], ['zoom-in', 'menu.zoomIn', 'Ctrl++'], ['zoom-out', 'menu.zoomOut', 'Ctrl+-'],
+    ['reset-zoom', 'menu.resetZoom', shortcutLabel('Ctrl', '0')],
+    ['zoom-in', 'menu.zoomIn', shortcutLabel('Ctrl', '=')],
+    ['zoom-out', 'menu.zoomOut', shortcutLabel('Ctrl', '-')],
     'separator', ['open-terminal', 'bottomPanel.terminal'],
-    'separator', ['toggle-fullscreen', 'menu.toggleFullscreen', 'F11'],
+    'separator', ['toggle-fullscreen', 'menu.toggleFullscreen', shortcutLabel('F11')],
   ] },
   { top: 'agent', label: 'menu.agent', items: [
     ['new-agent', 'menu.newAgent'],
     ...(AGENT_COLLABORATION_ENABLED
-      ? [['run-multi-agent', 'menu.runMultiAgent', 'Ctrl+Shift+A'] as const]
+      ? [[
+        'run-multi-agent',
+        'menu.runMultiAgent',
+        shortcutLabel('Ctrl', 'Shift', 'A'),
+      ] as const]
       : []),
   ] },
   { top: 'help', label: 'menu.help', items: [['show-about', 'menu.aboutTitle']] },

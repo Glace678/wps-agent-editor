@@ -53,6 +53,8 @@ export type SystemLineKey =
   | 'runComplete'
   | 'runCancelled'
   | 'conflict'
+  // Renderer-only: shown when older trace events were trimmed from memory.
+  | 'eventsTruncated'
   | 'error'
 
 export interface SystemTranscriptItem {
@@ -74,6 +76,7 @@ const SYSTEM_LINE_KEYS: readonly SystemLineKey[] = [
   'runComplete',
   'runCancelled',
   'conflict',
+  'eventsTruncated',
   'error',
 ]
 
@@ -159,6 +162,11 @@ export function stripToolFencesLive(text: string): string {
 /**
  * Aggregates provider-reported prompt-cache usage across a collaboration run.
  *
+ * Only `agent-complete` events are counted (wps_06 F1): the backend emits the
+ * same usage on the per-round `agent-message` events and again as the grand
+ * total on `agent-complete`, so accumulating both doubled every number. One
+ * completion event per invocation carries exactly that invocation's totals.
+ *
  * Only frames whose provider actually measured caching contribute, so a run
  * against a provider that never reports cache numbers stays `measured: false`
  * instead of showing a fabricated 0% hit rate.
@@ -174,10 +182,12 @@ export function summarizeCollaborationCacheUsage(
     cacheMissTokens: 0,
     cacheWriteTokens: 0,
     completionTokens: 0,
+    reasoningTokens: 0,
     totalTokens: 0,
     hitRate: 0,
   }
   for (const event of events) {
+    if (event.type !== 'agent-complete') continue
     const usage = event.cacheUsage
     if (!usage?.measured) continue
     summary.measured = true
@@ -187,6 +197,7 @@ export function summarizeCollaborationCacheUsage(
     summary.cacheMissTokens += usage.cacheMissTokens
     summary.cacheWriteTokens += usage.cacheWriteTokens
     summary.completionTokens += usage.completionTokens
+    summary.reasoningTokens += usage.reasoningTokens
     summary.totalTokens += usage.totalTokens
   }
   const denominator = summary.cacheReadTokens + summary.cacheMissTokens
@@ -213,6 +224,12 @@ interface TranscriptContext {
   ): void
   settleTyping(agentId?: string): void
   settleAllTyping(): void
+  /**
+   * Finalizes every still-streaming speech bubble. Called when the run ends
+   * via cancellation or an error so partial answers do not spin forever
+   * (wps_06 A4).
+   */
+  settleAllSpeech(): void
   pushTyping(event: AgentCollaborationEvent): void
   /** Creates a bubble or merges the text into the bubble keyed by operationId. */
   upsertSpeech(event: AgentCollaborationEvent, text: string, streaming: boolean): void
@@ -262,6 +279,16 @@ function createTranscriptContext(
       if (item.kind === 'typing') item.hidden = true
     }
     typingByAgent.clear()
+  }
+
+  // wps_06 A4: cancellation/error must end the run for speech bubbles too.
+  const settleAllSpeech = () => {
+    for (const item of items) {
+      if (item.kind === 'speech' && item.streaming) {
+        item.streaming = false
+        settledSpeech.add(item.key)
+      }
+    }
   }
 
   const pushSystem: TranscriptContext['pushSystem'] = (
@@ -332,6 +359,7 @@ function createTranscriptContext(
     pushSystem,
     settleTyping,
     settleAllTyping,
+    settleAllSpeech,
     pushTyping,
     upsertSpeech,
     findSpeechForAgent,
@@ -478,6 +506,10 @@ const onConflict: TranscriptEventHandler = (event, ctx) => {
   })
 }
 
+const onEventsTruncated: TranscriptEventHandler = (event, ctx) => {
+  ctx.pushSystem('eventsTruncated', 'warning', { count: event.content || '' })
+}
+
 const onRunComplete: TranscriptEventHandler = (_event, ctx) => {
   ctx.settleAllTyping()
   ctx.pushSystem('runComplete', 'success')
@@ -485,11 +517,14 @@ const onRunComplete: TranscriptEventHandler = (_event, ctx) => {
 
 const onRunCancelled: TranscriptEventHandler = (_event, ctx) => {
   ctx.settleAllTyping()
+  // wps_06 A4: keep whatever partial answer arrived, but end the spinner.
+  ctx.settleAllSpeech()
   ctx.pushSystem('runCancelled', 'warning')
 }
 
 const onError: TranscriptEventHandler = (event, ctx) => {
   ctx.settleAllTyping()
+  ctx.settleAllSpeech()
   ctx.pushSystem('error', 'error', { error: event.error || '' })
 }
 
@@ -512,6 +547,7 @@ const TRANSCRIPT_HANDLERS: Partial<
   conflict: onConflict,
   'run-complete': onRunComplete,
   'run-cancelled': onRunCancelled,
+  'events-truncated': onEventsTruncated,
   error: onError,
 }
 

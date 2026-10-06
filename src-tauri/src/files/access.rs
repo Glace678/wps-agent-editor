@@ -7,7 +7,7 @@ use std::{
 
 use uuid::Uuid;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{codes, AppError, AppResult};
 
 use super::{app_error, models::GrantedPath, path_key, path_string};
 
@@ -94,7 +94,7 @@ impl AccessRegistry {
             .map_err(|error| io_error("grant-child-root", granted_directory, error))?;
         if path_key(&parent.path) != path_key(&root) {
             return Err(app_error(
-                "access-denied",
+                codes::ACCESS_DENIED,
                 "The parent grant does not match the requested directory",
             ));
         }
@@ -102,7 +102,7 @@ impl AccessRegistry {
             std::fs::canonicalize(child).map_err(|error| io_error("grant-child", child, error))?;
         if canonical == root || !is_within(&canonical, &root) {
             return Err(app_error(
-                "access-denied",
+                codes::ACCESS_DENIED,
                 "The requested child escapes the granted directory",
             ));
         }
@@ -149,7 +149,7 @@ impl AccessRegistry {
         let grant = self.checked_grant(source_owner, grant_id, false, None)?;
         if path_key(&grant.path) != path_key(&requested) {
             return Err(app_error(
-                "access-denied",
+                codes::ACCESS_DENIED,
                 "The grant does not match the requested path",
             ));
         }
@@ -168,9 +168,9 @@ impl AccessRegistry {
         let file_name = path
             .file_name()
             .filter(|name| !name.is_empty())
-            .ok_or_else(|| app_error("invalid-path", "A save target must include a file name"))?;
+            .ok_or_else(|| app_error(codes::INVALID_PATH, "A save target must include a file name"))?;
         if file_name == "." || file_name == ".." {
-            return Err(app_error("invalid-path", "Invalid save target"));
+            return Err(app_error(codes::INVALID_PATH, "Invalid save target"));
         }
 
         let target = if path.exists() {
@@ -180,13 +180,13 @@ impl AccessRegistry {
                 .map_err(|error| io_error("grant-save", &canonical, error))?
                 .is_file()
             {
-                return Err(app_error("invalid-path", "The save target is not a file"));
+                return Err(app_error(codes::INVALID_PATH, "The save target is not a file"));
             }
             canonical
         } else {
             let parent = path
                 .parent()
-                .ok_or_else(|| app_error("invalid-path", "The save target has no parent"))?;
+                .ok_or_else(|| app_error(codes::INVALID_PATH, "The save target has no parent"))?;
             std::fs::canonicalize(parent)
                 .map_err(|error| io_error("grant-save", parent, error))?
                 .join(file_name)
@@ -227,7 +227,7 @@ impl AccessRegistry {
         let grant = self.checked_grant(owner, grant_id, write, expect_directory)?;
         if path_key(&grant.path) != path_key(&requested) {
             return Err(app_error(
-                "access-denied",
+                codes::ACCESS_DENIED,
                 "The grant does not match the requested path",
             ));
         }
@@ -282,7 +282,7 @@ impl AccessRegistry {
         validate_owner(owner)?;
         if grant_id.trim().is_empty() {
             return Err(app_error(
-                "access-denied",
+                codes::ACCESS_DENIED,
                 "An opaque path grant is required",
             ));
         }
@@ -292,10 +292,10 @@ impl AccessRegistry {
             .map_err(lock_error)?
             .get(grant_id)
             .cloned()
-            .ok_or_else(|| app_error("access-denied", "The path grant is invalid or expired"))?;
+            .ok_or_else(|| app_error(codes::ACCESS_DENIED, "The path grant is invalid or expired"))?;
         if grant.owner != owner {
             return Err(app_error(
-                "access-denied",
+                codes::ACCESS_DENIED,
                 "The path grant belongs to another window",
             ));
         }
@@ -305,14 +305,14 @@ impl AccessRegistry {
         {
             drop(grant);
             self.revoke(owner, grant_id);
-            return Err(app_error("access-denied", "The path grant has expired"));
+            return Err(app_error(codes::ACCESS_DENIED, "The path grant has expired"));
         }
         if write && !grant.writable {
-            return Err(app_error("access-denied", "The grant is read-only"));
+            return Err(app_error(codes::ACCESS_DENIED, "The grant is read-only"));
         }
         if expect_directory.is_some_and(|expected| grant.is_directory != expected) {
             return Err(app_error(
-                "invalid-path",
+                codes::INVALID_PATH,
                 "The grant has the wrong path type",
             ));
         }
@@ -415,7 +415,7 @@ fn source_expiry(source: GrantSource) -> Option<Duration> {
 
 fn validate_owner(owner: &str) -> AppResult<()> {
     if owner.is_empty() || owner.len() > 128 {
-        return Err(app_error("access-denied", "Invalid grant owner"));
+        return Err(app_error(codes::ACCESS_DENIED, "Invalid grant owner"));
     }
     Ok(())
 }
@@ -431,13 +431,13 @@ fn normalize_requested(path: &Path) -> AppResult<PathBuf> {
     let name = path
         .file_name()
         .filter(|name| !name.is_empty())
-        .ok_or_else(|| app_error("invalid-path", "Invalid path"))?;
+        .ok_or_else(|| app_error(codes::INVALID_PATH, "Invalid path"))?;
     if name == "." || name == ".." {
-        return Err(app_error("invalid-path", "Invalid path"));
+        return Err(app_error(codes::INVALID_PATH, "Invalid path"));
     }
     let parent = path
         .parent()
-        .ok_or_else(|| app_error("invalid-path", "The path has no parent"))?;
+        .ok_or_else(|| app_error(codes::INVALID_PATH, "The path has no parent"))?;
     Ok(std::fs::canonicalize(parent)
         .map_err(|error| io_error("resolve", parent, error))?
         .join(name))
@@ -451,7 +451,7 @@ fn validate_current_grant_path(
 ) -> AppResult<()> {
     if path_key(&grant.path) != path_key(current) {
         return Err(app_error(
-            "access-denied",
+            codes::ACCESS_DENIED,
             "The granted path changed after access was authorized",
         ));
     }
@@ -463,7 +463,7 @@ fn validate_current_grant_path(
                 || expect_directory.is_some_and(|expected| expected != is_directory)
             {
                 return Err(app_error(
-                    "invalid-path",
+                    codes::INVALID_PATH,
                     "The granted path type changed after access was authorized",
                 ));
             }

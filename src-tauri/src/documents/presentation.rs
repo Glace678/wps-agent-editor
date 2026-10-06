@@ -114,6 +114,40 @@ pub enum PresentationEditOperation {
     },
 }
 
+impl PresentationEditOperation {
+    /// IPC-entry validation (wps_03 D6): a negative index must be rejected
+    /// here instead of silently acting on slide 0. Upper bounds are checked
+    /// against the open presentation in [`require_slide_index`].
+    pub fn validate_indexes(&self) -> AppResult<()> {
+        fn require_non_negative(index: isize, field: &str) -> AppResult<()> {
+            if index < 0 {
+                Err(AppError::new(
+                    "presentation-node-not-found",
+                    format!("{field} must not be negative: {index}"),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        match self {
+            Self::Inspect { slide_index }
+            | Self::UpdateText { slide_index, .. }
+            | Self::UpdateNodeText { slide_index, .. }
+            | Self::Duplicate { slide_index }
+            | Self::Delete { slide_index } => {
+                require_non_negative(*slide_index, "slideIndex")
+            }
+            Self::Add { after_slide_index }
+            | Self::ImportOutline {
+                after_slide_index, ..
+            }
+            | Self::ReuseSlides {
+                after_slide_index, ..
+            } => require_non_negative(*after_slide_index, "afterSlideIndex"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export))]
@@ -210,7 +244,7 @@ pub fn edit(
             title,
             body,
         } => {
-            let index = clamp_slide_index(slide_index, initial_order.len());
+            let index = require_slide_index(slide_index, initial_order.len())?;
             let path = initial_order[index].clone();
             let xml = package.part(&path)?.to_vec();
             package.set_part(path, update_slide_text(&xml, &title, &body)?);
@@ -221,7 +255,7 @@ pub fn edit(
             node_id,
             text,
         } => {
-            let index = clamp_slide_index(slide_index, initial_order.len());
+            let index = require_slide_index(slide_index, initial_order.len())?;
             let path = initial_order[index].clone();
             let xml = package.part(&path)?.to_vec();
             let shapes = parse_shapes(&xml)?;
@@ -242,14 +276,17 @@ pub fn edit(
             finish_result(package, initial_order.len(), index)
         }
         PresentationEditOperation::Add { after_slide_index } => {
-            let after = clamp_after_index(after_slide_index, initial_order.len());
+            let after = Some(require_after_anchor(
+                after_slide_index,
+                initial_order.len(),
+            )?);
             let template_index = after.unwrap_or(0).min(initial_order.len() - 1);
             let template = initial_order[template_index].clone();
             let new_index = insert_cloned_slide(&mut package, after, &template, true, None)?;
             finish_result(package, initial_order.len() + 1, new_index)
         }
         PresentationEditOperation::Duplicate { slide_index } => {
-            let index = clamp_slide_index(slide_index, initial_order.len());
+            let index = require_slide_index(slide_index, initial_order.len())?;
             let template = initial_order[index].clone();
             let new_index = insert_cloned_slide(&mut package, Some(index), &template, false, None)?;
             finish_result(package, initial_order.len() + 1, new_index)
@@ -261,7 +298,7 @@ pub fn edit(
                     "PRESENTATION_CANNOT_DELETE_ONLY_SLIDE",
                 ));
             }
-            let index = clamp_slide_index(slide_index, initial_order.len());
+            let index = require_slide_index(slide_index, initial_order.len())?;
             delete_slide(&mut package, index)?;
             finish_result(
                 package,
@@ -279,7 +316,10 @@ pub fn edit(
                     format!("A presentation may contain at most {MAX_SLIDES} slides"),
                 ));
             }
-            let mut after = clamp_after_index(after_slide_index, initial_order.len());
+            let mut after = Some(require_after_anchor(
+                after_slide_index,
+                initial_order.len(),
+            )?);
             let template_index = after.unwrap_or(0).min(initial_order.len() - 1);
             let template = initial_order[template_index].clone();
             let mut first_inserted = after.map_or(0, |value| value + 1);
@@ -295,7 +335,7 @@ pub fn edit(
                 return finish_result(
                     package,
                     initial_order.len(),
-                    clamp_slide_index(after_slide_index, initial_order.len()),
+                    require_slide_index(after_slide_index, initial_order.len())?,
                 );
             }
             finish_result(package, initial_order.len() + slides.len(), first_inserted)
@@ -329,7 +369,10 @@ pub fn edit(
                 ));
             }
             let inserted_count = source_order.len();
-            let mut after = clamp_after_index(after_slide_index, initial_order.len());
+            let mut after = Some(require_after_anchor(
+                after_slide_index,
+                initial_order.len(),
+            )?);
             let first_inserted = after.map_or(0, |value| value + 1);
 
             // Allocate every imported slide path up front. A single mapping for
@@ -2606,11 +2649,33 @@ fn clamp_slide_index(index: isize, slide_count: usize) -> usize {
     }
 }
 
-fn clamp_after_index(index: isize, slide_count: usize) -> Option<usize> {
-    if index < 0 {
-        None
+/// Resolve an index that must identify an existing slide (wps_03 D6):
+/// out-of-range is an error, not a silent clamp. Negatives were already
+/// rejected at the IPC boundary by [`PresentationEditOperation::validate_indexes`].
+fn require_slide_index(index: isize, slide_count: usize) -> AppResult<usize> {
+    let index = index as usize;
+    if index < slide_count {
+        Ok(index)
     } else {
-        Some((index as usize).min(slide_count.saturating_sub(1)))
+        Err(AppError::new(
+            "presentation-node-not-found",
+            format!("slideIndex {index} is out of range for {slide_count} slides"),
+        ))
+    }
+}
+
+/// Resolve an insertion anchor. Valid values are an existing slide index
+/// (`0..slide_count-1`) or `slide_count` to append at the end; larger values
+/// are rejected instead of being clamped to the last slide (wps_03 D6).
+fn require_after_anchor(index: isize, slide_count: usize) -> AppResult<usize> {
+    let value = index as usize;
+    if value > slide_count {
+        Err(AppError::new(
+            "presentation-node-not-found",
+            format!("afterSlideIndex {value} is out of range for {slide_count} slides"),
+        ))
+    } else {
+        Ok(value.min(slide_count.saturating_sub(1)))
     }
 }
 
@@ -2758,6 +2823,46 @@ mod tests {
 
     fn request(data: Vec<u8>, operation: PresentationEditOperation) -> PresentationEditRequest {
         PresentationEditRequest { data, operation }
+    }
+
+    #[test]
+    fn negative_slide_indexes_are_rejected_at_the_boundary() {
+        let operations = [
+            PresentationEditOperation::Inspect { slide_index: -1 },
+            PresentationEditOperation::Delete { slide_index: -2 },
+            PresentationEditOperation::Add { after_slide_index: -1 },
+            PresentationEditOperation::ReuseSlides {
+                after_slide_index: -5,
+                source_path: String::new(),
+            },
+        ];
+        for operation in operations {
+            let error = operation.validate_indexes().unwrap_err();
+            assert_eq!(error.code, "presentation-node-not-found");
+        }
+        assert!(PresentationEditOperation::Delete { slide_index: 0 }
+            .validate_indexes()
+            .is_ok());
+    }
+
+    #[test]
+    fn slide_index_bounds_are_enforced_not_clamped() {
+        assert_eq!(require_slide_index(0, 3).unwrap(), 0);
+        assert_eq!(require_slide_index(2, 3).unwrap(), 2);
+        let error = require_slide_index(3, 3).unwrap_err();
+        assert_eq!(error.code, "presentation-node-not-found");
+        let error = require_slide_index(99, 3).unwrap_err();
+        assert_eq!(error.code, "presentation-node-not-found");
+    }
+
+    #[test]
+    fn after_anchor_allows_append_but_rejects_beyond_end() {
+        assert_eq!(require_after_anchor(0, 3).unwrap(), 0);
+        assert_eq!(require_after_anchor(2, 3).unwrap(), 2);
+        // `slide_count` means append; it anchors to the last existing slide.
+        assert_eq!(require_after_anchor(3, 3).unwrap(), 2);
+        let error = require_after_anchor(4, 3).unwrap_err();
+        assert_eq!(error.code, "presentation-node-not-found");
     }
 
     fn make_pptx(slides: &[(&str, &str)], marker: &[u8]) -> Vec<u8> {

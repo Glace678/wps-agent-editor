@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { closeSync, openSync } from 'node:fs'
+import { closeSync, createReadStream, openSync } from 'node:fs'
 import {
   chmod,
   copyFile,
@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
+import { createServer } from 'node:http'
 import { parseArguments, requireSemverTag } from './release-smoke-lib.mjs'
 
 const args = parseArguments(process.argv.slice(2))
@@ -40,6 +41,17 @@ const currentUpdater = resolve(args['current-updater'])
 const outputReport = resolve(args.report)
 for (const path of [previousPackage, currentPackage, currentUpdater]) {
   if (!(await stat(path).catch(() => null))?.isFile()) throw new Error(`Updater hook input is missing: ${path}`)
+}
+// Tamper/invalid-install fixtures come from the internal release-fixtures
+// workflow artifact, served over loopback; they are not on the public release.
+if (!args['fixture-package']) throw new Error('--fixture-package <dir> is required (internal release-fixtures content)')
+const fixturePackage = resolve(args['fixture-package'])
+// Fail early if the internal fixture package is incomplete; the staging
+// workflow must fetch release-fixtures before invoking this hook.
+for (const name of ['latest-tampered.json', 'latest-invalid-install.json']) {
+  if (!(await stat(join(fixturePackage, name)).catch(() => null))?.isFile()) {
+    throw new Error(`Fixture package is missing ${name}: ${fixturePackage}`)
+  }
 }
 
 const temporaryRoot = resolve(tmpdir())
@@ -291,6 +303,7 @@ let windowsInstalledEntry
 let mounted = false
 let mountDirectory
 let installedApp
+let fixtureServer = null
 try {
   if (platform === 'windows') {
     if (windowsEntry()) throw new Error('Office Agentic is already installed on the updater smoke runner')
@@ -319,12 +332,82 @@ try {
   }
 
   const previousExecutableSha256 = await sha256(installedExecutable)
+
+  // Assemble the loopback fixture root: tamper/invalid-install metadata with
+  // URLs rewritten to this server, the invalid-install payloads, and the valid
+  // current updater payload the tamper leg may fetch before signature failure.
+  const httpRoot = join(workDirectory, 'fixture-server')
+  await mkdir(httpRoot, { recursive: true })
+  const releasePrefix = `https://github.com/${repository}/releases/download/${current.tag}/`
+  // Rewrite the release URL prefix to the loopback server; the encoded filename
+  // suffix stays unchanged, so the metadata references files in httpRoot.
+  const rewriteToLoopback = async (fileName, baseUrl) => {
+    const source = await readFile(join(fixturePackage, fileName), 'utf8')
+    if (!source.includes(releasePrefix)) {
+      throw new Error(`${fileName} does not contain the expected release URL prefix ${releasePrefix}`)
+    }
+    await writeFile(join(httpRoot, fileName), source.replaceAll(releasePrefix, baseUrl))
+  }
+
+  // File names for this platform.
+  const arch = platformKey.slice(platformKey.indexOf('-') + 1)
+  const invalidInstallName = `updater-invalid-install-${platform}-${arch}.bin`
+  const updaterName = {
+    windows: `${platform}-${arch}-setup.exe`,
+    macos: `${platform}-${arch}.app.tar.gz`,
+    linux: `${platform}-${arch}.AppImage`,
+  }[platform]
+
+  fixtureServer = createServer((request, response) => {
+    try {
+      const url = new URL(request.url ?? '/', 'http://loopback')
+      if (!['GET', 'HEAD'].includes(request.method ?? '')) {
+        response.writeHead(405); response.end(); return
+      }
+      const name = decodeURIComponent(url.pathname).replace(/^\/+/, '')
+      // Only root-level regular filenames; no traversal into the work directory.
+      if (!name || name.includes('/') || name.includes('\\') || name.includes('..')) {
+        response.writeHead(403); response.end(); return
+      }
+      const path = join(httpRoot, name)
+      const ok = path === join(httpRoot, basename(path))
+      if (!ok) {
+        response.writeHead(403); response.end(); return
+      }
+      response.writeHead(200, { 'Content-Type': 'application/octet-stream' })
+      if (request.method === 'HEAD') response.end()
+      else {
+        const stream = createReadStream(path)
+        stream.on('error', () => { response.writeHead(404); response.end() })
+        stream.pipe(response)
+      }
+    } catch {
+      response.writeHead(500); response.end()
+    }
+  })
+  await new Promise((accept, reject) => {
+    fixtureServer.once('error', reject)
+    fixtureServer.listen(0, '127.0.0.1', accept)
+  })
+  const fixtureBaseUrl = `http://127.0.0.1:${fixtureServer.address().port}/`
+
+  await rewriteToLoopback('latest-tampered.json', fixtureBaseUrl)
+  await rewriteToLoopback('latest-invalid-install.json', fixtureBaseUrl)
+  // Invalid-install payload + signature for this platform.
+  for (const name of [invalidInstallName, `${invalidInstallName}.sig`]) {
+    await copyFile(join(fixturePackage, name), join(httpRoot, name))
+  }
+  // The valid current updater payload, in case signature verification happens
+  // during download rather than at metadata check.
+  await copyFile(currentUpdater, join(httpRoot, updaterName))
+
   const smokeArgs = [
     '--wae-updater-smoke',
     `--wae-updater-report=${appReportPath}`,
     `--wae-updater-repository=${repository}`,
     `--wae-updater-tag=${current.tag}`,
     `--wae-updater-version=${current.version}`,
+    `--wae-updater-fixture-base-url=${fixtureBaseUrl}`,
   ]
   if (injectHealthFailure) smokeArgs.push('--wae-updater-health-failure')
   launch(installedExecutable, smokeArgs)
@@ -411,6 +494,7 @@ try {
   const outcome = injectHealthFailure ? 'startup-health rollback' : 'healthy upgrade'
   console.log(`Real updater ${outcome} hook passed: ${previous.tag} -> ${current.tag} (${platformKey})`)
 } finally {
+  await new Promise((accept) => fixtureServer?.close(accept) ?? accept())
   for (const child of [...managedChildren].reverse()) await stopChild(child)
   if (mounted) run('hdiutil', ['detach', mountDirectory, '-force'])
   if (platform === 'windows') {

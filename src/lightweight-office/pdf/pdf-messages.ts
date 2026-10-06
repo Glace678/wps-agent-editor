@@ -41,6 +41,7 @@ export const PDF_MESSAGES = {
     invalidImage: 'Choose a PNG, JPEG, or WebP image whose MIME type matches its file contents.',
     imageTooLarge: 'Images are limited to 25 MiB and 40 million pixels.',
     saveCancelled: 'Save As was cancelled.',
+    workerDegraded: 'The PDF worker stopped responding. Please close and reopen the document.',
   },
   zh: {
     encryptedPrompt: '此 PDF 已加密。请输入密码以继续。',
@@ -52,6 +53,7 @@ export const PDF_MESSAGES = {
     invalidImage: '请选择 MIME 类型与文件内容一致的 PNG、JPEG 或 WebP 图片。',
     imageTooLarge: '图片不得超过 25 MiB 或 4000 万像素。',
     saveCancelled: '已取消另存为。',
+    workerDegraded: 'PDF 工作进程已停止响应，请关闭后重新打开该文档。',
   },
 } as const
 

@@ -27,6 +27,7 @@ import {
   useOfficeShortcuts,
   type ShortcutHandlerMap,
 } from '@/lib/office-shortcuts'
+import { registerDocumentZoomOverride } from '@/components/layout/modules/DocumentZoom'
 import { documentBridge } from '../agent/document-bridge'
 import { readFileBuffer } from '../utils/file-io'
 import {
@@ -76,7 +77,7 @@ import {
   shouldSkipPreviewTableRebuild,
   stripTableRegions,
 } from './notepad-tables'
-import { escapeNotepadLinkAttribute, escapeNotepadLinkText } from './text-editor/escape'
+import { escapeNotepadLinkAttribute, escapeNotepadLinkText, isSafeNotepadLink } from './text-editor/escape'
 import { fontStretchValue, spellCheckFormatForName, type SpellCheckFormat } from './text-editor/format'
 import {
   renderNotepadMarkdown,
@@ -149,6 +150,8 @@ interface PendingTableInsertion {
 
 interface HistoryEntry extends SelectionRange {
   text: string
+  /** Wall-clock time (ms) the entry was created; used to coalesce typing. */
+  at: number
 }
 
 interface TextTab {
@@ -168,6 +171,14 @@ interface TextTab {
 // 「搜索选中内容」与「帮助」外链：抽为顶部具名常量，避免散落在组件体内。
 const BING_SEARCH_URL = 'https://www.bing.com/search?q='
 const OFFICE_HELP_URL = 'https://support.microsoft.com/office'
+
+// Notepad undo history limits (F7):
+// - consecutive edits within this window merge into one undo step instead of
+// one full-text snapshot per keystroke;
+// - combined retained text is capped by a character budget so a 50 MiB log
+// cannot be copied hundreds of times in memory.
+const HISTORY_COALESCE_MS = 600
+const HISTORY_CHAR_BUDGET = 20_000_000
 
 function createTabId(): string {
   return `notepad-tab-${crypto.randomUUID()}`
@@ -376,6 +387,12 @@ export function TextEditor({
     [applyDiscreteZoom],
   )
   const zoomReset = useCallback(() => applyDiscreteZoom(100), [applyDiscreteZoom])
+
+  // 菜单缩放桥：记事本自管缩放（data-manages-document-zoom），顶层菜单经此显式调用。
+  useEffect(
+    () => registerDocumentZoomOverride({ zoomIn, zoomOut, zoomReset }),
+    [zoomIn, zoomOut, zoomReset],
+  )
 
   const [text, setText] = useState('')
   const [displayName, setDisplayName] = useState(() => baseName(filePath))
@@ -648,7 +665,7 @@ export function TextEditor({
       encoding: nextEncoding,
       lineEnding: nextEnding,
       selection: { start: 0, end: 0 },
-      history: [{ text: value, start: 0, end: 0 }],
+      history: [{ text: value, start: 0, end: 0, at: 0 }],
       historyIndex: 0,
       dirty: false,
     }
@@ -725,8 +742,25 @@ export function TextEditor({
 
       if (recordHistory) {
         const nextHistory = historyRef.current.slice(0, historyIndexRef.current + 1)
-        nextHistory.push({ text: value, start, end })
-        if (nextHistory.length > 500) nextHistory.shift()
+        const now = Date.now()
+        const lastIndex = nextHistory.length - 1
+        if (
+          lastIndex >= 0
+          && now - nextHistory[lastIndex].at <= HISTORY_COALESCE_MS
+        ) {
+          // Continuous-typing burst: replace the last snapshot in place.
+          // Its caret (captured at the start of the burst) is preserved so
+          // undo lands there.
+          nextHistory[lastIndex].text = value
+        } else {
+          nextHistory.push({ text: value, start, end, at: now })
+        }
+        // Bound retained characters; drop oldest snapshots (never the last
+        // one, which is the live document).
+        let retainedChars = nextHistory.reduce((sum, entry) => sum + entry.text.length, 0)
+        while (retainedChars > HISTORY_CHAR_BUDGET && nextHistory.length > 1) {
+          retainedChars -= nextHistory.shift()?.text.length ?? 0
+        }
         historyRef.current = nextHistory
         historyIndexRef.current = nextHistory.length - 1
         syncHistoryState()
@@ -754,7 +788,7 @@ export function TextEditor({
       encodingRef.current = nextEncoding
       lineEndingRef.current = nextEnding
       selectionRef.current = { start: 0, end: 0 }
-      historyRef.current = [{ text: value, start: 0, end: 0 }]
+      historyRef.current = [{ text: value, start: 0, end: 0, at: 0 }]
       historyIndexRef.current = 0
       previewSelectionRef.current = null
       pendingTableInsertionRef.current = null
@@ -1610,6 +1644,8 @@ export function TextEditor({
     } else if (command === 'link') {
       const url = link?.url.trim()
       if (!url) return
+      // F11: defense in depth at the live-DOM insertion site too.
+      if (!isSafeNotepadLink(url)) return
       const label = link?.text.trim() ?? ''
       // execCommand targets the focused editable host; after the link dialog
       // had focus, re-focus the region carrying the restored selection first.
@@ -1793,9 +1829,17 @@ export function TextEditor({
   const confirmInsertLink = useCallback(() => {
     const rawUrl = linkUrl.trim()
     if (!rawUrl) return
-    // Bare domains such as "example.com" default to https; explicit schemes,
-    // fragment and root-relative links pass through untouched.
-    const url = /^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(rawUrl) ? rawUrl : `https://${rawUrl}`
+    // Bare domains such as "example.com" default to https; fragment and
+    // root-relative links pass through untouched. Explicit schemes outside
+    // the http/https/mailto/tel whitelist (javascript:, data:, …) are
+    // rejected before they reach the live DOM or markdown (F11).
+    const url = /^(?:#|\/)/.test(rawUrl) || /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
+      ? rawUrl
+      : `https://${rawUrl}`
+    if (!isSafeNotepadLink(url)) {
+      window.alert(t('notepad.invalidLinkScheme'))
+      return
+    }
     const label = linkText.trim()
 
     if (markdownView === 'formatted') {
@@ -1810,7 +1854,7 @@ export function TextEditor({
       replaceSelection(`[${safeDisplay}](${safeUrl})`)
     }
     setLinkDialogOpen(false)
-  }, [currentSelection, formatFormattedPreview, linkText, linkUrl, markdownView, replaceSelection])
+  }, [currentSelection, formatFormattedPreview, linkText, linkUrl, markdownView, replaceSelection, t])
 
   const commitTableHistory = useCallback(() => {
     if (tableHistoryTimerRef.current) clearTimeout(tableHistoryTimerRef.current)

@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+import { selfValidateMockPayloads, validateMockResponses } from './support/mock-payloads'
+import { e2eTestTimeout } from './support/timeouts'
 
 interface TerminalMockSnapshot {
   starts: Array<{ sessionId: string; cols: number; rows: number }>
@@ -32,6 +34,11 @@ async function installTerminalDesktopMock(
     }
     let callbackId = 0
     let eventId = 0
+    // D1: commands not whitelisted by this mock are recorded for the
+    // afterEach assertion instead of silently returning {success:true}.
+    const unknownCommands: string[] = []
+    // D2: record every mock response for runtime contract validation.
+    const mockResponses: Array<{ command: string; result: unknown }> = []
 
     const syncActiveListeners = () => {
       snapshot.activeListeners = [...eventCallbacks.entries()]
@@ -58,7 +65,7 @@ async function installTerminalDesktopMock(
       })
     }
 
-    const invoke = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+    const handleInvoke = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
       if (command === 'plugin:event|listen') {
         const event = String(args?.event)
         eventId += 1
@@ -88,9 +95,23 @@ async function installTerminalDesktopMock(
         }
       }
       if (command === 'files_list' || command === 'files_search' || command === 'files_get_recent') return []
+      if (command === 'files_session_save') return null
       if (command === 'agents_list' || command === 'providers_list' || command === 'documents_list_fonts') return []
       if (command === 'providers_auth_status') return {}
       if (command === 'app_take_startup_files' || command === 'app_take_recovery_notices') return []
+      if (command === 'app_i18n_set_language'
+        || command === 'app_theme_set'
+        || command === 'app_startup_healthy') {
+        return { success: true }
+      }
+      if (command === 'documents_set_current_file') return { success: true }
+      if (command === 'agents_conversations_list') return []
+      if (command === 'agents_conversations_import_codex') {
+        return {
+          discovered: 0, imported: 0, updated: 0, skipped: 0,
+          failed: 0, messages: 0, failures: [],
+        }
+      }
       if (command === 'app_menu_perform') {
         const action = String(args?.action)
         snapshot.menuActions.push(action)
@@ -132,7 +153,13 @@ async function installTerminalDesktopMock(
         snapshot.kills.push(String(args?.sessionId))
         return { success: true }
       }
+      unknownCommands.push(command)
       return { success: true }
+    }
+    const invoke = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
+      const result = await handleInvoke(command, args)
+      mockResponses.push({ command, result })
+      return result
     }
 
     Object.assign(window, {
@@ -148,6 +175,8 @@ async function installTerminalDesktopMock(
         },
       },
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+      __WAE_UNKNOWN_COMMANDS__: unknownCommands,
+      __WAE_MOCK_RESPONSES__: mockResponses,
       __WAE_TERMINAL_MOCK__: {
         snapshot,
         emitOutput(ownerSessionId: string, eventSessionId: string, text: string) {
@@ -191,8 +220,28 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1_280, height: 800 })
 })
 
-test('routes ANSI, Unicode, input, resize, exit, and four tabs by exact session id', async ({ page }) => {
-  test.setTimeout(60_000)
+// D1: no test may leave the app calling commands the mock never whitelisted.
+// D2: mock responses are validated at runtime against the generated contract.
+test.afterEach(async ({ page }) => {
+  selfValidateMockPayloads()
+  const [unknown, responses] = await page.evaluate(() => [
+    (window as unknown as { __WAE_UNKNOWN_COMMANDS__?: string[] }).__WAE_UNKNOWN_COMMANDS__ ?? [],
+    (window as unknown as {
+      __WAE_MOCK_RESPONSES__?: Array<{ command: string; result: unknown }>
+    }).__WAE_MOCK_RESPONSES__ ?? [],
+  ])
+  expect(unknown, `unmocked invoke commands: ${unknown.join(', ')}`).toEqual([])
+  const contractErrors = validateMockResponses(responses)
+  expect(contractErrors, `mock payload contract violations:\n${contractErrors.join('\n')}`).toEqual([])
+})
+
+test('routes ANSI, Unicode, input, resize, exit, and four tabs by exact session id', {
+  // D3: heavy path (four terminals + full routing matrix).
+  annotation: { type: 'perf-path', description: 'four-session terminal routing matrix' },
+  tag: '@perf',
+}, async ({ page }) => {
+  // C5: CI 可通过 WAE_E2E_TEST_TIMEOUT_MS 放宽整体超时
+  test.setTimeout(e2eTestTimeout(60_000))
   await installTerminalDesktopMock(page)
   await openTerminalPanel(page)
 

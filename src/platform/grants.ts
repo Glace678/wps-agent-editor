@@ -1,16 +1,7 @@
 import type { GrantedPath } from '@/types/desktop-api'
-import { normalizePath } from '@/lib/path'
+import { pathKey } from '@/lib/path'
 
 const grantsByPath = new Map<string, string>()
-
-function isWindowsPath(path: string): boolean {
-  return /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\')
-}
-
-function pathKey(path: string): string {
-  const normalized = normalizePath(path)
-  return isWindowsPath(path) ? normalized.toLowerCase() : normalized
-}
 
 export function registerFileGrant(grant: GrantedPath): void {
   if (!grant.path || !grant.grantId) return

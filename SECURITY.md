@@ -26,6 +26,10 @@ The rollback guardian runs from a copied old executable outside the installed pa
 
 Tag builds publish a signed prerelease. Build matrix jobs have read-only repository permissions and do not retain checkout credentials; only the finalize job may create that prerelease. A separately dispatched staging workflow must pass all native checks before its isolated promotion job can make the release stable.
 
+## Components fetched at install time
+
+The Windows installer uses WebView2 `downloadBootstrapper` with a silent install: when the WebView2 Runtime is not already present, the bootstrapper and runtime are downloaded from Microsoft endpoints during installation. These components are signed by Microsoft but are not part of the application bundle, so the release SHA256SUMS, SBOMs, and build provenance intentionally do not cover them. Installation requires network access and will fail offline; an offline release must switch to `embedBootstrapper` or a WebView2 offline installer instead. The installer itself is Authenticode signed and its assets are fully covered by the release checksums and SBOM.
+
 ## Reporting a vulnerability
 
 Report vulnerabilities privately to the project maintainers rather than opening a public issue.

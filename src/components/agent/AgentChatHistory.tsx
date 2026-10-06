@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Archive,
   Check,
@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/runtime'
 import { WaitingText } from '@/components/ui/animated-ellipsis'
 import type { CodexImportResult, ConversationSummary } from '@/types/generated'
+import { useModalDialog } from '@/lib/use-modal-dialog'
 
 interface AgentChatHistoryProps {
   conversations: ConversationSummary[]
@@ -50,6 +51,15 @@ export function AgentChatHistory({
   const [query, setQuery] = useState('')
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // #7: confirm-clear timer must be tracked and cleaned on unmount.
+  const confirmClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (confirmClearTimerRef.current) clearTimeout(confirmClearTimerRef.current)
+  }, [])
+
+  // #10: modal semantics — initial focus, Esc to close, Tab cycling.
+  const dialogRef = useModalDialog<HTMLDivElement>({ onClose })
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
@@ -65,8 +75,16 @@ export function AgentChatHistory({
   const handleClear = async () => {
     if (!confirmClear) {
       setConfirmClear(true)
-      setTimeout(() => setConfirmClear(false), 3000)
+      if (confirmClearTimerRef.current) clearTimeout(confirmClearTimerRef.current)
+      confirmClearTimerRef.current = setTimeout(() => {
+        confirmClearTimerRef.current = null
+        setConfirmClear(false)
+      }, 3000)
       return
+    }
+    if (confirmClearTimerRef.current) {
+      clearTimeout(confirmClearTimerRef.current)
+      confirmClearTimerRef.current = null
     }
     setError(null)
     try {
@@ -104,7 +122,14 @@ export function AgentChatHistory({
   }
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-background/95 backdrop-blur-sm">
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('agentUi.conversationLibrary')}
+      tabIndex={-1}
+      className="absolute inset-0 z-40 flex flex-col bg-background/95 backdrop-blur-sm outline-none"
+    >
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/50 px-2.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

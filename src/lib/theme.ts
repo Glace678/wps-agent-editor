@@ -41,3 +41,20 @@ export function setThemePreference(preference: ThemePreference): void {
 export function syncNativeThemePreference(): void {
   syncNativeTheme(getThemePreference())
 }
+
+// #3: cross-window theme sync. 'storage' fires only in other windows; replay
+// it through the existing local APP_THEME_EVENT so every consumer updates.
+let themeStorageBridgeInitialized = false
+
+if (typeof window !== 'undefined' && !themeStorageBridgeInitialized) {
+  themeStorageBridgeInitialized = true
+  window.addEventListener('storage', (event) => {
+    if (event.key !== APP_THEME_KEY) return
+    const preference: ThemePreference =
+      event.newValue === 'light' || event.newValue === 'dark' || event.newValue === 'system'
+        ? event.newValue
+        : 'system'
+    syncNativeTheme(preference)
+    window.dispatchEvent(new CustomEvent<ThemePreference>(APP_THEME_EVENT, { detail: preference }))
+  })
+}

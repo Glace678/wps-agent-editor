@@ -1,0 +1,65 @@
+name: Nightly dependency audit
+
+on:
+  schedule:
+    # Nightly report; off-minute to avoid the top-of-hour fleet stampede.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Audit dependencies
+        id: audit
+        shell: bash
+        run: |
+          set +e
+          node scripts/check-npm-audit.mjs --mode full | tee audit-full.txt
+          full_status=${PIPESTATUS[0]}
+          node scripts/check-npm-audit.mjs --mode production | tee audit-production.txt
+          production_status=${PIPESTATUS[0]}
+          {
+            echo "full_status=$full_status"
+            echo "production_status=$production_status"
+          } >> "$GITHUB_OUTPUT"
+      - name: File issue for unexcepted advisories
+        if: steps.audit.outputs.full_status != '0' || steps.audit.outputs.production_status != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'Nightly dependency audit findings in:title' --json number --jq 'length')"
+          if [ "$existing" != '0' ]; then
+            echo 'An open nightly audit issue already exists; not filing a duplicate.'
+            exit 0
+          fi
+          {
+            echo 'Nightly dependency audit found unexcepted high/critical advisories.'
+            echo
+            echo '### Full dependency tree'
+            echo '```'
+            cat audit-full.txt
+            echo '```'
+            echo
+            echo '### Production dependencies only'
+            echo '```'
+            cat audit-production.txt
+            echo '```'
+          } > audit-issue-body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title 'Nightly dependency audit findings' \
+            --body-file audit-issue-body.md

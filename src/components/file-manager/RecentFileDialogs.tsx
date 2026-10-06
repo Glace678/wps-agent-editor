@@ -293,8 +293,10 @@ export function HistoryDialog({ file, onClose }: { file: RecentFile; onClose: ()
 
   useEffect(() => {
     void reload()
+    // reload is recreated every render; only re-run on path/language changes.
+    // #11: language makes the error branch use the current t.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file.path])
+  }, [file.path, language])
 
   const restore = async (version: FileVersion) => {
     if (busy) return

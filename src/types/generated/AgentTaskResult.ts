@@ -2,4 +2,9 @@
 import type { AgentCacheUsage } from "./AgentCacheUsage";
 import type { ExecutedToolCall } from "./ExecutedToolCall";
 
-export type AgentTaskResult = { agentId: string, agentName: string, providerId: string, model: string, response: string, toolCalls: Array<ExecutedToolCall>, cacheUsage: AgentCacheUsage, };
+export type AgentTaskResult = { agentId: string, agentName: string, providerId: string, model: string,
+/**
+ * Per-call identity (wps_06 E1): distinguishes results of concurrent or
+ * repeated delegations to the same agent within one run.
+ */
+invocationToken: string, response: string, toolCalls: Array<ExecutedToolCall>, cacheUsage: AgentCacheUsage, };

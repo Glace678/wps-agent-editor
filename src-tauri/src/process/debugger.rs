@@ -1,5 +1,6 @@
 use crate::{
     error::{codes, AppError, AppResult},
+    files::path_key,
     process::{
         dependencies::resolve_executable,
         reaper::{self, MAX_SESSION_AGE, OUTPUT_LIMIT_BYTES},
@@ -165,7 +166,6 @@ pub fn start(
     breakpoints: Vec<DebugBreakpoint>,
 ) -> AppResult<DebugStartResult> {
     let session_id = normalize_session_id(&session_id)?;
-    stop_window(window.label());
     let metadata = std::fs::metadata(&file_path)?;
     if !metadata.is_file() {
         return Err(AppError::invalid("Debugger accepts files only"));
@@ -182,6 +182,13 @@ pub fn start(
         .unwrap_or_default()
         .to_ascii_lowercase();
     let allowed_breakpoints = validate_breakpoints(&file_path, breakpoints)?;
+
+    // Single-session-per-window semantics (product policy; wps_02 D-12): any
+    // previous debug session in this window is replaced when a new one starts.
+    // The replacement happens only after every validation above has passed, so
+    // an invalid request can no longer kill a running session (wps_10 B5).
+    stop_window(window.label());
+
     match extension.as_str() {
         "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" => {
             start_node(window, events, session_id, file_path, allowed_breakpoints)
@@ -380,6 +387,7 @@ fn start_node(
         Err(error) => return Err(AppError::new(codes::DEBUG_START_FAILED, error.to_string())),
     };
     let pid = child.id();
+    reaper::bind_std_child(&child);
     let stdout = child
         .stdout
         .take()
@@ -403,6 +411,9 @@ fn start_node(
     // giant stderr line could be buffered unbounded. Read line-by-line with
     // `read_until` while counting every byte against OUTPUT_LIMIT_BYTES,
     // shared with the stdout reader.
+    // Clone id for the moved closure; the starter below keeps using `id` for
+    // the timeout/connect logs and the built session.
+    let stderr_id = id.clone();
     std::thread::Builder::new()
         .name(format!("node-debug-stderr-{id}"))
         .spawn(move || {
@@ -412,10 +423,32 @@ fn start_node(
             loop {
                 line.clear();
                 match reader.read_until(b'\n', &mut line) {
-                    Ok(0) | Err(_) => break,
+                    // wps_10 D1: reader death must be traceable, like terminal.rs.
+                    Ok(0) => {
+                        log::debug!("node debug stderr reader reached EOF for session {stderr_id}");
+                        break;
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "node debug stderr reader failed for session {stderr_id}: {error}"
+                        );
+                        break;
+                    }
                     Ok(_) => {
                         let previous = stderr_counter.fetch_add(line.len(), Ordering::Relaxed);
                         if previous >= OUTPUT_LIMIT_BYTES {
+                            // wps_09 A-4: match terminal.rs and announce the
+                            // truncation instead of stopping the reader silently.
+                            emit_raw(
+                                &url_events,
+                                &url_id,
+                                &url_label,
+                                json!({
+                                    "event": "output",
+                                    "kind": "stderr",
+                                    "text": "[stderr output limit reached; further output is discarded]\n",
+                                }),
+                            );
                             break;
                         }
                         let keep = line.len().min(OUTPUT_LIMIT_BYTES - previous);
@@ -423,7 +456,14 @@ fn start_node(
                         let trimmed = text.trim_end_matches(['\n', '\r']);
                         if let Some(url) = inspector_url(trimmed) {
                             if !sent_url {
-                                let _ = url_sender.send(url);
+                                // wps_10 D1: a send failure means the starter dropped the
+                                // receiver; the session would wait for a URL that never
+                                // arrives. Only the channel error is logged, never stderr text.
+                                if let Err(error) = url_sender.send(url) {
+                                    log::error!(
+                                        "could not deliver inspector URL to starter for session {stderr_id}: {error}"
+                                    );
+                                }
                                 sent_url = true;
                             }
                             continue;
@@ -443,17 +483,24 @@ fn start_node(
         .map_err(|error| AppError::internal(error.to_string()))?;
     let ws_url = match url_receiver.recv_timeout(INSPECTOR_START_TIMEOUT) {
         Ok(url) => url,
-        Err(_) => {
+        Err(error) => {
+            // wps_10 D1: previously this timeout carried no cause at all.
+            log::warn!("inspector URL not received within start timeout for session {id}: {error}");
             reaper::terminate_process_tree_sync(Some(pid));
-            let _ = child.kill();
+            if let Err(kill_error) = child.kill() {
+                log::debug!("child kill after inspector timeout failed for session {id}: {kill_error}");
+            }
             return Ok(start_failure("failed"));
         }
     };
     let socket = match connect_inspector(&ws_url) {
         Ok(socket) => socket,
         Err(error) => {
+            log::warn!("inspector connection failed for session {id}: {error}");
             reaper::terminate_process_tree_sync(Some(pid));
-            let _ = child.kill();
+            if let Err(kill_error) = child.kill() {
+                log::debug!("child kill after inspector connect failure failed for session {id}: {kill_error}");
+            }
             return Err(error);
         }
     };
@@ -544,6 +591,7 @@ fn start_python(
         Err(error) => return Err(AppError::new(codes::DEBUG_START_FAILED, error.to_string())),
     };
     let pid = child.id();
+    reaper::bind_std_child(&child);
     let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or_else(|| {
         AppError::internal("Python debugger stdin was not captured")
     })?));
@@ -610,8 +658,9 @@ fn spawn_node_loop(
     receiver: Receiver<NodeRequest>,
     breakpoints: Vec<DebugBreakpoint>,
 ) {
-    std::thread::Builder::new()
-        .name(format!("node-inspector-{}", session.id))
+    let session_id = session.id.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name(format!("node-inspector-{session_id}"))
         .spawn(move || {
             let mut command_id = 0_u64;
             let mut pending_evaluations: HashMap<u64, String> = HashMap::new();
@@ -623,7 +672,7 @@ fn spawn_node_loop(
             {
                 emit_event(
                     &session,
-                    json!({ "event": "error", "message": "Could not initialize Node Inspector" }),
+                    json!({ "event": "error", "messageKey": "debugger.initFailed" }),
                 );
                 reaper::terminate_process_tree_sync(Some(session.pid));
                 return;
@@ -689,18 +738,25 @@ fn spawn_node_loop(
                         }
                     }
                 }
+                // Quiesce sibling reader threads BEFORE the PID is released
+                // for reuse (wps_02 D-11); restore the flag if the child is
+                // still alive.
+                session.stopping.store(true, Ordering::SeqCst);
                 if let Ok(Some(status)) = session.child.lock().try_wait() {
                     emit_exit_once(&session, status.code());
                     remove_session(&session);
                     return;
                 }
+                session.stopping.store(false, Ordering::SeqCst);
                 if session.started.elapsed() >= MAX_SESSION_AGE {
                     emit_event(
                         &session,
-                        json!({ "event": "error", "message": "Debug session expired" }),
+                        json!({ "event": "error", "messageKey": "debugger.sessionExpired" }),
                     );
-                    reaper::terminate_process_tree_sync(Some(session.pid));
-                    let _ = session.child.lock().kill();
+                    if !session.stopping.swap(true, Ordering::SeqCst) {
+                        reaper::terminate_process_tree_sync(Some(session.pid));
+                        let _ = session.child.lock().kill();
+                    }
                     break;
                 }
                 match socket.read() {
@@ -777,7 +833,10 @@ fn spawn_node_loop(
                     Ok(Message::Ping(value)) => {
                         let _ = socket.send(Message::Pong(value));
                     }
-                    Ok(Message::Close(_)) => break,
+                    Ok(Message::Close(_)) => {
+                        log::debug!("node inspector socket closed for session {}", session.id);
+                        break;
+                    }
                     Ok(_) => {}
                     Err(WebSocketError::Io(error))
                         if matches!(
@@ -786,10 +845,15 @@ fn spawn_node_loop(
                         ) => {}
                     Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => break,
                     Err(error) => {
+                        // wps_10 D1: keep the cause in the backend log even when
+                        // the session is stopping and the UI is not notified.
+                        log::warn!("node inspector socket failed for session {}: {error}", session.id);
                         if !session.stopping.load(Ordering::SeqCst) {
+                            // wps_10 D2: surface a stable message key to the UI;
+                            // the raw transport error stays in the backend log.
                             emit_event(
                                 &session,
-                                json!({ "event": "error", "message": error.to_string() }),
+                                json!({ "event": "error", "messageKey": "debugger.connectionLost" }),
                             );
                         }
                         break;
@@ -798,7 +862,9 @@ fn spawn_node_loop(
             }
             if !session.stopping.load(Ordering::SeqCst) {
                 reaper::terminate_process_tree_sync(Some(session.pid));
-                let _ = session.child.lock().kill();
+                if let Err(error) = session.child.lock().kill() {
+                    log::debug!("child kill after inspector loop end failed for session {}: {error}", session.id);
+                }
             }
             let code = session
                 .child
@@ -810,21 +876,41 @@ fn spawn_node_loop(
             emit_exit_once(&session, code);
             remove_session(&session);
         })
-        .ok();
+    {
+        // wps_10 D1: spawn failure used to vanish here.
+        log::error!("failed to start node inspector loop thread for session {session_id}: {error}");
+    }
 }
 
 fn spawn_pdb_reader(session: Arc<DebugSession>, mut stdout: impl Read + Send + 'static) {
-    std::thread::Builder::new()
-        .name(format!("pdb-reader-{}", session.id))
+    let session_id = session.id.clone();
+    // wps_10 D1: previously `.ok()` silently swallowed a failed thread spawn.
+    if let Err(error) = std::thread::Builder::new()
+        .name(format!("pdb-reader-{session_id}"))
         .spawn(move || {
             let mut bytes = [0_u8; 4096];
             loop {
                 match stdout.read(&mut bytes) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => {
+                        log::debug!("pdb reader reached EOF for session {}", session.id);
+                        break;
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "pdb reader failed for session {}: {error}",
+                            session.id
+                        );
+                        break;
+                    }
                     Ok(count) => {
                         let previous = session.output_bytes.fetch_add(count, Ordering::Relaxed);
                         if previous >= OUTPUT_LIMIT_BYTES {
-                            reaper::terminate_process_tree_sync(Some(session.pid));
+                            // Guard: the monitor may have reaped the child in
+                            // the same instant; never signal a PID that could
+                            // already be released for reuse (wps_02 D-11).
+                            if !session.stopping.load(Ordering::SeqCst) {
+                                reaper::terminate_process_tree_sync(Some(session.pid));
+                            }
                             break;
                         }
                         let keep = count.min(OUTPUT_LIMIT_BYTES - previous);
@@ -832,16 +918,20 @@ fn spawn_pdb_reader(session: Arc<DebugSession>, mut stdout: impl Read + Send + '
                         if keep < count {
                             emit_event(
                                 &session,
-                                json!({ "event": "error", "message": "Debug output limit reached" }),
+                                json!({ "event": "error", "messageKey": "debugger.outputLimit" }),
                             );
-                            reaper::terminate_process_tree_sync(Some(session.pid));
+                            if !session.stopping.swap(true, Ordering::SeqCst) {
+                                reaper::terminate_process_tree_sync(Some(session.pid));
+                            }
                             break;
                         }
                     }
                 }
             }
         })
-        .ok();
+    {
+        log::error!("failed to start pdb reader thread for session {session_id}: {error}");
+    }
 }
 
 fn process_pdb_chunk(session: &Arc<DebugSession>, bytes: &[u8]) {
@@ -998,17 +1088,33 @@ fn spawn_output_reader(
     mut reader: impl Read + Send + 'static,
     kind: &'static str,
 ) {
-    std::thread::Builder::new()
-        .name(format!("debug-{kind}-{}", session.id))
+    let session_id = session.id.clone();
+    // wps_10 D1: a failed spawn used to be discarded via `.ok()`.
+    if let Err(spawn_error) = std::thread::Builder::new()
+        .name(format!("debug-{kind}-{session_id}"))
         .spawn(move || {
             let mut bytes = [0_u8; 8192];
             loop {
                 let count = match reader.read(&mut bytes) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => {
+                        log::debug!("debug {kind} reader reached EOF for session {}", session.id);
+                        break;
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "debug {kind} reader failed for session {}: {error}",
+                            session.id
+                        );
+                        break;
+                    }
                     Ok(count) => count,
                 };
                 let previous = session.output_bytes.fetch_add(count, Ordering::Relaxed);
                 if previous >= OUTPUT_LIMIT_BYTES {
+                    log::warn!(
+                        "debug {kind} output limit reached, ending reader for session {}",
+                        session.id
+                    );
                     break;
                 }
                 let keep = count.min(OUTPUT_LIMIT_BYTES - previous);
@@ -1020,31 +1126,49 @@ fn spawn_output_reader(
                 if keep < count {
                     emit_event(
                         &session,
-                        json!({ "event": "error", "message": "Debug output limit reached" }),
+                        json!({ "event": "error", "messageKey": "debugger.outputLimit" }),
                     );
-                    reaper::terminate_process_tree_sync(Some(session.pid));
+                    if !session.stopping.swap(true, Ordering::SeqCst) {
+                        reaper::terminate_process_tree_sync(Some(session.pid));
+                    }
                     break;
                 }
             }
         })
-        .ok();
+    {
+        log::error!(
+            "failed to start debug {kind} reader thread for session {session_id}: {spawn_error}"
+        );
+    }
 }
 
 fn spawn_child_monitor(session: Arc<DebugSession>) {
-    std::thread::Builder::new()
-        .name(format!("debug-monitor-{}", session.id))
+    let session_id = session.id.clone();
+    // wps_10 D1: monitor spawn failures must not be swallowed.
+    if let Err(spawn_error) = std::thread::Builder::new()
+        .name(format!("debug-monitor-{session_id}"))
         .spawn(move || loop {
+            // See the inspector thread's reap site: stop sibling signaling
+            // before the kernel can recycle the PID (wps_02 D-11).
+            session.stopping.store(true, Ordering::SeqCst);
             match session.child.lock().try_wait() {
                 Ok(Some(status)) => {
                     emit_exit_once(&session, status.code());
                     remove_session(&session);
                     return;
                 }
-                Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+                Ok(None) => {
+                    session.stopping.store(false, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(100));
+                }
                 Err(error) => {
+                    // wps_10 D1: keep the OS error in the backend log.
+                    log::warn!("debug child try_wait failed for session {}: {error}", session.id);
+                    // wps_10 D2: raw error text no longer crosses into the UI;
+                    // it resolves a stable messageKey client-side.
                     emit_event(
                         &session,
-                        json!({ "event": "error", "message": error.to_string() }),
+                        json!({ "event": "error", "messageKey": "debugger.monitorFailed" }),
                     );
                     remove_session(&session);
                     return;
@@ -1053,13 +1177,24 @@ fn spawn_child_monitor(session: Arc<DebugSession>) {
             if session.started.elapsed() >= MAX_SESSION_AGE {
                 emit_event(
                     &session,
-                    json!({ "event": "error", "message": "Debug session expired" }),
+                    json!({ "event": "error", "messageKey": "debugger.sessionExpired" }),
                 );
-                reaper::terminate_process_tree_sync(Some(session.pid));
-                let _ = session.child.lock().kill();
+                if !session.stopping.swap(true, Ordering::SeqCst) {
+                    reaper::terminate_process_tree_sync(Some(session.pid));
+                    if let Err(error) = session.child.lock().kill() {
+                        log::debug!(
+                            "kill after debug session expiry failed for session {}: {error}",
+                            session.id
+                        );
+                    }
+                }
             }
         })
-        .ok();
+    {
+        log::error!(
+            "failed to start debug child monitor thread for session {session_id}: {spawn_error}"
+        );
+    }
 }
 
 fn connect_inspector(url: &str) -> AppResult<WebSocket<TcpStream>> {
@@ -1213,19 +1348,25 @@ fn validate_breakpoints(
         return Err(AppError::invalid("Too many debug breakpoints"));
     }
     let canonical = std::fs::canonicalize(file_path)?;
+    let canonical_key = path_key(&canonical);
+    // wps_01 N-8: breakpoint.file is renderer-controlled and not covered by a
+    // grant of its own, so it must never be canonicalized — doing so turned it
+    // into an arbitrary-path existence/type oracle. Accept it only when its
+    // plain string already names the debug file in a form we hold, and emit the
+    // canonical string downstream.
+    let accepted_keys = [path_key(file_path), canonical_key.clone()];
     let mut normalized = Vec::new();
     for breakpoint in breakpoints {
         if breakpoint.line == 0 || breakpoint.line > 10_000_000 {
             return Err(AppError::invalid("Invalid breakpoint line"));
         }
-        let path = std::fs::canonicalize(&breakpoint.file)?;
-        if path != canonical {
+        if !accepted_keys.contains(&path_key(Path::new(&breakpoint.file))) {
             return Err(AppError::denied(
                 "Breakpoints may only target the granted debug file",
             ));
         }
         normalized.push(DebugBreakpoint {
-            file: canonical.to_string_lossy().into_owned(),
+            file: canonical_key.clone(),
             line: breakpoint.line,
         });
     }
@@ -1310,6 +1451,11 @@ fn write_line(stdin: &Arc<Mutex<ChildStdin>>, line: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Send a debug-session frame. Send failures (webview gone/stalled) are
+/// intentionally ignored: the event rate is inherently bounded — every frame
+/// is charged against the 4 MiB session output cap and reader buffers are at
+/// least 4 KiB, so at most ~1024 frames can ever be produced per session —
+/// and the session reaps at MAX_SESSION_AGE (wps_02 D-6, dev-only surface).
 fn emit_event(session: &DebugSession, mut event: Value) {
     if let Some(object) = event.as_object_mut() {
         object.insert("sessionId".into(), Value::String(session.id.clone()));

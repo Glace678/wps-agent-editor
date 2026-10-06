@@ -18,6 +18,12 @@ interface PendingRequest {
   reject: (reason: unknown) => void
 }
 
+/** A mutation whose response arrived after its watchdog timeout. */
+export interface LateMutation {
+  requestId: string
+  result: PdfMutationResult
+}
+
 // 每请求超时看门狗：worker 串行队列一旦在畸形 PDF 上卡住，UI 不应无限 loading。
 // 取宽裕值，只兜“worker 无响应”，不误杀大文档渲染。
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
@@ -48,6 +54,17 @@ export class MuPdfWorkerClient {
   // Crash gate: once the worker errors it cannot service further requests, so any
   // later postMessage would hang forever. Fail closed instead of pending.
   private workerFailed = false
+  // wps_09 B-5: a request timeout means the worker's serial queue is not
+  // processing (typically wedged on a malformed PDF). Without this gate every
+  // following request would post into the same wedged queue and each wait its
+  // own 120s. Once degraded, further requests fail-fast; the viewer recreates
+  // the client and reopens the document instead.
+  private degraded = false
+  // Mutations that timed out but may still complete in the worker; their late
+  // responses are delivered to these listeners for reconciliation (wps_04 F6).
+  private readonly timedOutMutations = new Map<string, string>()
+  private readonly lateMutationListeners = new Set<(event: LateMutation) => void>()
+  private readonly degradedListeners = new Set<() => void>()
 
   constructor(readonly documentId: string) {
     this.worker = new Worker(new URL('./mupdf.worker.ts', import.meta.url), {
@@ -62,11 +79,39 @@ export class MuPdfWorkerClient {
   private readonly handleMessage = (event: MessageEvent<PdfWorkerResponse>) => {
     const response = event.data
     const pending = this.pending.get(response.requestId)
-    if (!pending || pending.documentId !== response.documentId) return
+    if (!pending || pending.documentId !== response.documentId) {
+      // No live requester: this is a late response. For a timed-out mutation
+      // deliver it for reconciliation instead of silently dropping it
+      // (wps_04 F6).
+      if (
+        response.ok
+        && this.timedOutMutations.get(response.requestId) === response.documentId
+      ) {
+        this.timedOutMutations.delete(response.requestId)
+        const late: LateMutation = {
+          requestId: response.requestId,
+          result: response.result as PdfMutationResult,
+        }
+        for (const listener of this.lateMutationListeners) listener(late)
+      }
+      return
+    }
     this.pending.delete(response.requestId)
     this.clearTimer(response.requestId)
     if (response.ok) pending.resolve(response.result)
     else pending.reject(new MuPdfClientError(response.error.code, response.error.message))
+  }
+
+  /** Subscribe to mutation results that arrive after their request timed out. */
+  onLateMutation(listener: (event: LateMutation) => void): () => void {
+    this.lateMutationListeners.add(listener)
+    return () => this.lateMutationListeners.delete(listener)
+  }
+
+  /** Subscribe to the worker becoming wedged so the viewer can reopen. */
+  onDegraded(listener: () => void): () => void {
+    this.degradedListeners.add(listener)
+    return () => this.degradedListeners.delete(listener)
   }
 
   private readonly handleWorkerError = (event: ErrorEvent) => {
@@ -80,13 +125,39 @@ export class MuPdfWorkerClient {
 
   private readonly handleMessageError = () => {
     // structured-clone 失败（worker→client 的响应无法反序列化）走 messageerror 而非 error。
-    // 此时无法定位具体 requestId，把所有挂起请求统一拒绝以免永久挂起；worker 本身仍存活，
-    // 故不置 workerFailed，后续请求仍可服务。
-    const error = new MuPdfClientError(
+    // wps_09 B-5: treated as degraded — pending requests are rejected and later
+    // requests fail-fast so the viewer can recreate the client, instead of the
+    // previous behavior where only the current batch failed and new requests
+    // kept posting into an unreliable channel.
+    this.markDegraded(new MuPdfClientError(
       'message-error',
       'A PDF worker message could not be deserialized',
-    )
-    this.rejectAllPending(error)
+    ))
+  }
+
+  /** Whether the worker is wedged and the viewer must recreate the client. */
+  get isDegraded(): boolean {
+    return this.degraded
+  }
+
+  /**
+   * Flip to degraded and fail-fast every request still queued behind the
+   * wedged one. Timed-out mutations stay tracked so an edit that still lands
+   * can reconcile via the late-mutation channel.
+   */
+  private markDegraded(
+    error: MuPdfClientError = new MuPdfClientError(
+      'worker-degraded',
+      'The PDF worker stopped responding; please reopen the document.',
+    ),
+  ): void {
+    if (this.degraded) return
+    this.degraded = true
+    for (const pending of this.pending.values()) pending.reject(error)
+    this.pending.clear()
+    for (const timer of this.timers.values()) clearTimeout(timer)
+    this.timers.clear()
+    for (const listener of this.degradedListeners) listener()
   }
 
   private clearTimer(requestId: string): void {
@@ -102,17 +173,26 @@ export class MuPdfWorkerClient {
     this.pending.clear()
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
+    // A dead/crashed worker can no longer deliver these late responses.
+    this.timedOutMutations.clear()
   }
 
   private request<TResult>(
     request: PdfWorkerRequestInput,
     transfer: Transferable[] = [],
+    mutation = false,
   ): Promise<TResult> {
     if (this.disposed) {
       return Promise.reject(new MuPdfClientError('pdf-worker-closed', 'The PDF worker is closed'))
     }
     if (this.workerFailed) {
       return Promise.reject(new MuPdfClientError('pdf-worker-crashed', 'The PDF worker stopped unexpectedly'))
+    }
+    if (this.degraded) {
+      return Promise.reject(new MuPdfClientError(
+        'worker-degraded',
+        'The PDF worker stopped responding; please reopen the document',
+      ))
     }
     const requestId = crypto.randomUUID()
     const payload = { ...request, requestId, documentId: this.documentId } as PdfWorkerRequest
@@ -126,9 +206,22 @@ export class MuPdfWorkerClient {
         if (!this.pending.has(requestId)) return
         this.pending.delete(requestId)
         this.timers.delete(requestId)
+        if (mutation) {
+          // The worker's serial queue may still execute this edit; remember
+          // the request so its eventual result reconciles the UI (wps_04 F6).
+          this.timedOutMutations.set(requestId, this.documentId)
+        }
+        // Fail every queued/future request at once instead of letting each
+        // wait its own timeout (wps_09 B-5). This request rejects separately
+        // below; mutation reconciliation stays possible because markDegraded
+        // deliberately does not clear timedOutMutations.
+        this.markDegraded()
+        const suffix = mutation
+          ? ' The operation may still have been applied; the view reconciles automatically when the worker finishes it.'
+          : ''
         reject(new MuPdfClientError(
           'request-timeout',
-          `The PDF request timed out after ${DEFAULT_REQUEST_TIMEOUT_MS / 1000}s`,
+          `The PDF request timed out after ${DEFAULT_REQUEST_TIMEOUT_MS / 1000}s.${suffix}`,
         ))
       }, DEFAULT_REQUEST_TIMEOUT_MS)
       this.timers.set(requestId, timer)
@@ -188,6 +281,7 @@ export class MuPdfWorkerClient {
     return this.request(
       { type: 'replaceBodyText', pageIndex, redactionRect, redactionRects, annotation, fontData },
       fontData ? [fontData] : [],
+      true,
     )
   }
 
@@ -198,6 +292,7 @@ export class MuPdfWorkerClient {
     return this.request(
       { type: 'upsertText', annotation, fontData },
       fontData ? [fontData] : [],
+      true,
     )
   }
 
@@ -205,27 +300,27 @@ export class MuPdfWorkerClient {
     annotation: PdfImageAnnotationRecord,
     imageData: ArrayBuffer,
   ): Promise<PdfMutationResult> {
-    return this.request({ type: 'createImage', annotation, imageData }, [imageData])
+    return this.request({ type: 'createImage', annotation, imageData }, [imageData], true)
   }
 
   updateImage(annotation: PdfImageAnnotationRecord): Promise<PdfMutationResult> {
-    return this.request({ type: 'updateImage', annotation })
+    return this.request({ type: 'updateImage', annotation }, [], true)
   }
 
   updateGeometry(annotation: PdfAnnotationRecord): Promise<PdfMutationResult> {
-    return this.request({ type: 'updateGeometry', annotation })
+    return this.request({ type: 'updateGeometry', annotation }, [], true)
   }
 
   deleteAnnotation(annotationId: string): Promise<PdfMutationResult> {
-    return this.request({ type: 'deleteAnnotation', annotationId })
+    return this.request({ type: 'deleteAnnotation', annotationId }, [], true)
   }
 
   undo(): Promise<PdfMutationResult> {
-    return this.request({ type: 'undo' })
+    return this.request({ type: 'undo' }, [], true)
   }
 
   redo(): Promise<PdfMutationResult> {
-    return this.request({ type: 'redo' })
+    return this.request({ type: 'redo' }, [], true)
   }
 
   save(): Promise<PdfSaveResult> {
@@ -242,5 +337,7 @@ export class MuPdfWorkerClient {
     const error = new MuPdfClientError('pdf-worker-closed', 'The PDF worker is closed')
     this.rejectAllPending(error)
     this.textLayerCache.clear()
+    this.degradedListeners.clear()
+    this.lateMutationListeners.clear()
   }
 }

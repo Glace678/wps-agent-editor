@@ -32,7 +32,34 @@ pub struct AgentRunTaskRequest {
     /// Missing values default to `"directed"`.
     #[serde(default)]
     #[cfg_attr(test, ts(optional))]
-    pub mode: Option<String>,
+    pub mode: Option<CollaborationMode>,
+}
+
+/// Collaboration styles accepted at the IPC boundary (wps_03 D9). The enum
+/// (rather than a free string) makes unknown modes a deserialization failure
+/// and ts-rs exports the closed union the frontend already uses.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export))]
+#[serde(rename_all = "lowercase")]
+pub enum CollaborationMode {
+    Directed,
+    Parallel,
+}
+
+impl Default for CollaborationMode {
+    fn default() -> Self {
+        Self::Directed
+    }
+}
+
+impl CollaborationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Directed => "directed",
+            Self::Parallel => "parallel",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -42,8 +69,11 @@ pub struct AgentRunTaskRequest {
 pub struct ChatMessage {
     pub role: ChatRole,
     pub content: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attachments: Vec<AgentAttachment>,
+    /// Wire-optional: omitted when empty, accepted when missing, so the
+    /// generated type is optional as well (wps_03 D5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub attachments: Option<Vec<AgentAttachment>>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -74,7 +104,31 @@ pub struct AgentAttachment {
     pub path: String,
     pub grant_id: String,
     pub name: String,
-    pub source: String,
+    pub source: AttachmentSource,
+}
+
+/// Where the user picked an attachment (wps_03 D9): closed enum on both
+/// sides of the IPC boundary instead of an unvalidated string.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export))]
+#[serde(rename_all = "lowercase")]
+pub enum AttachmentSource {
+    Browse,
+    Recent,
+    Tab,
+    Picker,
+}
+
+impl AttachmentSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Browse => "browse",
+            Self::Recent => "recent",
+            Self::Tab => "tab",
+            Self::Picker => "picker",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -95,6 +149,10 @@ pub struct AgentCacheUsage {
     pub cache_write_tokens: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub completion_tokens: u64,
+    /// Reasoning/thinking token sub-count already included in `completion_tokens`
+    /// for OpenAI; Google reports thinking separately (wps_06 F2).
+    #[cfg_attr(test, ts(type = "number"))]
+    pub reasoning_tokens: u64,
     #[cfg_attr(test, ts(type = "number"))]
     pub total_tokens: u64,
     pub hit_rate: f64,
@@ -117,6 +175,9 @@ impl AgentCacheUsage {
         self.completion_tokens = self
             .completion_tokens
             .saturating_add(other.completion_tokens);
+        self.reasoning_tokens = self
+            .reasoning_tokens
+            .saturating_add(other.reasoning_tokens);
         self.total_tokens = self.total_tokens.saturating_add(other.total_tokens);
         self.refresh_hit_rate();
     }
@@ -142,6 +203,9 @@ pub struct AgentTaskResult {
     pub agent_name: String,
     pub provider_id: String,
     pub model: String,
+    /// Per-call identity (wps_06 E1): distinguishes results of concurrent or
+    /// repeated delegations to the same agent within one run.
+    pub invocation_token: String,
     pub response: String,
     pub tool_calls: Vec<ExecutedToolCall>,
     pub cache_usage: AgentCacheUsage,
@@ -150,6 +214,7 @@ pub struct AgentTaskResult {
 impl AgentTaskResult {
     pub fn from_agent(
         agent: &AgentConfig,
+        invocation_token: String,
         response: String,
         tool_calls: Vec<ExecutedToolCall>,
         cache_usage: AgentCacheUsage,
@@ -159,6 +224,7 @@ impl AgentTaskResult {
             agent_name: agent.name.clone(),
             provider_id: agent.provider_id.clone(),
             model: agent.model.clone(),
+            invocation_token,
             response,
             tool_calls,
             cache_usage,

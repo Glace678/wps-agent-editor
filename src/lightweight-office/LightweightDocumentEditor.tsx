@@ -31,6 +31,8 @@ import {
 import { tabIndexByOffset } from './document-tabs'
 import { DocumentTabBar } from './components/DocumentTabBar'
 import { SaveConfirmDialog } from './components/SaveConfirmDialog'
+import { registerCloseGuardHandler } from '@/lib/close-guard'
+import { useModalDialog } from '@/lib/use-modal-dialog'
 
 // 关闭标签时轮询等待 save handler 注册的节奏（配合上方 5s 截止时间）。
 const SAVE_HANDLER_POLL_INTERVAL_MS = 25
@@ -73,6 +75,9 @@ interface TabItem {
   dirty: boolean
 }
 
+/** User's answer to the save prompt shown while closing the window/app. */
+type GuardChoice = 'save' | 'discard' | 'cancel'
+
 function createTabId(): string {
   return `doc-tab-${crypto.randomUUID()}`
 }
@@ -109,6 +114,8 @@ function EditorPanel({ children }: { children: ReactNode }) {
 
 function ShortcutSettingsModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
+  // #10: initial focus, Esc to close, Tab focus cycling inside the dialog.
+  const sectionRef = useModalDialog<HTMLElement>({ onClose, initialFocus: 'first' })
 
   return (
     <div
@@ -119,7 +126,9 @@ function ShortcutSettingsModal({ onClose }: { onClose: () => void }) {
       }}
     >
       <section
-        className="flex max-h-[calc(100%-2rem)] w-full max-w-[720px] flex-col rounded-2xl border border-black/10 bg-[#f9f9f9] text-[#1f1f1f] shadow-2xl dark:border-white/10 dark:bg-[#2b2b2b] dark:text-[#f5f5f5]"
+        ref={sectionRef}
+        tabIndex={-1}
+        className="flex max-h-[calc(100%-2rem)] w-full max-w-[720px] flex-col rounded-2xl border border-black/10 bg-[#f9f9f9] text-[#1f1f1f] shadow-2xl outline-none dark:border-white/10 dark:bg-[#2b2b2b] dark:text-[#f5f5f5]"
         role="dialog"
         aria-modal="true"
         aria-label={t('appShell.shortcutSettings')}
@@ -398,6 +407,11 @@ export function LightweightDocumentEditor() {
 
   const [savePromptTab, setSavePromptTab] = useState<TabItem | null>(null)
 
+  // Native close / quit / reload guard (wps_10 A1): a separate prompt state so
+  // the tab-close flow is never disturbed.
+  const [guardPromptTab, setGuardPromptTab] = useState<TabItem | null>(null)
+  const guardResolveRef = useRef<((choice: GuardChoice) => void) | null>(null)
+
   const performCloseTab = useCallback(
     (tabId: string) => {
       const currentTabs = tabsRef.current
@@ -474,6 +488,108 @@ export function LightweightDocumentEditor() {
   const handleDialogCancel = useCallback(() => {
     setSavePromptTab(null)
   }, [])
+
+  // --- Native close / quit / reload dirty-document guard (wps_10 A1) ---
+
+  const clearTabDirty = useCallback(
+    (tabId: string) => {
+      const nextTabs = tabsRef.current.map((tab) =>
+        tab.id === tabId ? { ...tab, dirty: false } : tab,
+      )
+      tabsRef.current = nextTabs
+      setTabs(nextTabs)
+      if (activeTabIdRef.current === tabId) setIsDirty(false)
+    },
+    [setIsDirty],
+  )
+
+  const finishGuardPrompt = useCallback((choice: GuardChoice) => {
+    setGuardPromptTab(null)
+    guardResolveRef.current?.(choice)
+    guardResolveRef.current = null
+  }, [])
+
+  const promptDirtyTab = useCallback(
+    (tab: TabItem, signal: AbortSignal) =>
+      new Promise<GuardChoice>((resolve) => {
+        guardResolveRef.current = resolve
+        setGuardPromptTab(tab)
+        // Another window cancelling the quit (or a newer native request
+        // replacing this flow) closes the prompt without a local answer.
+        signal.addEventListener(
+          'abort',
+          () => {
+            setGuardPromptTab(null)
+            guardResolveRef.current = null
+            resolve('cancel')
+          },
+          { once: true },
+        )
+      }),
+    [],
+  )
+
+  const resolveDirtyDocuments = useCallback(
+    async (signal: AbortSignal): Promise<boolean> => {
+      // A tab-close prompt is already interacting with the user; do not stack
+      // a second modal. The native action waits for the next explicit attempt.
+      if (savePromptTab) return false
+      while (!signal.aborted) {
+        const dirtyTab = tabsRef.current.find((tab) => tab.dirty)
+        if (!dirtyTab) return true
+        const choice = await promptDirtyTab(dirtyTab, signal)
+        if (signal.aborted) return false
+        if (choice === 'cancel') return false
+        if (choice === 'discard') {
+          clearTabDirty(dirtyTab.id)
+        }
+        // 'save' clears dirty through handleSaveSuccess; loop re-checks.
+      }
+      return false
+    },
+    [clearTabDirty, promptDirtyTab, savePromptTab],
+  )
+
+  useEffect(
+    () => registerCloseGuardHandler(resolveDirtyDocuments),
+    [resolveDirtyDocuments],
+  )
+
+  const handleGuardSave = useCallback(async () => {
+    const tab = guardPromptTab
+    if (!tab) return
+    if (tab.id !== activeTabIdRef.current) {
+      saveRef.current = null
+      switchTab(tab.id)
+    }
+
+    const deadline = Date.now() + 5_000
+    while (!saveRef.current && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, SAVE_HANDLER_POLL_INTERVAL_MS))
+    }
+    const save = saveRef.current
+    if (!save) {
+      console.error('Document save handler was not registered before the close timeout')
+      return
+    }
+    try {
+      await save()
+    } catch (error) {
+      // Keep the prompt open so the user can retry, discard, or cancel.
+      console.error('Document save failed while closing the window', error)
+      return
+    }
+    finishGuardPrompt('save')
+  }, [finishGuardPrompt, guardPromptTab, switchTab])
+
+  const handleGuardDontSave = useCallback(() => {
+    if (guardPromptTab) clearTabDirty(guardPromptTab.id)
+    finishGuardPrompt('discard')
+  }, [clearTabDirty, finishGuardPrompt, guardPromptTab])
+
+  const handleGuardCancel = useCallback(() => {
+    finishGuardPrompt('cancel')
+  }, [finishGuardPrompt])
 
   const closeActiveTab = useCallback(() => {
     const id = activeTabId || tabsRef.current[0]?.id
@@ -852,6 +968,15 @@ export function LightweightDocumentEditor() {
           onSave={handleDialogSave}
           onDontSave={handleDialogDontSave}
           onCancel={handleDialogCancel}
+        />
+      )}
+      {guardPromptTab && (
+        <SaveConfirmDialog
+          isOpen={Boolean(guardPromptTab)}
+          fileName={guardPromptTab.name}
+          onSave={handleGuardSave}
+          onDontSave={handleGuardDontSave}
+          onCancel={handleGuardCancel}
         />
       )}
     </EditorPanel>

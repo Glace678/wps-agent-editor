@@ -32,9 +32,9 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "externalBin": ["binaries/esbuild"],
-    "targets": "all",
+    "targets": ["nsis", "dmg", "appimage"],
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

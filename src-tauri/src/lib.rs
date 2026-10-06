@@ -6,10 +6,12 @@ pub mod files;
 pub mod process;
 pub mod providers;
 mod runtime_smoke;
+pub mod serde_util;
 pub mod security;
 pub mod state;
 mod update_health;
 mod updater_smoke;
+mod window_guard;
 
 use crate::{
     error::AppError,
@@ -46,12 +48,32 @@ pub fn run() {
         });
 
     builder
-        .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::Destroyed) {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                let Some(state) = window.app_handle().try_state::<AppState>() else {
+                    return;
+                };
+                let mut guard = state.window_guard.lock();
+                if guard.take_close_allowed(window.label()) {
+                    // The renderer already resolved every dirty tab in this window.
+                    return;
+                }
+                // Block the native close and ask the renderer to walk its dirty
+                // tabs; it closes for real via app_close_confirmed (wps_10 A1).
+                api.prevent_close();
+                let _ = window.emit(commands::app::CLOSE_REQUESTED_EVENT, ());
+            }
+            tauri::WindowEvent::Destroyed => {
                 if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    // An active quit flow waits for this window's ack that will
+                    // now never arrive; release the slot before revoking.
+                    if state.window_guard.lock().note_window_destroyed() {
+                        window.app_handle().exit(0);
+                    }
                     state.revoke_window(window.label());
                 }
             }
+            _ => {}
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -66,6 +88,8 @@ pub fn run() {
             },
         ))
         .setup(|app| {
+            // Reap PTY process groups orphaned by a crashed previous instance.
+            process::terminal::reap_orphan_sessions(app.handle());
             update_health::record_startup(app.handle())?;
             let updater_smoke = updater_smoke::SmokeSpec::from_process()?;
             let runtime_smoke = runtime_smoke::SmokeSpec::from_process()?;
@@ -165,7 +189,11 @@ pub fn run() {
             commands::app::app_window_toggle_maximize,
             commands::app::app_window_toggle_fullscreen,
             commands::app::app_window_close,
+            commands::app::app_close_confirmed,
             commands::app::app_quit,
+            commands::app::app_quit_confirmed,
+            commands::app::app_quit_cancelled,
+            commands::app::app_reload_confirmed,
             commands::app::app_theme_set,
             commands::app::app_i18n_set_language,
             commands::app::app_menu_perform,

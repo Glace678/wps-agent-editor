@@ -248,7 +248,12 @@ const englishKeys = [...english.keys()].sort()
 // (collaborationChat, collaborationMode, modeDirected/modeParallel and their
 // hints, directorAgent, stopCollaboration, backToChat, delegationTag and the
 // line* timeline strings) plus pdfViewer.bodyEditHint.
-assert(englishKeys.length === 761, `Expected 761 translation keys, received ${englishKeys.length}.`)
+// 761 -> 884: defect-report work added the earlier collaboration/editor strings
+// plus codeEditor.runFailed, presentationViewer.editFailedGeneric, the
+// `debugger` namespace (5), agentUi.lineEventsTruncated and
+// agentUi.reasoningTokens.
+// 884 -> 886: wps_05 added menu.pasteHint and bottomPanel.problemsLoadFailed.
+assert(englishKeys.length === 886, `Expected 886 translation keys, received ${englishKeys.length}.`)
 
 for (const [code, translation] of localeEntries) {
   const current = flatten(translation)

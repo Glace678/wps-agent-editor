@@ -40,6 +40,7 @@ pub struct AppState {
     recovery_notices: RecoveryNotices,
     startup_files: parking_lot::Mutex<StartupFileQueue>,
     pub current_files: parking_lot::Mutex<HashMap<String, crate::files::models::GrantedPath>>,
+    pub(crate) window_guard: parking_lot::Mutex<crate::window_guard::WindowGuard>,
 }
 
 impl AppState {
@@ -79,6 +80,7 @@ impl AppState {
             recovery_notices,
             startup_files: parking_lot::Mutex::new(StartupFileQueue::default()),
             current_files: parking_lot::Mutex::new(HashMap::new()),
+            window_guard: parking_lot::Mutex::new(crate::window_guard::WindowGuard::default()),
         })
     }
 
@@ -105,6 +107,7 @@ impl AppState {
         self.files.access.revoke_owner(window_label);
         self.startup_files.lock().discard(window_label);
         self.current_files.lock().remove(window_label);
+        self.window_guard.lock().take_close_allowed(window_label);
     }
 }
 
@@ -212,6 +215,11 @@ fn recover_versioned_json<T: DeserializeOwned + Default>(
     Ok(T::default())
 }
 
+/// Hard ceiling on recovery notices held for the lifetime of the process.
+/// Damaged-file batches (a directory full of forged .json files) would
+/// otherwise grow the list without bound (wps_02 D-9).
+const MAX_RECOVERY_NOTICES: usize = 256;
+
 pub(crate) fn push_recovery_notice(
     notices: &RecoveryNotices,
     resource: &str,
@@ -219,10 +227,23 @@ pub(crate) fn push_recovery_notice(
     path: &Path,
     message: impl Into<String>,
 ) {
-    notices.lock().push(RecoveryNotice {
+    let mut guard = notices.lock();
+    let path_text = path.to_string_lossy();
+    // The same damaged file can be reported repeatedly during index rebuilds;
+    // an identical (resource, action, path) notice carries no new information.
+    if guard.iter().any(|notice| {
+        notice.resource == resource && notice.action == action && notice.path == path_text
+    }) {
+        return;
+    }
+    // Ring eviction: drop the oldest entry once the cap is reached.
+    if guard.len() >= MAX_RECOVERY_NOTICES {
+        guard.remove(0);
+    }
+    guard.push(RecoveryNotice {
         resource: resource.to_owned(),
         action: action.to_owned(),
-        path: path.to_string_lossy().into_owned(),
+        path: path_text.into_owned(),
         message: message.into(),
     });
 }
@@ -235,7 +256,7 @@ fn backup_path(path: &Path) -> PathBuf {
     path.with_file_name(format!("{name}.bak"))
 }
 
-fn quarantine(path: &Path) -> AppResult<PathBuf> {
+pub(crate) fn quarantine(path: &Path) -> AppResult<PathBuf> {
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

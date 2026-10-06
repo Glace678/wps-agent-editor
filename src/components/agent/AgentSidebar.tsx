@@ -44,7 +44,7 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   const {
     agents, activeAgentId, messages, conversationIds, conversationSummaries,
     codexImportResult, isImportingCodex, isRunning, taskStatus, activeRunId, isStopping,
-    setAgents, setActiveAgentId, addMessage, appendAssistantStream, completeAssistantStream,
+    setAgents, setActiveAgentId, addMessage, appendAssistantStream, completeAssistantStream, settleStreamingMessages,
     setIsRunning, setActiveRunId, setIsStopping, setTaskStatus,
     ensureConversationId, clearMessages, loadConversation,
     setConversationSummaries, upsertConversationSummary,
@@ -124,7 +124,14 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   const handleAgentEvent = useCallback((event: AgentCollaborationEvent) => {
     addCollaborationEvent(event)
     if (event.type === 'agent-stream' && event.agentId && event.content) {
-      appendAssistantStream(event.agentId, event.runId, event.content)
+      // wps_06 E1: key per invocation so concurrent delegations to the same
+      // peer do not interleave into one bubble. operationId form:
+      // `stream:{agent}:{token}:{round}`.
+      const parts = event.operationId?.split(':')
+      const streamKey = parts && parts.length >= 3 && parts[2]
+        ? `inv:${parts[1]}:${parts[2]}`
+        : event.runId
+      appendAssistantStream(event.agentId, streamKey, event.runId, event.content)
     }
   }, [addCollaborationEvent, appendAssistantStream])
 
@@ -133,7 +140,13 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
   const handleSend = useCallback(async (content: string, attachments: AgentAttachment[]) => {
     if (!activeAgentId) return
     const runId = crypto.randomUUID()
-    const userMessage: ChatMessage = { role: 'user', content, attachments, timestamp: Date.now() }
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      attachments,
+      timestamp: Date.now(),
+    }
     // Review §01-9: snapshot the conversation history synchronously from the
     // store instead of the subscribed `messages` closure, which can be stale if
     // a stream event landed between render and send. Snapshot BEFORE addMessage
@@ -219,11 +232,15 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
         setTaskStatus(t('agentUi.failed'))
       }
     } finally {
+      // wps_06 A4: settle any streaming placeholder the result paths did
+      // not — user stop and the outer catch used to leave it spinning.
+      const wasStopping = useAgentStore.getState().isStopping
+      settleStreamingMessages(runId, wasStopping ? 'cancelled' : 'error')
       setIsRunning(false)
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [activeAgentId, addMessage, clearCollaborationEvents, completeAssistantStream, ensureConversationId, handleAgentEvent, persistConversation, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [activeAgentId, addMessage, clearCollaborationEvents, completeAssistantStream, ensureConversationId, handleAgentEvent, persistConversation, settleStreamingMessages, setActiveRunId, setIsRunning, setIsStopping, setTaskStatus, t])
 
   const handleLoadConversation = useCallback(async (conversationId: string) => {
     if (!activeAgentId || isRunning) return
@@ -276,24 +293,38 @@ export function AgentSidebar({ onCollapse }: AgentSidebarProps) {
         return
       }
       for (const result of results) {
-        completeAssistantStream(result.agentId, runId, {
-          role: 'assistant',
-          content: result.response,
-          cacheUsage: result.cacheUsage,
-        })
+        completeAssistantStream(
+          result.agentId,
+          `inv:${result.agentId}:${result.invocationToken}`,
+          {
+            role: 'assistant',
+            content: result.response,
+            cacheUsage: result.cacheUsage,
+          },
+        )
       }
-      setTaskStatus(t('agentUi.collaborationCompleted', { count: results.length }))
+      // wps_06 B2: a stopped run may return partial results; missing peers
+      // are settled as cancelled by the finally block.
+      if (useAgentStore.getState().isStopping) {
+        setTaskStatus(t('codeEditor.stopDebug'))
+      } else {
+        setTaskStatus(t('agentUi.collaborationCompleted', { count: results.length }))
+      }
     } catch (err) {
       console.error('[AgentSidebar] collaboration request failed:', err)
       setTaskStatus(useAgentStore.getState().isStopping
         ? t('codeEditor.stopDebug')
         : t('agentUi.collaborationFailed', { error: t('agentUi.requestFailedGeneric') }))
     } finally {
+      // wps_06 A4: agents missing from the results (cancelled, failed, or
+      // never reached) keep their streaming bubble until this safety net.
+      const wasStopping = useAgentStore.getState().isStopping
+      settleStreamingMessages(runId, wasStopping ? 'cancelled' : 'error')
       setIsRunning(false)
       setActiveRunId(null)
       setIsStopping(false)
     }
-  }, [clearCollaborationEvents, completeAssistantStream, handleAgentEvent, setActiveRunId, setCollaborationMode, setIsRunning, setIsStopping, setTaskStatus, t])
+  }, [clearCollaborationEvents, completeAssistantStream, handleAgentEvent, settleStreamingMessages, setActiveRunId, setCollaborationMode, setIsRunning, setIsStopping, setTaskStatus, t])
 
   const handleCloseCollaboration = useCallback(() => {
     setCollaborationMode(null)

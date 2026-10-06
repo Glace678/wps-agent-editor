@@ -901,7 +901,11 @@ fn non_empty_string(value: Option<&Value>) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn validate_conversation_id(id: &str) -> AppResult<()> {
+/// Single source of truth for conversation id validity: 1-128 bytes and only
+/// ASCII letters, digits, `-` and `_`. Run ids (which legitimately contain
+/// `:` and `.`) use the separate `normalized_id` rule in the runtime events
+/// module.
+pub(crate) fn validate_conversation_id(id: &str) -> AppResult<()> {
     let id = id.trim();
     if id.is_empty()
         || id.len() > 128

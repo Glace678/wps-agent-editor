@@ -177,6 +177,8 @@ pub async fn documents_edit_presentation(
     };
     let (metadata, payload) =
         envelope::decode::<PresentationEditMetadata>(raw, MAX_PRESENTATION_IPC_BYTES)?;
+    // Explicit index validation at the IPC boundary (wps_03 D6).
+    metadata.operation.validate_indexes()?;
     let edit_request = PresentationEditRequest {
         data: payload.to_vec(),
         operation: metadata.operation,

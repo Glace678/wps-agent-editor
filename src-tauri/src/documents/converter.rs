@@ -5,8 +5,8 @@ use crate::documents::presentation::{
 };
 use crate::{
     documents::{limits::MAX_DOCUMENT_INPUT_BYTES, word},
-    error::{AppError, AppResult},
-    process::dependencies::resolve_executable,
+    error::{codes, AppError, AppResult},
+    process::{dependencies::resolve_executable, reaper},
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -658,7 +658,7 @@ async fn convert_with_backend(
             let profile_url = url::Url::from_directory_path(&profile).map_err(|_| {
                 attempt_error(
                     backend.id(),
-                    "invalid-path",
+                    codes::INVALID_PATH,
                     "Cannot build an isolated LibreOffice profile URL",
                     None,
                     None,
@@ -996,9 +996,10 @@ async fn run_process(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    configure_process_group(&mut command);
+    reaper::configure_process_group(&mut command);
     let mut child = command.spawn()?;
     let pid = child.id();
+    reaper::bind_tokio_child(&child);
     let stdout_task = child
         .stdout
         .take()
@@ -1028,7 +1029,7 @@ async fn run_process(
         }
     };
     if timed_out || output_limit_bytes.is_some() {
-        terminate_process_tree(pid).await;
+        reaper::terminate_process_tree(pid).await;
         let _ = child.kill().await;
         let _ = child.wait().await;
     }
@@ -1105,54 +1106,6 @@ fn extension(path: &Path) -> String {
 
 fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
-}
-
-#[cfg(unix)]
-fn configure_process_group(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    command.as_std_mut().process_group(0);
-}
-
-#[cfg(windows)]
-fn configure_process_group(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    command
-        .as_std_mut()
-        .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
-}
-
-#[cfg(unix)]
-async fn terminate_process_tree(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        // Defensive: `pid` comes from `child.id()` and is positive, but refuse to
-        // send a signal if it would wrap when cast to `i32` (otherwise `-pid`
-        // could address an unrelated process group on hosts with a large PID space).
-        let Ok(pgid) = i32::try_from(pid) else {
-            return;
-        };
-        // SAFETY: `pgid` is a real, positive child PID (from `tokio::process::Child::id`)
-        // validated to fit in `i32` above; negating it targets the process group created
-        // by `configure_process_group` (`process_group(0)`). The return value is ignored
-        // deliberately: `ESRCH` simply means the group already exited.
-        unsafe {
-            libc::kill(-pgid, libc::SIGKILL);
-        }
-    }
-}
-
-#[cfg(windows)]
-async fn terminate_process_tree(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await;
-    }
 }
 
 #[cfg(windows)]

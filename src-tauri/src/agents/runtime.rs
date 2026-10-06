@@ -13,22 +13,23 @@ use sha2::{Digest, Sha256};
 use tauri::{ipc::Channel, Emitter, WebviewWindow};
 use tokio::{
     io::{AsyncReadExt, BufReader},
-    sync::oneshot,
+    sync::{mpsc, oneshot},
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    error::{AppError, AppResult},
+    error::{codes, AppError, AppResult},
     files::{ensure_file_can_be_opened, FileServices},
     providers::store::ProviderStore,
+    serde_util::stringify_unsafe_ints,
 };
 
 use super::{
     models::{
         unix_millis, AgentCacheUsage, AgentCollaborationEvent, AgentDocumentEvent,
-        AgentRunTaskRequest, AgentTaskResult, ChatMessage, ChatRole, ExecutedToolCall,
-        ParsedToolCall,
+        AgentRunTaskRequest, AgentTaskResult, ChatMessage, ChatRole, CollaborationMode,
+        ExecutedToolCall, ParsedToolCall,
     },
     provider::{self, ProviderMessage},
     store::{AgentConfig, AgentStore},
@@ -42,6 +43,11 @@ use attachments::*;
 use chat_context::*;
 use events::*;
 
+/// Bound on per-run events waiting to cross IPC. Token-level stream deltas are
+/// the only events that can be produced faster than a stalled renderer can
+/// consume them; beyond this depth they are dropped (counted on the run)
+/// rather than growing the host's memory without bound (wps_02 D-6).
+const OUTBOUND_QUEUE_CAPACITY: usize = 64;
 const MAX_MESSAGES: usize = 128;
 const MAX_MESSAGE_CHARS: usize = 128 * 1024;
 const MAX_REQUEST_CHARS: usize = 512 * 1024;
@@ -104,7 +110,16 @@ Peers (agentId / name / role / model):
 struct ActiveRun {
     window_label: String,
     cancellation: CancellationToken,
-    events: Channel<AgentCollaborationEvent>,
+    /// Bounded outbound queue; a dedicated forwarder task drains it onto the
+    /// IPC Channel and coalesces adjacent stream deltas. The bound makes a
+    /// stalled webview fail-fast instead of accumulating events without limit
+    /// (wps_02 D-6).
+    outbound: mpsc::Sender<AgentCollaborationEvent>,
+    /// Stream-delta characters dropped because the outbound queue was full.
+    /// Dropped deltas are self-healing: the following `agent-message` event
+    /// always carries the complete response text. Shared behind an `Arc` so
+    /// cloned run snapshots observe the same counter.
+    dropped_stream_chars: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 struct PendingDocumentCommand {
@@ -112,6 +127,59 @@ struct PendingDocumentCommand {
     window_label: String,
     sender: oneshot::Sender<AppResult<Value>>,
 }
+
+/// How the wait for a renderer document result ended (wps_06 B1).
+enum DocumentResultFailure {
+    Cancelled,
+    ChannelClosed,
+    /// Neither the deadline nor the following grace window produced an answer.
+    TimedOut,
+}
+
+/// Waits for the renderer's document result. After the first timeout a grace
+/// window is granted, because the renderer applies the edit before answering
+/// and a slightly late answer is still authoritative (wps_06 B1).
+async fn await_document_result(
+    mut receiver: oneshot::Receiver<AppResult<Value>>,
+    cancellation: &CancellationToken,
+) -> Result<AppResult<Value>, DocumentResultFailure> {
+    let mut answer_timeout = Box::pin(tokio::time::sleep(AgentRuntime::DOCUMENT_ANSWER_TIMEOUT));
+    let mut grace: Option<BoxPinSleep> = None;
+    loop {
+        if let Some(grace_timeout) = grace.as_mut() {
+            tokio::select! {
+                _ = cancellation.cancelled() => return Err(DocumentResultFailure::Cancelled),
+                received = &mut receiver => {
+                    return match received {
+                        Ok(result) => Ok(result),
+                        Err(_) => Err(DocumentResultFailure::ChannelClosed),
+                    }
+                }
+                _ = grace_timeout => return Err(DocumentResultFailure::TimedOut),
+            }
+        } else {
+            tokio::select! {
+                _ = cancellation.cancelled() => return Err(DocumentResultFailure::Cancelled),
+                received = &mut receiver => {
+                    return match received {
+                        Ok(result) => Ok(result),
+                        Err(_) => Err(DocumentResultFailure::ChannelClosed),
+                    }
+                }
+                _ = &mut answer_timeout => {
+                    log::warn!(
+                        "document command not answered within {}s; waiting {}s more",
+                        AgentRuntime::DOCUMENT_ANSWER_TIMEOUT.as_secs(),
+                        AgentRuntime::DOCUMENT_GRACE.as_secs()
+                    );
+                    grace = Some(Box::pin(tokio::time::sleep(AgentRuntime::DOCUMENT_GRACE)));
+                }
+            }
+        }
+    }
+}
+
+type BoxPinSleep = std::pin::Pin<Box<tokio::time::Sleep>>;
 
 /// One cached rendered attachment result, tracked with a last-used timestamp so
 /// the session can evict least-recently-used entries under its size budget.
@@ -127,11 +195,66 @@ struct AttachmentSession {
     session_bytes: usize,
 }
 
+/// Drain the bounded per-run outbound queue onto the window's IPC Channel.
+///
+/// Consecutive `agent-stream` frames already queued for the same agent and
+/// operation are merged into one IPC message. The merge uses `try_recv` only,
+/// so it never adds latency waiting for a future delta. The task exits when
+/// the run finishes (every sender drops → `Disconnected`) or when the webview
+/// is gone (`Channel::send` fails) (wps_02 D-6).
+fn spawn_event_forwarder(
+    events: Channel<AgentCollaborationEvent>,
+    mut receiver: mpsc::Receiver<AgentCollaborationEvent>,
+) {
+    tokio::spawn(async move {
+        while let Some(first) = receiver.recv().await {
+            let mut current = first;
+            while current.event_type == "agent-stream" {
+                match receiver.try_recv() {
+                    Ok(next)
+                        if next.event_type == "agent-stream"
+                            && next.agent_id == current.agent_id
+                            && next.operation_id == current.operation_id =>
+                    {
+                        if let Some(content) = next.content {
+                            current
+                                .content
+                                .get_or_insert_with(String::new)
+                                .push_str(&content);
+                        }
+                    }
+                    Ok(next) => {
+                        // A frame that cannot join the current batch: flush the
+                        // batch and continue with this frame (it may itself be
+                        // the start of a new stream batch).
+                        if events.send(current).is_err() {
+                            return;
+                        }
+                        current = next;
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        let _ = events.send(current);
+                        return;
+                    }
+                }
+            }
+            if events.send(current).is_err() {
+                return;
+            }
+        }
+    });
+}
+
 #[derive(Default)]
 pub struct AgentRuntime {
     active_runs: Mutex<HashMap<String, ActiveRun>>,
     pending_documents: Mutex<HashMap<String, PendingDocumentCommand>>,
     attachment_cache: Mutex<HashMap<String, AttachmentSession>>,
+    /// Per-document serialization for tool execution (wps_06 C3). Document
+    /// tools operate on the window's active document, so the window label is
+    /// the document key.
+    document_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl AgentRuntime {
@@ -150,12 +273,15 @@ impl AgentRuntime {
                 "An Agent run with this id is already active",
             ));
         }
+        let (outbound, receiver) = mpsc::channel(OUTBOUND_QUEUE_CAPACITY);
+        spawn_event_forwarder(events, receiver);
         runs.insert(
             run_id.clone(),
             ActiveRun {
                 window_label: window_label.to_owned(),
                 cancellation: cancellation.clone(),
-                events,
+                outbound,
+                dropped_stream_chars: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             },
         );
         Ok((run_id, cancellation))
@@ -265,6 +391,11 @@ impl AgentRuntime {
             .get(request_id)
             .map(|pending| pending.window_label.as_str())
         else {
+            // wps_06 B1: typically a renderer answer arriving after the timeout
+            // plus grace window. The edit may have applied, so this is logged.
+            log::warn!(
+                "renderer answered document request {request_id} after it expired; the edit may have been applied"
+            );
             return Err(AppError::new(
                 "document-request-expired",
                 "The Agent document request is unknown or has expired",
@@ -350,8 +481,44 @@ impl AgentRuntime {
         }
         let mut outbound = event.clone();
         outbound.window_label = run.window_label;
-        run.events.send(outbound).map_err(AppError::from)
+        match run.outbound.try_send(outbound) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(AppError::new(
+                codes::AGENT_RUN_EXPIRED,
+                "The Agent run is no longer active",
+            )),
+            Err(mpsc::error::TrySendError::Full(_)) if event.event_type == "agent-stream" => {
+                // Renderer stalled past the bounded queue. Drop this token
+                // delta (counted; the complete text follows in agent-message)
+                // instead of failing the whole run or growing memory.
+                let length = event.content.as_ref().map_or(0, |content| content.len());
+                run.dropped_stream_chars
+                    .fetch_add(length, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => Err(AppError::new(
+                codes::EVENT_BACKPRESSURE,
+                "The Agent event channel is full; the window is not consuming events",
+            )),
+        }
     }
+
+    /// Serialization primitive shared by every agent editing the same
+    /// document (wps_06 C3).
+    async fn document_lock(&self, window_label: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.document_locks
+            .lock()
+            .entry(window_label.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    /// Time the renderer is given to execute and confirm a document command.
+    const DOCUMENT_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+    /// Extra wait after the first deadline: the renderer applies the edit
+    /// before answering, so a slightly late answer must still be accepted
+    /// rather than judged a failure (wps_06 B1).
+    const DOCUMENT_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
 
     async fn execute_document_tool(
         &self,
@@ -361,6 +528,16 @@ impl AgentRuntime {
         call: &ParsedToolCall,
         cancellation: &CancellationToken,
     ) -> AppResult<Value> {
+        // Queue behind any other agent's tool call on this document so
+        // concurrent edits cannot interleave or lose updates (wps_06 C3).
+        let lock = self.document_lock(window.label()).await;
+        let queued = lock.lock();
+        tokio::pin!(queued);
+        let _document_guard = tokio::select! {
+            guard = &mut queued => guard,
+            _ = cancellation.cancelled() => return Err(provider::cancelled_error()),
+        };
+
         let operation_id = Uuid::new_v4().to_string();
         let command = build_document_command(call, run_id, agent, &operation_id)?;
         let mut prepared =
@@ -389,21 +566,11 @@ impl AgentRuntime {
             return Err(AppError::from(error));
         }
 
-        let result = tokio::select! {
-            _ = cancellation.cancelled() => Err(provider::cancelled_error()),
-            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => Err(AppError::new(
-                "agent-command-timeout",
-                "The document editor did not answer the Agent command within 30 seconds",
-            )),
-            received = receiver => received.map_err(|_| AppError::new(
-                "document-request-expired",
-                "The document result channel closed before a result arrived",
-            ))?,
-        };
+        let result = await_document_result(receiver, cancellation).await;
         self.pending_documents.lock().remove(&request_id);
 
         match result {
-            Ok(result) => {
+            Ok(Ok(result)) => {
                 let success = result
                     .get("success")
                     .and_then(Value::as_bool)
@@ -424,7 +591,23 @@ impl AgentRuntime {
                 self.emit_event(window, &event)?;
                 Ok(result)
             }
-            Err(error) => {
+            Ok(Err(error)) => {
+                let mut event =
+                    AgentCollaborationEvent::new(run_id, "document-operation-rejected")
+                        .for_agent(agent);
+                event.operation_id = Some(operation_id);
+                event.action = Some(call.tool.clone());
+                event.phase = Some("rejected".to_owned());
+                event.error = Some(error.message.clone());
+                self.emit_event(window, &event)?;
+                Err(error)
+            }
+            Err(DocumentResultFailure::Cancelled) => Err(provider::cancelled_error()),
+            Err(DocumentResultFailure::ChannelClosed) => {
+                let error = AppError::new(
+                    "document-request-expired",
+                    "The document result channel closed before a result arrived",
+                );
                 let mut event = AgentCollaborationEvent::new(run_id, "document-operation-rejected")
                     .for_agent(agent);
                 event.operation_id = Some(operation_id);
@@ -433,6 +616,31 @@ impl AgentRuntime {
                 event.error = Some(error.message.clone());
                 self.emit_event(window, &event)?;
                 Err(error)
+            }
+            Err(DocumentResultFailure::TimedOut) => {
+                // wps_06 B1: the renderer applies an edit before answering, so
+                // a timeout cannot be reported as a clean failure: the model
+                // would retry the same edit and apply it twice. Record the
+                // unknown outcome and hand back an explicit no-retry result.
+                log::warn!(
+                    "document command {operation_id} for run {run_id} was not answered within \
+                     the timeout plus grace window; edit outcome is unknown"
+                );
+                let mut event = AgentCollaborationEvent::new(run_id, "document-operation-rejected")
+                    .for_agent(agent);
+                event.operation_id = Some(operation_id);
+                event.action = Some(call.tool.clone());
+                event.phase = Some("unknown".to_owned());
+                event.error = Some(
+                    "The document editor did not confirm the operation; the outcome is unknown"
+                        .to_owned(),
+                );
+                self.emit_event(window, &event)?;
+                Ok(json!({
+                    "success": false,
+                    "outcomeUnknown": true,
+                    "error": "The document editor did not confirm the operation in time; the edit may already have been applied. Do NOT repeat the same edit. Use a read-only tool to inspect the current document state before taking any further action."
+                }))
             }
         }
     }
@@ -445,10 +653,11 @@ impl AgentRuntime {
         files: &FileServices,
         maximum_chars: usize,
     ) -> AppResult<String> {
-        if message.attachments.is_empty() || maximum_chars == 0 {
+        let attachments = message.attachments.as_deref().unwrap_or(&[]);
+        if attachments.is_empty() || maximum_chars == 0 {
             return Ok(String::new());
         }
-        if message.attachments.len() > MAX_ATTACHMENTS_PER_MESSAGE {
+        if attachments.len() > MAX_ATTACHMENTS_PER_MESSAGE {
             return Err(AppError::new(
                 "too-many-attachments",
                 format!("A message may contain at most {MAX_ATTACHMENTS_PER_MESSAGE} attachments"),
@@ -457,7 +666,7 @@ impl AgentRuntime {
 
         // Validate every opaque grant even when rendered content is cached. This
         // prevents a revoked/cross-window grant from becoming a cache oracle.
-        for attachment in &message.attachments {
+        for attachment in attachments {
             let path = files.access.resolve(
                 owner,
                 &attachment.path,
@@ -484,7 +693,7 @@ impl AgentRuntime {
 
         let mut rendered = Vec::new();
         let mut used = 0usize;
-        for attachment in &message.attachments {
+        for attachment in attachments {
             let remaining = maximum_chars.saturating_sub(used);
             if remaining < 128 {
                 break;
@@ -559,8 +768,11 @@ impl AgentRuntime {
 struct DelegationCounters {
     /// Total delegate_task calls started during this run (across all agents).
     delegations: usize,
-    /// Latest task result per participating agent, used for the run summary.
-    results: HashMap<String, AgentTaskResult>,
+    /// One result per delegation invocation, grouped by agent id and kept in
+    /// delegation order. Aggregating across invocations used to sum usage and
+    /// tool calls while overwriting the response text, mixing numbers from
+    /// several invocations with the last one's text (wps_06 E2).
+    results: HashMap<String, Vec<AgentTaskResult>>,
 }
 
 /// Shared delegation context for one `run_agent_chat` invocation. `chain` is
@@ -680,6 +892,13 @@ pub async fn run_agent_chat(
 
         let mut message_event =
             AgentCollaborationEvent::new(run_id, "agent-message").for_agent(agent);
+        // wps_06 E1: tie the message to this invocation+round, like the stream
+        // frames, so two concurrent delegations to the same peer cannot have
+        // their messages collapse onto one event in the UI.
+        message_event.operation_id = Some(format!(
+            "message:{}:{invocation_token}:{round}",
+            agent.id
+        ));
         message_event.content = Some(response_text.clone());
         message_event.cache_usage = Some(response.usage);
         runtime.emit_event(window, &message_event)?;
@@ -695,10 +914,38 @@ pub async fn run_agent_chat(
             ));
         }
         if round == MAX_TOOL_ROUNDS {
-            return Err(AppError::new(
-                "tool-round-limit",
-                format!("Agent exceeded the {MAX_TOOL_ROUNDS}-round document tool limit"),
+            // C2: another error here discarded the answer that was already
+            // streamed to the user and marked the whole message failed.
+            // Deliver the prose of the final round with a limit notice.
+            let prose = strip_tool_blocks(&response_text).trim().to_owned();
+            response_text = format!(
+                "{prose}\n\n(Reached the tool-round limit of {MAX_TOOL_ROUNDS} rounds.)"
+            );
+            let mut limited =
+                AgentCollaborationEvent::new(run_id, "agent-message").for_agent(agent);
+            limited.operation_id = Some(format!(
+                "message:{}:{invocation_token}:limit",
+                agent.id
             ));
+            limited.content = Some(response_text.clone());
+            runtime.emit_event(window, &limited)?;
+            let result = AgentTaskResult::from_agent(
+                agent,
+                invocation_token.to_owned(),
+                response_text.clone(),
+                executed_tools,
+                total_usage.clone(),
+            );
+            let mut complete =
+                AgentCollaborationEvent::new(run_id, "agent-complete").for_agent(agent);
+            complete.operation_id = Some(format!(
+                "complete:{}:{invocation_token}",
+                agent.id
+            ));
+            complete.content = Some(response_text);
+            complete.cache_usage = Some(total_usage);
+            runtime.emit_event(window, &complete)?;
+            return Ok(result);
         }
         if calls.len() > MAX_TOOLS_PER_ROUND
             || executed_tools.len().saturating_add(calls.len()) > MAX_EXECUTED_TOOLS
@@ -752,16 +999,26 @@ pub async fn run_agent_chat(
                     "error": format!("Unsupported tool: {}", call.tool)
                 })
             };
+            // Encode >2^53 integers as strings before the result is emitted over
+            // IPC, stored, or echoed to the model (wps_03 D10).
+            let result = stringify_unsafe_ints(result);
             let mut tool_event =
                 AgentCollaborationEvent::new(run_id, "agent-tool").for_agent(agent);
             tool_event.tool = Some(call.tool.clone());
-            tool_event.args = Some(call.args.clone());
+            // wps_03 D10: sanitize args at the IPC choke point as well, so
+            // integers above the JS safe range survive as strings in the UI.
+            // The same safe copy rides along in the command result.
+            let safe_args = stringify_unsafe_ints(Value::Object(call.args.clone()))
+                .as_object()
+                .expect("stringify_unsafe_ints preserves object shape")
+                .clone();
+            tool_event.args = Some(safe_args.clone());
             tool_event.result = Some(result.clone());
             runtime.emit_event(window, &tool_event)?;
             if is_document_tool(&call.tool) {
                 executed_tools.push(ExecutedToolCall {
                     tool: call.tool.clone(),
-                    args: call.args.clone(),
+                    args: safe_args,
                     result: result.clone(),
                 });
             }
@@ -789,11 +1046,14 @@ pub async fn run_agent_chat(
 
     let result = AgentTaskResult::from_agent(
         agent,
+        invocation_token.to_owned(),
         response_text.clone(),
         executed_tools,
         total_usage.clone(),
     );
     let mut complete = AgentCollaborationEvent::new(run_id, "agent-complete").for_agent(agent);
+    // wps_06 E1: invocation-level identity for the completion event too.
+    complete.operation_id = Some(format!("complete:{}:{invocation_token}", agent.id));
     complete.content = Some(response_text);
     complete.cache_usage = Some(total_usage);
     runtime.emit_event(window, &complete)?;
@@ -856,7 +1116,7 @@ pub async fn run_multi_agent_task(
         .cloned()
         .ok_or_else(|| AppError::invalid("rootAgentId must identify a selected Agent"))?;
 
-    if collaboration_is_directed(request.mode.as_deref())? {
+    if collaboration_is_directed(request.mode) {
         return run_directed_agent_task(context, task, selected, root).await;
     }
 
@@ -892,7 +1152,7 @@ pub async fn run_multi_agent_task(
                     messages: vec![ChatMessage {
                         role: ChatRole::User,
                         content: prompt,
-                        attachments: Vec::new(),
+                        attachments: None,
                     }],
                     conversation_id: format!("{run_id}:{}:work", agent.id),
                     allow_document_tools: true,
@@ -905,29 +1165,57 @@ pub async fn run_multi_agent_task(
     }
 
     let mut results: Vec<Option<AgentTaskResult>> = vec![None; selected.len()];
-    let mut first_error = None;
+    // wps_06 B2: a single peer failure no longer cancels the whole run and
+    // discards finished contributions. Failures are recorded and the
+    // synthesis runs on whatever succeeded; the shared token is cancelled
+    // only by the user's stop action.
+    let mut failures: Vec<(String, String)> = Vec::new();
     while let Some((index, result)) = futures.next().await {
         match result {
             Ok(result) => results[index] = Some(result),
             Err(error) => {
-                if first_error.is_none() {
-                    first_error = Some(error);
-                    cancellation.cancel();
+                if error.code == "cancelled" {
+                    // Peer futures only see cancellations through the shared
+                    // token, which peer failures no longer trigger, so this
+                    // is the user's stop propagating to in-flight peers.
+                    continue;
                 }
+                let agent_id = selected[index].id.clone();
+                log::warn!(
+                    "agent {agent_id} failed during parallel run: {}",
+                    error.message
+                );
+                failures.push((agent_id, error.message));
             }
         }
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
-    let mut results = results
-        .into_iter()
-        .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| AppError::internal("An Agent task finished without a result"))?;
 
-    if cancellation.is_cancelled() {
-        return Err(provider::cancelled_error());
+    let user_cancelled = cancellation.is_cancelled();
+    let completed = results.into_iter().flatten().collect::<Vec<_>>();
+
+    if user_cancelled {
+        // Deliver the contributions that finished before the stop instead of
+        // dropping them; the missing peers are listed as failures.
+        let mut cancelled_event = AgentCollaborationEvent::new(run_id, "run-cancelled");
+        cancelled_event.content =
+            Some(build_run_complete_content(&completed, &[], &failures)?);
+        runtime.emit_event(window, &cancelled_event)?;
+        return Ok(completed);
     }
+
+    if completed.is_empty() {
+        // Every contributor failed: hand the first real failure back.
+        let (agent_id, message) = failures
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| (String::new(), "All Agent tasks failed".to_owned()));
+        return Err(AppError::new(
+            "agent-collaboration-failed",
+            format!("Agent {agent_id} failed: {message}"),
+        ));
+    }
+
+    let mut results = completed;
     let context = truncate_chars(
         &results
             .iter()
@@ -967,7 +1255,7 @@ pub async fn run_multi_agent_task(
             messages: vec![ChatMessage {
                 role: ChatRole::User,
                 content: synthesis_prompt,
-                attachments: Vec::new(),
+                attachments: None,
             }],
             conversation_id: format!("{run_id}:{}:synthesis", root.id),
             allow_document_tools: false,
@@ -975,47 +1263,22 @@ pub async fn run_multi_agent_task(
         },
     )
     .await?;
-    let root_index = results
-        .iter()
-        .position(|result| result.agent_id == root.id)
-        .ok_or_else(|| AppError::internal("Root Agent result is missing"))?;
-    let previous_root = &results[root_index];
-    let mut cache_usage = previous_root.cache_usage.clone();
-    cache_usage.add_assign(&synthesis.cache_usage);
-    results[root_index] = AgentTaskResult {
-        response: synthesis.response,
-        cache_usage,
-        tool_calls: previous_root.tool_calls.clone(),
-        ..synthesis
-    };
+    // wps_06 E2: the synthesis is its own invocation, so append it as a
+    // separate per-invocation record instead of folding its usage into the
+    // root's work result while replacing the response text.
+    results.push(synthesis);
 
     let mut complete = AgentCollaborationEvent::new(run_id, "run-complete");
-    complete.content = Some(serde_json::to_string(
-        &results
-            .iter()
-            .map(|result| {
-                json!({
-                    "agentId": result.agent_id,
-                    "response": truncate_chars(&result.response, 4096)
-                })
-            })
-            .collect::<Vec<_>>(),
-    )?);
+    complete.content = Some(build_run_complete_content(&results, &[], &failures)?);
     runtime.emit_event(window, &complete)?;
     Ok(results)
 }
 
-/// Parses the request's collaboration mode. Missing values default to the
-/// director-led mode; unknown values are rejected instead of silently changing
-/// orchestration semantics.
-fn collaboration_is_directed(mode: Option<&str>) -> AppResult<bool> {
-    match mode.map(str::trim).filter(|value| !value.is_empty()) {
-        None | Some("directed") => Ok(true),
-        Some("parallel") => Ok(false),
-        Some(other) => Err(AppError::invalid(format!(
-            "Unknown collaboration mode '{other}' (expected 'directed' or 'parallel')"
-        ))),
-    }
+/// Whether the run uses director-led orchestration. Missing values default to
+/// the directed mode; unknown values are now rejected earlier at request
+/// deserialization (wps_03 D9).
+fn collaboration_is_directed(mode: Option<CollaborationMode>) -> bool {
+    mode.unwrap_or_default() == CollaborationMode::Directed
 }
 
 /// Director-led collaboration: the root Agent plans and delegates sub-tasks to
@@ -1059,7 +1322,7 @@ async fn run_directed_agent_task(
             messages: vec![ChatMessage {
                 role: ChatRole::User,
                 content: director_prompt,
-                attachments: Vec::new(),
+                attachments: None,
             }],
             conversation_id: format!("{run_id}:{}:director", root.id),
             allow_document_tools: true,
@@ -1080,25 +1343,64 @@ async fn run_directed_agent_task(
     let mut results = Vec::with_capacity(selected.len());
     results.push(root_result);
     for agent in selected.iter().filter(|agent| agent.id != root.id) {
-        if let Some(result) = recorded.get(&agent.id) {
-            results.push(result.clone());
+        if let Some(invocations) = recorded.get(&agent.id) {
+            // One returned record per invocation; duplicate agent ids are
+            // expected and accurate (wps_06 E2).
+            results.extend(invocations.iter().cloned());
         }
     }
+    let skipped = selected
+        .iter()
+        .filter(|agent| agent.id != root.id && !recorded.contains_key(&agent.id))
+        .collect::<Vec<_>>();
 
     let mut complete = AgentCollaborationEvent::new(run_id, "run-complete");
-    complete.content = Some(serde_json::to_string(
-        &results
-            .iter()
-            .map(|result| {
-                json!({
-                    "agentId": result.agent_id,
-                    "response": truncate_chars(&result.response, 4096)
-                })
-            })
-            .collect::<Vec<_>>(),
-    )?);
+    complete.content = Some(build_run_complete_content(&results, &skipped, &[])?);
     runtime.emit_event(window, &complete)?;
     Ok(results)
+}
+
+/// Builds the diagnostic JSON carried by `run-complete`: one entry per
+/// invocation (with a per-agent invocation ordinal, since one agent may be
+/// delegated to several times) plus the selected agents that never took part
+/// (wps_06 E2).
+fn build_run_complete_content(
+    results: &[AgentTaskResult],
+    skipped: &[&AgentConfig],
+    failures: &[(String, String)],
+) -> AppResult<String> {
+    let mut invocation_counts: HashMap<String, u64> = HashMap::new();
+    let payload_results = results
+        .iter()
+        .map(|result| {
+            let invocation = invocation_counts
+                .entry(result.agent_id.clone())
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+            json!({
+                "agentId": result.agent_id,
+                "invocation": invocation,
+                "response": truncate_chars(&result.response, 4096)
+            })
+        })
+        .collect::<Vec<_>>();
+    let payload_skipped = skipped
+        .iter()
+        .map(|agent| json!({ "agentId": agent.id, "agentName": agent.name }))
+        .collect::<Vec<_>>();
+    // wps_06 B2: contributors that errored during the run, so the UI can
+    // distinguish them from agents that were never invoked (skipped).
+    let payload_failures = failures
+        .iter()
+        .map(|(agent_id, message)| {
+            json!({ "agentId": agent_id, "error": truncate_chars(message, 1024) })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::to_string(&json!({
+        "results": payload_results,
+        "skipped": payload_skipped,
+        "failures": payload_failures
+    }))?)
 }
 
 /// Executes one `delegate_task` tool call by spawning a nested Agent run.
@@ -1188,7 +1490,7 @@ async fn execute_delegation(
             messages: vec![ChatMessage {
                 role: ChatRole::User,
                 content: child_prompt,
-                attachments: Vec::new(),
+                attachments: None,
             }],
             conversation_id: format!("{run_id}:delegate:{delegation_index}:{}", target.id),
             allow_document_tools: true,
@@ -1201,19 +1503,15 @@ async fn execute_delegation(
     match child_result {
         Ok(result) => {
             let response = truncate_chars(&result.response, MAX_DELEGATION_RESULT_CHARS);
+            // wps_06 E2: record every invocation separately instead of
+            // merging sums with the last response.
             capability
                 .counters
                 .lock()
                 .results
                 .entry(result.agent_id.clone())
-                .and_modify(|existing| {
-                    existing.cache_usage.add_assign(&result.cache_usage);
-                    existing
-                        .tool_calls
-                        .extend(result.tool_calls.iter().cloned());
-                    existing.response = result.response.clone();
-                })
-                .or_insert_with(|| result.clone());
+                .or_default()
+                .push(result.clone());
             Ok(json!({
                 "success": true,
                 "agentId": result.agent_id,
@@ -1310,8 +1608,10 @@ fn delegation_protocol_text(
 mod tests {
     use super::*;
 
-    #[test]
-    fn active_run_ids_are_unique_until_finished() {
+    // `begin_run` creates a Tokio mpsc queue and spawns the event forwarder, so
+    // the test needs a runtime context (wps_02 D-6).
+    #[tokio::test]
+    async fn active_run_ids_are_unique_until_finished() {
         let runtime = AgentRuntime::default();
         let channel = || Channel::new(|_| Ok(()));
         let (run_id, _) = runtime.begin_run("run-1", "main", channel()).unwrap();
@@ -1344,21 +1644,13 @@ mod tests {
 
     #[test]
     fn collaboration_mode_defaults_to_directed() {
-        assert!(collaboration_is_directed(None).unwrap());
-        assert!(collaboration_is_directed(Some("  ")).unwrap());
-        assert!(collaboration_is_directed(Some("  directed ")).unwrap());
-        assert!(!collaboration_is_directed(Some("parallel")).unwrap());
-        assert!(!collaboration_is_directed(Some("  parallel ")).unwrap());
-        assert_eq!(
-            collaboration_is_directed(Some("roundtable"))
-                .unwrap_err()
-                .code,
-            "invalid-argument"
-        );
+        assert!(collaboration_is_directed(None));
+        assert!(collaboration_is_directed(Some(CollaborationMode::Directed)));
+        assert!(!collaboration_is_directed(Some(CollaborationMode::Parallel)));
     }
 
     #[test]
-    fn collaboration_request_preserves_mode_and_accepts_legacy_requests() {
+    fn collaboration_request_preserves_mode_and_rejects_unknown_values() {
         for (mode, directed) in [
             (None, true),
             (Some("directed"), true),
@@ -1374,12 +1666,17 @@ mod tests {
                 payload["mode"] = json!(mode);
             }
             let request: AgentRunTaskRequest = serde_json::from_value(payload).unwrap();
-            assert_eq!(request.mode.as_deref(), mode);
-            assert_eq!(
-                collaboration_is_directed(request.mode.as_deref()).unwrap(),
-                directed
-            );
+            assert_eq!(request.mode.map(|value| value.as_str()), mode);
+            assert_eq!(collaboration_is_directed(request.mode), directed);
         }
+        // Unknown modes fail at the deserialization boundary.
+        let payload = json!({
+            "agentIds": ["director", "peer"],
+            "task": "Review this document",
+            "runId": "collaboration-test",
+            "mode": "roundtable",
+        });
+        assert!(serde_json::from_value::<AgentRunTaskRequest>(payload).is_err());
     }
 
     #[test]

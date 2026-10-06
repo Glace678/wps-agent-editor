@@ -18,12 +18,12 @@ export function AgentMessageList({
     <>
       {messages.map((msg, i) => {
         const isUser = msg.role === 'user'
-        // Stable React key (review §07-26A): role + streaming correlation id +
-        // timestamp make the key stable across streaming frame updates, so an
-        // in-place content append does not remount or misattach bubble state.
-        // The array index is only a tiebreaker for identical timestamps; the key
-        // must never degrade to a bare index for normal messages.
-        const messageKey = `${msg.role}:${msg.streamingRunId ?? ''}:${msg.timestamp ?? ''}:${i}`
+        // wps_09 A-3: key on the stable message id, which is minted once at
+        // creation and carried through stream completion. Streaming frames
+        // mutate the same object, and completion preserves the id, so the
+        // bubble never remounts. The array index (namespaced) is only a
+        // fallback for history messages that predate the id field.
+        const messageKey = `${msg.role}:${msg.id ?? `idx:${i}`}`
         return (
           <div
             key={messageKey}

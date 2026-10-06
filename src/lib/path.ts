@@ -7,8 +7,18 @@
  * platform/, stores/ and components/ may all import them.
  */
 
+function hostPlatform(): string {
+  if (typeof navigator === 'undefined') return ''
+  // Prefer the non-deprecated Client Hints API; fall back to navigator.platform
+  // (browsers without UA Client Hints, and the WebView2 defaults in some configs).
+  const modern = (navigator as Navigator & {
+    userAgentData?: { platform?: string }
+  }).userAgentData?.platform
+  return (modern ?? navigator.platform ?? '').toLowerCase()
+}
+
 function isWindowsRuntime(): boolean {
-  return typeof navigator !== 'undefined' && /win/.test(navigator.platform.toLowerCase())
+  return /win/.test(hostPlatform())
 }
 
 /**
@@ -37,15 +47,22 @@ export function normalizePath(path: string): string {
 }
 
 /**
- * Compare two paths for equality. Separators are normalized first. On Windows
- * runtimes (navigator.platform matches /win/) comparison is case-insensitive,
- * matching the grants / file-session path-key behavior; on other runtimes it is
- * case-sensitive.
+ * Stable key for path equality and dedup (grant lookup, file sessions).
+ * Separators are normalized first. Case folding is bound to the runtime
+ * platform: Windows runtimes fold; other runtimes — including macOS, whose
+ * volumes may legitimately be case-sensitive — do not. This is the single
+ * key implementation shared by the grant table and every comparison
+ * (wps_10 C2).
+ */
+export function pathKey(path: string): string {
+  const normalized = normalizePath(path)
+  return isWindowsRuntime() ? normalized.toLowerCase() : normalized
+}
+
+/**
+ * Compare two paths for equality via {@link pathKey}. On Windows runtimes the
+ * comparison is case-insensitive; on other runtimes it is case-sensitive.
  */
 export function isSamePath(a: string, b: string): boolean {
-  const left = normalizePath(a)
-  const right = normalizePath(b)
-  return isWindowsRuntime()
-    ? left.toLowerCase() === right.toLowerCase()
-    : left === right
+  return pathKey(a) === pathKey(b)
 }

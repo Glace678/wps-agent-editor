@@ -1,25 +1,16 @@
-import { gzipSync } from 'node:zlib'
-import { readFile, readdir } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import {
+  collectInitialFiles,
+  listFiles,
+  makePathResolver,
+  measureGzip,
+  readJson,
+} from './lib/web-bundle.mjs'
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
 const outputRoot = path.join(projectRoot, 'out', 'renderer')
-
-async function readJson(file) {
-  return JSON.parse(await readFile(file, 'utf8'))
-}
-
-async function listFiles(directory, prefix = '') {
-  const entries = await readdir(directory, { withFileTypes: true })
-  const files = []
-  for (const entry of entries) {
-    const relative = path.posix.join(prefix, entry.name)
-    if (entry.isDirectory()) files.push(...await listFiles(path.join(directory, entry.name), relative))
-    else files.push(relative)
-  }
-  return files
-}
 
 function fail(message) {
   throw new Error(`[web-bundle] ${message}`)
@@ -46,6 +37,37 @@ if (!Number.isFinite(baseline.maxRegressionPercent)
   fail(`baseline.maxRegressionPercent must be a finite number in [0,100] (got ${JSON.stringify(baseline.maxRegressionPercent)})`)
 }
 
+// B1: provenance — the baseline number must come from the dedicated update
+// script (scripts/update-web-bundle-baseline.mjs), never a hand edit. The
+// recorded commit must exist in this checkout, be an ancestor of HEAD, and its
+// commit-date must match recordedAt.
+if (!/^[0-9a-f]{7,40}$/.test(baseline.commitSha ?? '')) {
+  fail('baseline.commitSha missing or malformed; regenerate with scripts/update-web-bundle-baseline.mjs')
+}
+if (!/^\d{4}-\d{2}-\d{2}$/.test(baseline.recordedAt ?? '')) {
+  fail('baseline.recordedAt must be a YYYY-MM-DD date; regenerate with scripts/update-web-bundle-baseline.mjs')
+}
+try {
+  const commitDate = execFileSync(
+    'git',
+    ['show', '-s', '--format=%cI', baseline.commitSha],
+    { cwd: projectRoot, encoding: 'utf8' },
+  ).trim().slice(0, 10)
+  if (commitDate !== baseline.recordedAt) {
+    fail(`baseline.recordedAt (${baseline.recordedAt}) does not match the commit date of `
+      + `${baseline.commitSha} (${commitDate}); regenerate with scripts/update-web-bundle-baseline.mjs`)
+  }
+  execFileSync(
+    'git',
+    ['merge-base', '--is-ancestor', baseline.commitSha, 'HEAD'],
+    { cwd: projectRoot, stdio: 'ignore' },
+  )
+} catch (error) {
+  fail(`baseline commit ${baseline.commitSha} is not an ancestor of HEAD; `
+    + 'regenerate with scripts/update-web-bundle-baseline.mjs '
+    + `(${error?.message?.split('\n')[0] ?? error})`)
+}
+
 // Runtime type validation of the contract before we traverse it, so malformed
 // input produces a diagnostic fail() rather than a native TypeError.
 if (typeof contract.entry !== 'string' || !contract.entry) fail('contract.entry must be a non-empty string')
@@ -64,34 +86,23 @@ for (const [name, chunk] of Object.entries(contract.chunks)) {
 
 const outputFiles = await listFiles(outputRoot)
 const outputFileSet = new Set(outputFiles)
+const resolveBundlePath = makePathResolver({ outputRoot, outputFileSet }, fail)
 
-// Resolve a manifest/contract-relative path and confirm it stays inside outputRoot
-// and is one of the emitted files. This rejects ../ traversal, backslash escapes,
-// and absolute paths that would read a file outside the bundle.
-function resolveBundlePath(relative, label) {
-  if (typeof relative !== 'string' || !relative) fail(`${label} must be a non-empty string path`)
-  const resolved = path.resolve(outputRoot, relative)
-  const rel = path.relative(outputRoot, resolved)
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    fail(`${label} escapes the output root: ${relative}`)
+// Assert no heavy engine entered the initial graph, and each known engine is
+// emitted only via lazy chunks.
+const initialChunks = (() => {
+  const chunks = new Set()
+  const pending = [contract.entry]
+  while (pending.length > 0) {
+    const fileName = pending.pop()
+    if (chunks.has(fileName)) continue
+    const chunk = contract.chunks[fileName]
+    if (!chunk) fail(`Missing chunk metadata for ${fileName}`)
+    chunks.add(fileName)
+    pending.push(...chunk.imports)
   }
-  const posix = rel.split(path.sep).join('/')
-  if (!outputFileSet.has(posix)) {
-    fail(`${label} does not correspond to an emitted file: ${relative}`)
-  }
-  return posix
-}
-
-const initialChunks = new Set()
-const pending = [contract.entry]
-while (pending.length > 0) {
-  const fileName = pending.pop()
-  if (initialChunks.has(fileName)) continue
-  const chunk = contract.chunks[fileName]
-  if (!chunk) fail(`Missing chunk metadata for ${fileName}`)
-  initialChunks.add(fileName)
-  pending.push(...chunk.imports)
-}
+  return chunks
+})()
 
 const initialEngines = new Map()
 for (const fileName of initialChunks) {
@@ -132,23 +143,13 @@ if (!outputFiles.some((file) => /^assets\/mupdf-wasm-[^/]+\.wasm$/.test(file))) 
   fail('Expected a separately emitted MuPDF WASM asset')
 }
 
-const initialFiles = new Set(['index.html'])
-for (const fileName of initialChunks) initialFiles.add(fileName)
-for (const descriptor of Object.values(manifest)) {
-  if (typeof descriptor !== 'object' || descriptor === null) fail('manifest entries must be objects')
-  if (!initialChunks.has(descriptor.file)) continue
-  resolveBundlePath(descriptor.file, 'manifest entry file')
-  for (const file of descriptor.css ?? []) initialFiles.add(resolveBundlePath(file, 'manifest css'))
-  for (const file of descriptor.assets ?? []) initialFiles.add(resolveBundlePath(file, 'manifest asset'))
-}
-
-const gzipSizes = []
-for (const fileName of [...initialFiles].sort()) {
-  const safeName = resolveBundlePath(fileName, 'initial file')
-  const bytes = await readFile(path.join(outputRoot, ...safeName.split('/')))
-  gzipSizes.push({ fileName: safeName, gzipBytes: gzipSync(bytes, { level: 9 }).byteLength })
-}
-const initialGzipBytes = gzipSizes.reduce((sum, item) => sum + item.gzipBytes, 0)
+const initialFiles = collectInitialFiles(
+  { manifest, contract, outputFileSet, resolveBundlePath },
+  fail,
+)
+const { total: initialGzipBytes, files: gzipSizes } = await measureGzip(
+  { outputRoot, initialFiles, resolveBundlePath },
+)
 const maximum = Math.floor(
   baseline.initialGzipBytes * (1 + baseline.maxRegressionPercent / 100),
 )

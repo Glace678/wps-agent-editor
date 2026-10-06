@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::error::AppResult;
+use crate::error::{codes, AppResult};
 
 use super::{
     access::AccessRegistry,
@@ -269,7 +269,7 @@ pub fn rename_file(
     }
     let target = path
         .parent()
-        .ok_or_else(|| app_error("invalid-path", "The file has no parent directory"))?
+        .ok_or_else(|| app_error(codes::INVALID_PATH, "The file has no parent directory"))?
         .join(trimmed);
     if target == path {
         return Ok((

@@ -2,4 +2,4 @@
 import type { ProviderModel } from "./ProviderModel";
 import type { ProviderProtocol } from "./ProviderProtocol";
 
-export type CustomProviderConfig = { id: string, name: string, baseUrl: string, defaultModel: string, models: Array<ProviderModel>, protocol: ProviderProtocol, createdAt: bigint, };
+export type CustomProviderConfig = { id: string, name: string, baseUrl: string, defaultModel: string, models: Array<ProviderModel>, protocol: ProviderProtocol, createdAt: number, };

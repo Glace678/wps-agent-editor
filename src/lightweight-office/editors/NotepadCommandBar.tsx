@@ -576,7 +576,7 @@ function OverflowFormattingMenu({
           </DropdownMenu.SubContent>
         </DropdownMenu.Portal>
       </DropdownMenu.Sub>
-      <OverflowIconButton label={t('notepad.clearFormatting')} shortcut="Ctrl+Space" onSelect={() => onFormat('clear-format')}>
+      <OverflowIconButton label={t('notepad.clearFormatting')} shortcut="Ctrl+Shift+Space" onSelect={() => onFormat('clear-format')}>
         <RemoveFormatting className="h-4 w-4" />
       </OverflowIconButton>
     </FormattingDropdown>
@@ -773,7 +773,7 @@ export function NotepadCommandBar(props: NotepadCommandBarProps) {
                 <MenuItem shortcut="Ctrl+C" disabled={!props.hasSelection} onSelect={props.onCopy}>{t('menu.copy')}</MenuItem>
                 <MenuItem shortcut="Ctrl+V" onSelect={props.onPaste}>{t('menu.paste')}</MenuItem>
                 <MenuItem shortcut="Del" disabled={!props.hasSelection} onSelect={props.onDelete}>{t('notepad.delete')}</MenuItem>
-                <MenuItem shortcut="Ctrl+Space" onSelect={props.onClearFormat}>{t('notepad.clearFormatting')}</MenuItem>
+                <MenuItem shortcut="Ctrl+Shift+Space" onSelect={props.onClearFormat}>{t('notepad.clearFormatting')}</MenuItem>
                 <DropdownMenu.Separator className="my-1 h-px bg-black/10 dark:bg-white/10" />
                 <MenuItem disabled={!props.hasSelection} onSelect={props.onSearchWeb}>{t('notepad.searchBing')}</MenuItem>
                 <DropdownMenu.Separator className="my-1 h-px bg-black/10 dark:bg-white/10" />
@@ -850,7 +850,7 @@ export function NotepadCommandBar(props: NotepadCommandBarProps) {
           {props.formattingEnabled && formattingTier >= 4 && <ToolbarButton label={t('notepad.strikethrough')} shortcut="Ctrl+Shift+X" onClick={() => props.onFormat('strikethrough')}><Strikethrough className="h-4 w-4" /></ToolbarButton>}
           {props.formattingEnabled && formattingTier >= 5 && <ToolbarButton label={t('notepad.link')} shortcut="Ctrl+K" onClick={() => props.onFormat('link')}><Link2 className="h-4 w-4" /></ToolbarButton>}
           {props.formattingEnabled && formattingTier >= 6 && <TableInsertMenu onInsertTable={props.onInsertTable} />}
-          {props.formattingEnabled && formattingTier >= 6 && <ToolbarButton label={t('notepad.clearFormatting')} shortcut="Ctrl+Space" onClick={() => props.onFormat('clear-format')}><RemoveFormatting className="h-4 w-4" /></ToolbarButton>}
+          {props.formattingEnabled && formattingTier >= 6 && <ToolbarButton label={t('notepad.clearFormatting')} shortcut="Ctrl+Shift+Space" onClick={() => props.onFormat('clear-format')}><RemoveFormatting className="h-4 w-4" /></ToolbarButton>}
           {props.formattingEnabled && formattingTier === 0 && (
             <ToolbarButton
               label={t('notepad.formatSettings')}
@@ -884,7 +884,7 @@ export function NotepadCommandBar(props: NotepadCommandBarProps) {
           <ToolbarButton label={t('notepad.strikethrough')} shortcut="Ctrl+Shift+X" onClick={() => props.onFormat('strikethrough')}><Strikethrough className="h-4 w-4" /></ToolbarButton>
           <ToolbarButton label={t('notepad.link')} shortcut="Ctrl+K" onClick={() => props.onFormat('link')}><Link2 className="h-4 w-4" /></ToolbarButton>
           <TableInsertMenu onInsertTable={props.onInsertTable} />
-          <ToolbarButton label={t('notepad.clearFormatting')} shortcut="Ctrl+Space" onClick={() => props.onFormat('clear-format')}><RemoveFormatting className="h-4 w-4" /></ToolbarButton>
+          <ToolbarButton label={t('notepad.clearFormatting')} shortcut="Ctrl+Shift+Space" onClick={() => props.onFormat('clear-format')}><RemoveFormatting className="h-4 w-4" /></ToolbarButton>
         </div>
       )}
     </TooltipProvider>
