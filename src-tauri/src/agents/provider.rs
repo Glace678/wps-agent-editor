@@ -641,8 +641,15 @@ async fn read_limited_body(
     let mut body = Vec::new();
     loop {
         let next = tokio::select! {
+            biased;
             _ = cancellation.cancelled() => return Err(cancelled_error()),
             next = stream.next() => next,
+            _ = tokio::time::sleep(SSE_IDLE_TIMEOUT) => {
+                return Err(AppError::new(
+                    "provider-timeout",
+                    "The provider connection timed out while sending the response body",
+                ));
+            }
         };
         let Some(chunk) = next else { break };
         let chunk = chunk?;

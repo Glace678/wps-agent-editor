@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.cwd()
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const rendering = fs.readFileSync(
   path.join(root, 'src/lightweight-office/utils/fortune-rendering.ts'),
   'utf8',

@@ -102,7 +102,12 @@ jobs:
       - name: Prepare target esbuild sidecar
         run: npm run prepare:sidecar -- --target ${{ matrix.target }}
       - name: Audit package inputs and size budgets
+        # shell: bash: the Windows matrix entries default to pwsh, which does not
+        # stop on a native-command non-zero exit; without this, a failed
+        # `build:web` would be masked by the later node step exiting 0.
+        shell: bash
         run: |
+          set -euo pipefail
           npm run build:web
           node scripts/release/check-bundle-inputs.mjs --target ${{ matrix.target }}
       - name: Import Windows Authenticode certificate
@@ -189,10 +194,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}' --config "$RUNNER_TEMP/tauri-release.json"
       - name: Collect and normalize artifacts
+        # shell: bash: multi-step native pipeline across the Windows (pwsh) matrix;
+        # pwsh would otherwise mask a failure in `create-updater-invalid-install-fixture`
+        # or `tauri signer sign` behind the exit code of the final collect step.
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           node scripts/release/create-updater-invalid-install-fixture.mjs ${{ matrix.platform }} ${{ matrix.arch }} artifacts
           npx tauri signer sign artifacts/updater-invalid-install-${{ matrix.platform }}-${{ matrix.arch }}.bin
           node scripts/release/collect-artifacts.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle artifacts

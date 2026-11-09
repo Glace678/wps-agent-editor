@@ -230,6 +230,22 @@ fn sweep_stale_temp_files(root: &std::path::Path) {
             && uuid.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
     }
 
+    fn is_directory_reparse(metadata: &std::fs::Metadata) -> bool {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            // FILE_ATTRIBUTE_REPARSE_POINT covers directory junctions
+            // (IO_REPARSE_TAG_MOUNT_POINT) and symlinks; std's is_symlink() is
+            // false for junctions, so the attribute bit is required.
+            const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+            metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        }
+        #[cfg(not(windows))]
+        {
+            metadata.file_type().is_symlink()
+        }
+    }
+
     let mut visited = 0usize;
     let mut queue = std::collections::VecDeque::from([(root.to_path_buf(), 0_u8)]);
     while let Some((directory, depth)) = queue.pop_front() {
@@ -243,7 +259,14 @@ fn sweep_stale_temp_files(root: &std::path::Path) {
             let path = entry.path();
             let Ok(kind) = entry.file_type() else { continue };
             if kind.is_dir() {
-                if depth < MAX_DEPTH {
+                // Never follow a directory symlink/junction out of app_data: a
+                // planted reparse point would otherwise let the sweep walk outside
+                // its storage root. Depth/entry caps bound runaway recursion as a
+                // backstop.
+                let is_link = std::fs::symlink_metadata(&path)
+                    .map(|meta| is_directory_reparse(&meta))
+                    .unwrap_or(false);
+                if !is_link && depth < MAX_DEPTH {
                     queue.push_back((path, depth + 1));
                 }
             } else if kind.is_file() {

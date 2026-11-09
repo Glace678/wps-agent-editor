@@ -1931,3 +1931,15 @@
   fill: #fff;
   stroke: #fff;
 }
+
+
+/* Fortune's resize guide line (.fortune-change-size-line) has width: 1px and
+   border-width: 0 1px 0 0 (or height: 1px and border-width: 0 0 1px 0),
+   positioned at edge - 3 so that under content-box sizing its 1px #0188fb
+   border lands at [edge - 2, edge - 1] — the exact pixel where the canvas
+   strokes the cell/header grid line (end - 2 + 0.5). Tailwind's global
+   border-box reset shifts that border by 1px unless content-box is restored. */
+.excel-editor-shell .fortune-change-size-line,
+.excel-editor-shell .fortune-freeze-drag-line {
+  box-sizing: content-box;
+}

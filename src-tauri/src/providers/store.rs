@@ -240,9 +240,14 @@ impl ProviderStore {
         candidate.retain(|provider| provider.id != id);
         let removed = candidate.len() != original_len;
         if removed {
-            self.persist_custom(&candidate)?;
-            self.set_base_url(id, "")?;
+            // Update the in-memory list first so the running session's view
+            // always matches the delete the user just requested; persist and
+            // base-url cleanup follow. This closes the prior window where a
+            // successful persist_custom followed by a set_base_url failure left
+            // disk updated but memory still advertising the provider.
             *providers = candidate;
+            self.persist_custom(&providers)?;
+            self.set_base_url(id, "")?;
         }
         Ok(removed)
     }

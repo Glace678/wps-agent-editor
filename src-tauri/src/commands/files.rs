@@ -769,12 +769,18 @@ fn grant_recent(
         .into_iter()
         .filter_map(|entry| {
             ensure_file_can_be_opened(Path::new(&entry.path)).ok()?;
+            // Recent entries are minted read-only here: the recent list is for
+            // browsing/previewing. Editing/saving a file goes through `files_open`,
+            // which independently mints a scoped writable CurrentDocument grant for
+            // that one file. Mirroring the persisted `entry.writable` into the list
+            // would silently hand the renderer a write/delete capability for every
+            // recently opened file without an explicit open gesture in this session.
             let grant = files
                 .access
                 .grant_existing(
                     owner,
                     Path::new(&entry.path),
-                    entry.writable,
+                    false,
                     GrantSource::Recent,
                 )
                 .ok()?;

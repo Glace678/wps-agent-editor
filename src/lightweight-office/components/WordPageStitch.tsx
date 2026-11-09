@@ -10,7 +10,13 @@ export interface VirtualizationOptionsLike {
 
 export interface PresentationEditorLike {
   setLayoutMode?: (mode: 'vertical' | 'horizontal' | 'book') => void
-  getLayoutOptions?: () => { virtualization?: VirtualizationOptionsLike } | null | undefined
+  setZoom?: (zoom: number) => void
+  zoom?: number
+  getLayoutOptions?: () => {
+    layoutMode?: 'vertical' | 'horizontal' | 'book'
+    zoom?: number
+    virtualization?: VirtualizationOptionsLike
+  } | null | undefined
   on?: (event: string, handler: () => void) => unknown
   off?: (event: string, handler: () => void) => unknown
 }

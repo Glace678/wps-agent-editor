@@ -131,9 +131,12 @@ interface SamplerSummary {
   frames: Array<{
     t: number
     mode: string | null
+    zoom: number
     pages: number
     spreads: number
+    liveSpreads: number
     cover: number
+    visibleCover: number
   }>
   pageMutations: Array<{
     t: number
@@ -204,15 +207,26 @@ async function installSampler(page: Page): Promise<void> {
 
     const sample = () => {
       const layout = document.querySelector('.word-document-layout')
+      const pagesHost = document.querySelector<HTMLElement>(
+        '.presentation-editor__pages:not([data-word-mode-swap-cover])',
+      )
+      const transform = pagesHost?.style.transform ?? ''
+      const scaleMatch = /scale\(([0-9.]+)\)/.exec(transform)
+      const zoom = scaleMatch ? Number.parseFloat(scaleMatch[1]) : 1
       const pages = document.querySelectorAll(
         '.presentation-editor__pages .superdoc-page[data-page-index]',
       ).length
+      const covers = Array.from(document.querySelectorAll<HTMLElement>('[data-word-mode-swap-cover]'))
+      const visibleCover = covers.filter((el) => window.getComputedStyle(el).opacity !== '0').length
       frames.push({
         t: performance.now() - t0,
         mode: layout?.getAttribute('data-word-layout-mode') ?? null,
+        zoom,
         pages,
         spreads: document.querySelectorAll('.superdoc-spread').length,
-        cover: document.querySelectorAll('[data-word-mode-swap-cover]').length,
+        liveSpreads: pagesHost?.querySelectorAll(':scope > .superdoc-spread').length ?? 0,
+        cover: covers.length,
+        visibleCover,
       })
       requestAnimationFrame(sample)
     }
@@ -601,6 +615,33 @@ test('Word zoom across the two-page threshold is seamless (no page rebuild, pair
   expect(
     visibleZeroFrames.length,
     'pages must never visibly vanish mid-zoom (no whiteout frames without cover)',
+  ).toBe(0)
+
+  // 零单双页错位闪现帧断言：
+  // 1) 任何一帧不得出现旧布局克隆层可见叠压（opacity !== 0）；
+  // 2) 任何一帧 mode='book' 时必须已有 spread，mode='vertical' 时不得残留 spread；
+  // 3) 任何一帧 zoom <= 0.6 时必须处于 book 模式，zoom > 0.6 时必须处于 vertical 模式（无 1 帧先缩放后切模式的闪烁）。
+  const zoomWindowFrames = summary.frames.filter(
+    (f) => f.t >= tStart - 50 && f.t <= tEnd + 50,
+  )
+  const ghostOverlayFrames = zoomWindowFrames.filter((f) => f.visibleCover > 0)
+  expect(
+    ghostOverlayFrames.length,
+    `mode switch cover must never visibly superimpose old layout on top of new layout, got ${JSON.stringify(ghostOverlayFrames)}`,
+  ).toBe(0)
+  const modeSpreadMismatchFrames = zoomWindowFrames.filter(
+    (f) => (f.mode === 'book' && f.liveSpreads === 0) || (f.mode === 'vertical' && f.liveSpreads > 0),
+  )
+  expect(
+    modeSpreadMismatchFrames.length,
+    `layout mode attribute and DOM spreads must switch atomically in the same frame, got ${JSON.stringify(modeSpreadMismatchFrames)}`,
+  ).toBe(0)
+  const zoomModeMismatchFrames = zoomWindowFrames.filter(
+    (f) => (f.zoom <= 0.601 && f.mode !== 'book') || (f.zoom > 0.601 && f.mode !== 'vertical'),
+  )
+  expect(
+    zoomModeMismatchFrames.length,
+    `zoom factor and layout mode must never desync across the 60% threshold, got ${JSON.stringify(zoomModeMismatchFrames)}`,
   ).toBe(0)
 
   // 页面增删突变段：缩放窗口内只允许「双页切换」两次（vertical→book、book→vertical）。

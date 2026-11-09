@@ -434,11 +434,19 @@ pub(crate) async fn normalize_presentation_media(data: Vec<u8>) -> AppResult<(Ve
         {
             continue;
         }
-        let file = tokio::fs::File::open(&item.target).await?;
+        let file = match tokio::fs::File::open(&item.target).await {
+            Ok(file) => file,
+            Err(_) => continue,
+        };
         let mut png = Vec::with_capacity(metadata.len() as usize);
-        file.take(MAX_RASTERIZED_IMAGE_BYTES + 1)
+        if file
+            .take(MAX_RASTERIZED_IMAGE_BYTES + 1)
             .read_to_end(&mut png)
-            .await?;
+            .await
+            .is_err()
+        {
+            continue;
+        }
         if png.len() as u64 > MAX_RASTERIZED_IMAGE_BYTES
             || validate_rasterized_png(&item.package_path, &png).is_err()
         {

@@ -1,6 +1,8 @@
 /**
  * Structural: Excel column/row resize drags must live-preview content reflow
- * without corrupting Fortune's own commit, undo history, or collab ops.
+ * without corrupting Fortune's own commit, undo history, or collab ops, and the
+ * blue drag guide line (.fortune-change-size-line) must strictly coincide with
+ * the rendered table grid line on <canvas> at all times.
  *
  * Mechanism invariants:
  *  - preview flows through applyOp (the history-free op channel), NEVER
@@ -17,7 +19,10 @@
  *    browser frame, no flushSync) and mousemove is exclusively captured during a
  *    session (no pending low-priority updates at commit time);
  *  - a canceled drag (window blur) restores the original size map;
- *  - frozen sheets fall back to native behavior.
+ *  - unsupported frozen sheets fall back to native behavior;
+ *  - guide line (.fortune-change-size-line) is always locked to the rendered
+ *    track edge (domEdge - 3) with content-box sizing and synchronous canvas
+ *    draw synchronization, never floating at raw unclamped mouse coordinates.
  */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -27,6 +32,14 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const util = fs.readFileSync(
   path.join(root, 'src/lightweight-office/utils/excel-live-resize.ts'),
+  'utf8',
+)
+const rendering = fs.readFileSync(
+  path.join(root, 'src/lightweight-office/utils/fortune-rendering.ts'),
+  'utf8',
+)
+const themeCss = fs.readFileSync(
+  path.join(root, 'src/lightweight-office/fortune-sheet-theme.css'),
   'utf8',
 )
 const editor = fs.readFileSync(
@@ -71,22 +84,27 @@ test('preview lags the cursor to clear the 3px commit threshold', () => {
 })
 
 test('preview frames are dispatched per animation frame; mousemove is exclusively captured', () => {
-  // flushSync was deliberately removed (it forced a full-canvas relayout on every
-  // pointermove and caused jank); the preview op is now merged with the browser
-  // frame and flushed once at frame end via requestAnimationFrame. The design
-  // invariant is that a frame is scheduled from the move handler.
   assert.match(util, /frame = requestAnimationFrame\(\(\) =>/)
   assert.match(util, /event\.stopPropagation\(\)/)
   assert.match(util, /moveGuideLine\(event\)/)
 })
 
-test('track lookup mirrors Fortune sortedIndex + calcRowColSize math', () => {
+test('track lookup mirrors Fortune sortedIndex + calcRowColSize math and resolves nearest edge index', () => {
   assert.match(util, /function lowerBound/)
   assert.match(util, /Math\.round\(\(\(lens\[i\] \?\? 0\) \+ 1\) \* zoom\)/)
+  assert.match(util, /if \(prevEdgeDist < currentEdgeDist\) \{\s*index -= 1\s*\}/)
 })
 
-test('frozen sheets fall back to native behavior', () => {
+test('frozen sheets fall back to native behavior when unsupported', () => {
   assert.match(util, /sheet\.frozen\) return/)
+})
+
+test('guide line is locked to rendered track edge and synced on every canvas draw with content-box sizing', () => {
+  assert.match(util, /\$\{domEdge - 3\}px/)
+  assert.match(util, /\$\{domEdge - 4\}px/)
+  assert.match(util, /path: \[session\.axis === 'col' \? 'visibledatacolumn' : 'visibledatarow'\]/)
+  assert.match(rendering, /syncResizeGuideLineWithCanvas\(\s*canvas,\s*this\.sheetCtx/)
+  assert.match(themeCss, /\.excel-editor-shell \.fortune-change-size-line[\s\S]*?box-sizing:\s*content-box/)
 })
 
 test('ExcelEditor wires the live resize attach with the workbook ref', () => {

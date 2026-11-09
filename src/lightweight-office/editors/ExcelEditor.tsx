@@ -110,7 +110,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
   const { language, t } = useTranslation()
   const setCurrentFile = useEditorStore((state) => state.setCurrentFile)
   const shellRef = useRef<HTMLDivElement>(null)
-  const workbookRef = useRef<WorkbookInstance | null>(null)
+  const workbookRef = useRef<(WorkbookInstance & {
+    setToolbarWidth?: (width: number | null) => void
+  }) | null>(null)
   const savePathRef = useRef(filePath)
   // File stat captured at open/save; compared before overwriting to detect
   // an external modification (wps_04 F5).
@@ -609,6 +611,9 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     let lastForwardAt = 0
     let trailingTimer: number | null = null
     let busyPollFrame: number | null = null
+    let toolbarResizeFrame: number | null = null
+    let toolbar: HTMLElement | null = null
+    let lastToolbarWidth: number | null = null
 
     const forwardResizeNow = () => {
       pendingForward = false
@@ -630,7 +635,48 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
       busyPollFrame = requestAnimationFrame(poll)
     }
 
+    const resizeToolbar = () => {
+      // Workbook's first render has no sheet/toolbar yet. Discover it after its
+      // data-initialization effect rather than caching null for the whole session.
+      toolbar ??= shell.querySelector<HTMLElement>('.fortune-toolbar')
+      if (!toolbar) return
+      toolbarMountObserver.disconnect()
+      // Shell ResizeObserver reports the outer panel width, not necessarily the
+      // toolbar's own content width. Observing the actual row is required for
+      // live overflow updates during sidebar drags.
+      toolbarResizeObserver.disconnect()
+      toolbarResizeObserver.observe(toolbar)
+      const width = toolbar.clientWidth
+      if (width === lastToolbarWidth) return
+      lastToolbarWidth = width
+      // A lightweight prop update keeps the toolbar responsive while the
+      // expensive worksheet canvas resize remains deferred until panel idle.
+      workbookRef.current?.setToolbarWidth?.(width)
+    }
+    const scheduleToolbarResize = () => {
+      if (toolbarResizeFrame !== null) return
+      toolbarResizeFrame = requestAnimationFrame(() => {
+        toolbarResizeFrame = null
+        resizeToolbar()
+      })
+    }
+    const toolbarResizeObserver = new ResizeObserver(scheduleToolbarResize)
+    const toolbarMountObserver = new MutationObserver(scheduleToolbarResize)
+    toolbarMountObserver.observe(shell, { childList: true, subtree: true })
+    const panelActivityObserver = new MutationObserver(scheduleToolbarResize)
+    const panelLayout = shell.closest('[data-panel="document-editor"]')?.parentElement
+      ?? shell.parentElement
+    if (panelLayout) {
+      panelActivityObserver.observe(panelLayout, {
+        attributes: true,
+        attributeFilter: ['data-panel-resizing', 'data-animating'],
+        subtree: true,
+      })
+    }
+    scheduleToolbarResize()
+
     const notifyFortuneOfResize = () => {
+      scheduleToolbarResize()
       pendingForward = true
       if (isPanelBusy()) {
         waitForPanelIdle()
@@ -986,10 +1032,20 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     })
     decorateExcelToolbarShortcuts(shell)
     // Fortune paints the toolbar one frame later after Workbook mount.
-    requestAnimationFrame(() => {
+    let toolbarShortcutRaf: number | null = null
+    let toolbarShortcutLateA: number | null = null
+    let toolbarShortcutLateB: number | null = null
+    toolbarShortcutRaf = requestAnimationFrame(() => {
+      toolbarShortcutRaf = null
       decorateExcelToolbarShortcuts(shell)
-      window.setTimeout(() => decorateExcelToolbarShortcuts(shell), 50)
-      window.setTimeout(() => decorateExcelToolbarShortcuts(shell), 200)
+      toolbarShortcutLateA = window.setTimeout(() => {
+        toolbarShortcutLateA = null
+        decorateExcelToolbarShortcuts(shell)
+      }, 50)
+      toolbarShortcutLateB = window.setTimeout(() => {
+        toolbarShortcutLateB = null
+        decorateExcelToolbarShortcuts(shell)
+      }, 200)
     })
 
     shell.addEventListener('wheel', handleNativeZoomWheel, {
@@ -1002,10 +1058,17 @@ export function ExcelEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegis
     return () => {
       resizeObserver.disconnect()
       themeObserver.disconnect()
+      toolbarResizeObserver.disconnect()
+      toolbarMountObserver.disconnect()
+      panelActivityObserver.disconnect()
+      if (toolbarResizeFrame !== null) cancelAnimationFrame(toolbarResizeFrame)
       dialogObserver.disconnect()
       if (dialogFrame !== null) cancelAnimationFrame(dialogFrame)
       toolbarShortcutObserver.disconnect()
       if (toolbarShortcutTimer !== null) window.clearTimeout(toolbarShortcutTimer)
+      if (toolbarShortcutRaf !== null) cancelAnimationFrame(toolbarShortcutRaf)
+      if (toolbarShortcutLateA !== null) window.clearTimeout(toolbarShortcutLateA)
+      if (toolbarShortcutLateB !== null) window.clearTimeout(toolbarShortcutLateB)
       shell.removeEventListener('wheel', handleNativeZoomWheel, true)
       shell.removeEventListener('keydown', handleDialogKeyDown, true)
       shell.removeEventListener('click', handleDialogClick, true)

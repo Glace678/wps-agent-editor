@@ -1,0 +1,110 @@
+diff --git a/node_modules/@fortune-sheet/react/dist/index.esm.js b/node_modules/@fortune-sheet/react/dist/index.esm.js
+index c4486a2..5d8fe7c 100644
+--- a/node_modules/@fortune-sheet/react/dist/index.esm.js
++++ b/node_modules/@fortune-sheet/react/dist/index.esm.js
+@@ -5527,7 +5527,8 @@ var FormatSearch = function FormatSearch(_ref) {
+ var Toolbar = function Toolbar(_ref) {
+   var _context$luckysheet_s, _flowdata$row, _settings$customToolb;
+   var setMoreItems = _ref.setMoreItems,
+-    moreItemsOpen = _ref.moreItemsOpen;
++    moreItemsOpen = _ref.moreItemsOpen,
++    toolbarWidth = _ref.toolbarWidth;
+   var _useContext = useContext(WorkbookContext),
+     context = _useContext.context,
+     setContext = _useContext.setContext,
+@@ -5572,7 +5573,7 @@ var Toolbar = function Toolbar(_ref) {
+     comment = _locale.comment,
+     fontarray = _locale.fontarray;
+   var toolbarFormat = locale(context).format;
+-  var sheetWidth = context.luckysheetTableContentHW[0];
++  var sheetWidth = toolbarWidth == null ? context.luckysheetTableContentHW[0] : toolbarWidth;
+   var currency = settings.currency;
+   var defaultFormat = defaultFmt(currency);
+   var _useState5 = useState("#000000"),
+@@ -10834,6 +10835,10 @@ var Workbook = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+     _useState6 = _slicedToArray(_useState5, 2),
+     calInfo = _useState6[0],
+     setCalInfo = _useState6[1];
++  var _useToolbarWidth = useState(null),
++    _useToolbarWidth2 = _slicedToArray(_useToolbarWidth, 2),
++    toolbarWidth = _useToolbarWidth2[0],
++    setToolbarWidth = _useToolbarWidth2[1];
+   var mergedSettings = useMemo(function () {
+     return _.assign(_.cloneDeep(defaultSettings), props);
+   }, _toConsumableArray(_.values(props)));
+@@ -11249,7 +11254,9 @@ var Workbook = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+     };
+   }, [onPaste]);
+   useImperativeHandle(ref, function () {
+-    return generateAPIs(context, setContextWithProduce, handleUndo, handleRedo, mergedSettings, cellInput.current, scrollbarX.current, scrollbarY.current);
++    return Object.assign(generateAPIs(context, setContextWithProduce, handleUndo, handleRedo, mergedSettings, cellInput.current, scrollbarX.current, scrollbarY.current), {
++      setToolbarWidth: setToolbarWidth
++    });
+   }, [context, setContextWithProduce, handleUndo, handleRedo, mergedSettings]);
+   var i = getSheetIndex(context, context.currentSheetId);
+   if (i == null) {
+@@ -11279,7 +11286,8 @@ var Workbook = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+     className: "fortune-workarea"
+   }, mergedSettings.showToolbar && (/*#__PURE__*/React.createElement(Toolbar, {
+     moreItemsOpen: moreToolbarItems !== null,
+-    setMoreItems: setMoreToolbarItems
++    setMoreItems: setMoreToolbarItems,
++    toolbarWidth: toolbarWidth
+   })), mergedSettings.showFormulaBar && /*#__PURE__*/React.createElement(FxEditor, null)), /*#__PURE__*/React.createElement(Sheet, {
+     sheet: sheet
+   }), mergedSettings.showSheetTabs && /*#__PURE__*/React.createElement(SheetTab, null), /*#__PURE__*/React.createElement(ContextMenu, null), /*#__PURE__*/React.createElement(FilterMenu, null), /*#__PURE__*/React.createElement(SheetTabContextMenu, null), context.showSheetList && /*#__PURE__*/React.createElement(SheetList, null), moreToolbarItems && (/*#__PURE__*/React.createElement(MoreItemsContaier, {
+diff --git a/node_modules/@fortune-sheet/react/dist/index.js b/node_modules/@fortune-sheet/react/dist/index.js
+index e404551..9f3896b 100644
+--- a/node_modules/@fortune-sheet/react/dist/index.js
++++ b/node_modules/@fortune-sheet/react/dist/index.js
+@@ -5538,7 +5538,8 @@ var FormatSearch = function FormatSearch(_ref) {
+ var Toolbar = function Toolbar(_ref) {
+   var _context$luckysheet_s, _flowdata$row, _settings$customToolb;
+   var setMoreItems = _ref.setMoreItems,
+-    moreItemsOpen = _ref.moreItemsOpen;
++    moreItemsOpen = _ref.moreItemsOpen,
++    toolbarWidth = _ref.toolbarWidth;
+   var _useContext = React.useContext(WorkbookContext),
+     context = _useContext.context,
+     setContext = _useContext.setContext,
+@@ -5583,7 +5584,7 @@ var Toolbar = function Toolbar(_ref) {
+     comment = _locale.comment,
+     fontarray = _locale.fontarray;
+   var toolbarFormat = core.locale(context).format;
+-  var sheetWidth = context.luckysheetTableContentHW[0];
++  var sheetWidth = toolbarWidth == null ? context.luckysheetTableContentHW[0] : toolbarWidth;
+   var currency = settings.currency;
+   var defaultFormat = defaultFmt(currency);
+   var _useState5 = React.useState("#000000"),
+@@ -10845,6 +10846,10 @@ var Workbook = /*#__PURE__*/React__default['default'].forwardRef(function (_ref,
+     _useState6 = _slicedToArray(_useState5, 2),
+     calInfo = _useState6[0],
+     setCalInfo = _useState6[1];
++  var _useToolbarWidth = React.useState(null),
++    _useToolbarWidth2 = _slicedToArray(_useToolbarWidth, 2),
++    toolbarWidth = _useToolbarWidth2[0],
++    setToolbarWidth = _useToolbarWidth2[1];
+   var mergedSettings = React.useMemo(function () {
+     return ___default['default'].assign(___default['default'].cloneDeep(core.defaultSettings), props);
+   }, _toConsumableArray(___default['default'].values(props)));
+@@ -11260,7 +11265,9 @@ var Workbook = /*#__PURE__*/React__default['default'].forwardRef(function (_ref,
+     };
+   }, [onPaste]);
+   React.useImperativeHandle(ref, function () {
+-    return generateAPIs(context, setContextWithProduce, handleUndo, handleRedo, mergedSettings, cellInput.current, scrollbarX.current, scrollbarY.current);
++    return Object.assign(generateAPIs(context, setContextWithProduce, handleUndo, handleRedo, mergedSettings, cellInput.current, scrollbarX.current, scrollbarY.current), {
++      setToolbarWidth: setToolbarWidth
++    });
+   }, [context, setContextWithProduce, handleUndo, handleRedo, mergedSettings]);
+   var i = core.getSheetIndex(context, context.currentSheetId);
+   if (i == null) {
+@@ -11290,7 +11297,8 @@ var Workbook = /*#__PURE__*/React__default['default'].forwardRef(function (_ref,
+     className: "fortune-workarea"
+   }, mergedSettings.showToolbar && (/*#__PURE__*/React__default['default'].createElement(Toolbar, {
+     moreItemsOpen: moreToolbarItems !== null,
+-    setMoreItems: setMoreToolbarItems
++    setMoreItems: setMoreToolbarItems,
++    toolbarWidth: toolbarWidth
+   })), mergedSettings.showFormulaBar && /*#__PURE__*/React__default['default'].createElement(FxEditor, null)), /*#__PURE__*/React__default['default'].createElement(Sheet, {
+     sheet: sheet
+   }), mergedSettings.showSheetTabs && /*#__PURE__*/React__default['default'].createElement(SheetTab, null), /*#__PURE__*/React__default['default'].createElement(ContextMenu, null), /*#__PURE__*/React__default['default'].createElement(FilterMenu, null), /*#__PURE__*/React__default['default'].createElement(SheetTabContextMenu, null), context.showSheetList && /*#__PURE__*/React__default['default'].createElement(SheetList, null), moreToolbarItems && (/*#__PURE__*/React__default['default'].createElement(MoreItemsContaier, {

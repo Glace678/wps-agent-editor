@@ -80,11 +80,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       cwd: root,
       encoding: 'utf8',
       env: { ...process.env, TSX_TSCONFIG_PATH: path.join(root, 'tsconfig.web.json') },
+      timeout: 120_000,
+      killSignal: 'SIGKILL',
     })
     // B5: require an executed-assertion marker regardless of the exit code.
     const marker = /STRUCTURAL_OK: (\d+) assertions/.exec(result.stdout)
     const assertionCount = marker ? Number(marker[1]) : 0
-    if (result.status === 0 && assertionCount > 0) {
+    if (result.error) {
+      failed.push(name)
+      console.error(`FAIL ${name}: spawn error: ${result.error.message}\n${result.stdout}${result.stderr}`)
+    } else if (result.status === 0 && assertionCount > 0) {
       console.log(`PASS ${name} (${assertionCount} assertions)`)
     } else {
       failed.push(name)

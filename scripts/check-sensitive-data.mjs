@@ -2,8 +2,11 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.cwd()
+// Anchor to this script's location (scripts/ -> repo root) rather than the
+// caller's cwd, so the scan covers the right tree when invoked directly.
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const gitCandidates = process.platform === 'win32'
   ? [
       process.env.GIT_EXECUTABLE,

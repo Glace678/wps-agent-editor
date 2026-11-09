@@ -1,6 +1,9 @@
 import { mkdir, writeFile, rename } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, resolve, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import catalog from '../src-tauri/resources/provider-catalog.json'
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const KNOWN_PROTOCOLS = new Set(['openai-compatible', 'openai', 'google', 'anthropic', 'bedrock'])
 const CONTROL_CHARS = /[\x00-\x1F\x7F]/
@@ -50,7 +53,10 @@ async function main() {
     else if (!arg.startsWith('-')) outputArg = arg
     else throw new Error(`Unknown argument: ${arg}`)
   }
-  const output = resolve(outputArg ?? 'src-tauri/resources/provider-catalog.json')
+  const defaultOutput = resolve(repoRoot, 'src-tauri', 'resources', 'provider-catalog.json')
+  const output = outputArg
+    ? (isAbsolute(outputArg) ? outputArg : resolve(repoRoot, outputArg))
+    : defaultOutput
   const errors: string[] = []
   const providerIds = new Set<string>()
   let modelCount = 0

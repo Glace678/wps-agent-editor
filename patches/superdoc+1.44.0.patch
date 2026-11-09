@@ -563,7 +563,7 @@ index 98d47d9..d0b9ab5 100644
  	resolveSequenceFieldTokens(mergedBlocks);
  	flowBlockCache?.commit();
 diff --git a/node_modules/superdoc/dist/chunks/src-CcBJnYZd.es.js b/node_modules/superdoc/dist/chunks/src-CcBJnYZd.es.js
-index 8784efb..ad0ad8c 100644
+index 8784efb..cc27fbc 100644
 --- a/node_modules/superdoc/dist/chunks/src-CcBJnYZd.es.js
 +++ b/node_modules/superdoc/dist/chunks/src-CcBJnYZd.es.js
 @@ -8928,8 +8928,8 @@ const FontSize = Extension.create({
@@ -851,7 +851,47 @@ index 8784efb..ad0ad8c 100644
  };
  var sanitizePositive = (value) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
  const sanitizeIndent = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
-@@ -128735,8 +128781,10 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+@@ -127943,6 +127989,32 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+ 		};
+ 		this.#painterAdapter.reset();
+ 		this.#pageGeometryHelper = null;
++		if (this.#repaintCurrentLayout()) {
++			const layout = this.#layoutState.layout;
++			const pageGap = layout.pageGap ?? this.#getEffectivePageGap();
++			this.#pageGeometryHelper = new PageGeometryHelper({
++				layout,
++				pageGap
++			});
++			const blocks = this.#layoutLookupBlocks.length > 0 ? this.#layoutLookupBlocks : this.#layoutState.blocks;
++			const measures = this.#layoutLookupMeasures.length > 0 ? this.#layoutLookupMeasures : this.#layoutState.measures;
++			const payload = {
++				layout,
++				blocks,
++				measures,
++				metrics: null
++			};
++			this.emit("layoutUpdated", payload);
++			this.emit("paginationUpdate", payload);
++			this.#noteSessionCoordinator?.onPaint();
++			this.#emitCommentPositions();
++			this.#selectionSync.requestRender({ immediate: true });
++			if (this.#remoteCursorManager?.hasRemoteCursors()) {
++				this.#remoteCursorManager.markDirty();
++				this.#remoteCursorManager.scheduleUpdate();
++			}
++			return;
++		}
+ 		this.#pendingDocChange = true;
+ 		this.#scheduleRerender();
+ 	}
+@@ -128729,14 +128801,15 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+ 		this.#applyZoom();
+ 		this.#painterAdapter.setZoom(zoom);
+ 		this.emit("zoomChange", { zoom });
+-		this.#shouldScrollSelectionIntoView = true;
+-		this.#scheduleSelectionUpdate();
++		this.#selectionSync.requestRender({ immediate: true });
+ 		if (this.#remoteCursorManager?.hasRemoteCursors()) {
  			this.#remoteCursorManager.markDirty();
  			this.#remoteCursorManager.scheduleUpdate();
  		}
@@ -864,7 +904,7 @@ index 8784efb..ad0ad8c 100644
  	}
  	destroy() {
  		if (this.#rafHandle != null) safeCleanup(() => {
-@@ -132500,7 +132548,7 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+@@ -132500,7 +132573,7 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
  			this.#viewportHost.style.width = `${scaledWidth$1}px`;
  			this.#viewportHost.style.minWidth = `${scaledWidth$1}px`;
  			this.#viewportHost.style.minHeight = `${scaledHeight$1}px`;
@@ -873,7 +913,7 @@ index 8784efb..ad0ad8c 100644
  			this.#viewportHost.style.overflow = "";
  			this.#viewportHost.style.transform = "";
  			this.#painterHost.style.width = `${totalWidth}px`;
-@@ -132514,12 +132562,35 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+@@ -132514,12 +132587,35 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
  			this.#selectionOverlay.style.transform = zoom === 1 ? "" : `scale(${zoom})`;
  			return;
  		}
@@ -910,7 +950,7 @@ index 8784efb..ad0ad8c 100644
  		this.#viewportHost.style.overflow = "";
  		this.#viewportHost.style.transform = "";
  		this.#painterHost.style.width = `${maxWidth}px`;
-@@ -135558,6 +135629,31 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135558,6 +135654,31 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  		const imageMetadata = ref(null);
  		const dragState = ref(null);
  		const forcedCleanup = ref(false);
@@ -942,7 +982,7 @@ index 8784efb..ad0ad8c 100644
  		function readLockMode(element) {
  			return element?.dataset?.lockMode || element?.getAttribute?.("data-lock-mode") || null;
  		}
-@@ -135666,8 +135762,8 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135666,8 +135787,8 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  				position: "absolute",
  				left: `${expansion}px`,
  				top: `${expansion}px`,
@@ -953,7 +993,7 @@ index 8784efb..ad0ad8c 100644
  				border: "2px solid #4A90E2",
  				pointerEvents: "none",
  				zIndex: Z_INDEX_GUIDELINE$1,
-@@ -135719,16 +135815,23 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135719,16 +135840,23 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  			const editor = resizeEditor.value;
  			if (!isValidEditor(editor) || !imageMetadata.value || !props.imageElement) return;
  			const rect = props.imageElement.getBoundingClientRect();
@@ -981,7 +1021,7 @@ index 8784efb..ad0ad8c 100644
  			const pmView = editor.view.dom;
  			pmView.style.pointerEvents = "none";
  			document.addEventListener("mousemove", onDocumentMouseMove$1);
-@@ -135736,8 +135839,8 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135736,8 +135864,8 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  			document.addEventListener("keydown", onEscapeKey);
  			emit("resize-start", {
  				blockId: props.imageElement.getAttribute("data-sd-block-id"),
@@ -992,7 +1032,7 @@ index 8784efb..ad0ad8c 100644
  			});
  		}
  		function throttle$1(func, limit) {
-@@ -135765,21 +135868,22 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135765,21 +135893,22 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  				cancel
  			};
  		}
@@ -1023,7 +1063,7 @@ index 8784efb..ad0ad8c 100644
  			const minWidth = imageMetadata.value.minWidth;
  			const minHeight = imageMetadata.value.minHeight;
  			const maxWidth = imageMetadata.value.maxWidth;
-@@ -135802,12 +135906,14 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135802,12 +135931,14 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  			}
  			dragState.value.constrainedWidth = newWidth;
  			dragState.value.constrainedHeight = newHeight;
@@ -1039,7 +1079,7 @@ index 8784efb..ad0ad8c 100644
  		const onDocumentMouseMove$1 = mouseMoveThrottle.throttled;
  		function onEscapeKey(event) {
  			if (event.key === "Escape" && dragState.value) {
-@@ -135818,6 +135924,8 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135818,6 +135949,8 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  		}
  		function onDocumentMouseUp(event) {
  			if (!dragState.value) return;
@@ -1048,7 +1088,7 @@ index 8784efb..ad0ad8c 100644
  			const finalWidth = dragState.value.constrainedWidth;
  			const finalHeight = dragState.value.constrainedHeight;
  			const blockId = props.imageElement?.getAttribute("data-sd-block-id");
-@@ -135831,25 +135939,25 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135831,25 +135964,25 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  			}
  			const widthDelta = Math.abs(finalWidth - dragState.value.initialWidth);
  			const heightDelta = Math.abs(finalHeight - dragState.value.initialHeight);
@@ -1084,7 +1124,7 @@ index 8784efb..ad0ad8c 100644
  			}
  			try {
  				const { state, dispatch } = editor.view;
-@@ -135860,7 +135968,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135860,7 +135993,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  						blockId,
  						error: "Image position marker (data-pm-start) not found"
  					});
@@ -1093,7 +1133,7 @@ index 8784efb..ad0ad8c 100644
  				}
  				const imagePos = parseInt(pmStartAttr, 10);
  				if (!Number.isFinite(imagePos) || imagePos < 0) {
-@@ -135868,7 +135976,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135868,7 +136001,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  						blockId,
  						error: "Invalid image position marker"
  					});
@@ -1102,7 +1142,7 @@ index 8784efb..ad0ad8c 100644
  				}
  				const imageNode = state.doc.nodeAt(imagePos);
  				if (!imageNode || imageNode.type.name !== "image") {
-@@ -135876,7 +135984,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135876,7 +136009,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  						blockId,
  						error: "Invalid image node at position"
  					});
@@ -1111,7 +1151,7 @@ index 8784efb..ad0ad8c 100644
  				}
  				tr.setNodeAttribute(imagePos, "size", {
  					width: Math.round(newWidth),
-@@ -135897,11 +136005,13 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135897,11 +136030,13 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  					newWidth,
  					newHeight
  				});
@@ -1125,7 +1165,7 @@ index 8784efb..ad0ad8c 100644
  			}
  		}
  		watch(() => props.imageElement, () => {
-@@ -135917,6 +136027,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
+@@ -135917,6 +136052,7 @@ var ImageResizeOverlay_default = /* @__PURE__ */ __plugin_vue_export_helper_defa
  		});
  		onBeforeUnmount(() => {
  			mouseMoveThrottle.cancel();
@@ -1134,7 +1174,7 @@ index 8784efb..ad0ad8c 100644
  				document.removeEventListener("mousemove", onDocumentMouseMove$1);
  				document.removeEventListener("mouseup", onDocumentMouseUp);
 diff --git a/node_modules/superdoc/dist/chunks/src-VzGe-_l_.cjs b/node_modules/superdoc/dist/chunks/src-VzGe-_l_.cjs
-index 9fb9d99..5f4b7c3 100644
+index 9fb9d99..531ab48 100644
 --- a/node_modules/superdoc/dist/chunks/src-VzGe-_l_.cjs
 +++ b/node_modules/superdoc/dist/chunks/src-VzGe-_l_.cjs
 @@ -8949,8 +8949,8 @@ const FontSize = require_create_headless_toolbar.Extension.create({
@@ -1422,7 +1462,47 @@ index 9fb9d99..5f4b7c3 100644
  };
  var sanitizePositive = (value) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
  const sanitizeIndent = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
-@@ -128822,8 +128868,10 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+@@ -128030,6 +128076,32 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+ 		};
+ 		this.#painterAdapter.reset();
+ 		this.#pageGeometryHelper = null;
++		if (this.#repaintCurrentLayout()) {
++			const layout = this.#layoutState.layout;
++			const pageGap = layout.pageGap ?? this.#getEffectivePageGap();
++			this.#pageGeometryHelper = new PageGeometryHelper({
++				layout,
++				pageGap
++			});
++			const blocks = this.#layoutLookupBlocks.length > 0 ? this.#layoutLookupBlocks : this.#layoutState.blocks;
++			const measures = this.#layoutLookupMeasures.length > 0 ? this.#layoutLookupMeasures : this.#layoutState.measures;
++			const payload = {
++				layout,
++				blocks,
++				measures,
++				metrics: null
++			};
++			this.emit("layoutUpdated", payload);
++			this.emit("paginationUpdate", payload);
++			this.#noteSessionCoordinator?.onPaint();
++			this.#emitCommentPositions();
++			this.#selectionSync.requestRender({ immediate: true });
++			if (this.#remoteCursorManager?.hasRemoteCursors()) {
++				this.#remoteCursorManager.markDirty();
++				this.#remoteCursorManager.scheduleUpdate();
++			}
++			return;
++		}
+ 		this.#pendingDocChange = true;
+ 		this.#scheduleRerender();
+ 	}
+@@ -128816,14 +128888,15 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+ 		this.#applyZoom();
+ 		this.#painterAdapter.setZoom(zoom);
+ 		this.emit("zoomChange", { zoom });
+-		this.#shouldScrollSelectionIntoView = true;
+-		this.#scheduleSelectionUpdate();
++		this.#selectionSync.requestRender({ immediate: true });
+ 		if (this.#remoteCursorManager?.hasRemoteCursors()) {
  			this.#remoteCursorManager.markDirty();
  			this.#remoteCursorManager.scheduleUpdate();
  		}
@@ -1435,7 +1515,7 @@ index 9fb9d99..5f4b7c3 100644
  	}
  	destroy() {
  		if (this.#rafHandle != null) safeCleanup(() => {
-@@ -132587,7 +132635,7 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+@@ -132587,7 +132660,7 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
  			this.#viewportHost.style.width = `${scaledWidth$1}px`;
  			this.#viewportHost.style.minWidth = `${scaledWidth$1}px`;
  			this.#viewportHost.style.minHeight = `${scaledHeight$1}px`;
@@ -1444,7 +1524,7 @@ index 9fb9d99..5f4b7c3 100644
  			this.#viewportHost.style.overflow = "";
  			this.#viewportHost.style.transform = "";
  			this.#painterHost.style.width = `${totalWidth}px`;
-@@ -132601,12 +132649,35 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
+@@ -132601,12 +132674,35 @@ var PresentationEditor = class PresentationEditor extends EventEmitter {
  			this.#selectionOverlay.style.transform = zoom === 1 ? "" : `scale(${zoom})`;
  			return;
  		}
@@ -1481,7 +1561,7 @@ index 9fb9d99..5f4b7c3 100644
  		this.#viewportHost.style.overflow = "";
  		this.#viewportHost.style.transform = "";
  		this.#painterHost.style.width = `${maxWidth}px`;
-@@ -135650,6 +135721,31 @@ var _sfc_main$3 = {
+@@ -135650,6 +135746,31 @@ var _sfc_main$3 = {
  		const imageMetadata = (0, vue.ref)(null);
  		const dragState = (0, vue.ref)(null);
  		const forcedCleanup = (0, vue.ref)(false);
@@ -1513,7 +1593,7 @@ index 9fb9d99..5f4b7c3 100644
  		function readLockMode(element) {
  			return element?.dataset?.lockMode || element?.getAttribute?.("data-lock-mode") || null;
  		}
-@@ -135758,8 +135854,8 @@ var _sfc_main$3 = {
+@@ -135758,8 +135879,8 @@ var _sfc_main$3 = {
  				position: "absolute",
  				left: `${expansion}px`,
  				top: `${expansion}px`,
@@ -1524,7 +1604,7 @@ index 9fb9d99..5f4b7c3 100644
  				border: "2px solid #4A90E2",
  				pointerEvents: "none",
  				zIndex: Z_INDEX_GUIDELINE$1,
-@@ -135811,16 +135907,23 @@ var _sfc_main$3 = {
+@@ -135811,16 +135932,23 @@ var _sfc_main$3 = {
  			const editor = resizeEditor.value;
  			if (!isValidEditor(editor) || !imageMetadata.value || !props.imageElement) return;
  			const rect = props.imageElement.getBoundingClientRect();
@@ -1552,7 +1632,7 @@ index 9fb9d99..5f4b7c3 100644
  			const pmView = editor.view.dom;
  			pmView.style.pointerEvents = "none";
  			document.addEventListener("mousemove", onDocumentMouseMove$1);
-@@ -135828,8 +135931,8 @@ var _sfc_main$3 = {
+@@ -135828,8 +135956,8 @@ var _sfc_main$3 = {
  			document.addEventListener("keydown", onEscapeKey);
  			emit("resize-start", {
  				blockId: props.imageElement.getAttribute("data-sd-block-id"),
@@ -1563,7 +1643,7 @@ index 9fb9d99..5f4b7c3 100644
  			});
  		}
  		function throttle$1(func, limit) {
-@@ -135857,21 +135960,22 @@ var _sfc_main$3 = {
+@@ -135857,21 +135985,22 @@ var _sfc_main$3 = {
  				cancel
  			};
  		}
@@ -1594,7 +1674,7 @@ index 9fb9d99..5f4b7c3 100644
  			const minWidth = imageMetadata.value.minWidth;
  			const minHeight = imageMetadata.value.minHeight;
  			const maxWidth = imageMetadata.value.maxWidth;
-@@ -135894,12 +135998,14 @@ var _sfc_main$3 = {
+@@ -135894,12 +136023,14 @@ var _sfc_main$3 = {
  			}
  			dragState.value.constrainedWidth = newWidth;
  			dragState.value.constrainedHeight = newHeight;
@@ -1610,7 +1690,7 @@ index 9fb9d99..5f4b7c3 100644
  		const onDocumentMouseMove$1 = mouseMoveThrottle.throttled;
  		function onEscapeKey(event) {
  			if (event.key === "Escape" && dragState.value) {
-@@ -135910,6 +136016,8 @@ var _sfc_main$3 = {
+@@ -135910,6 +136041,8 @@ var _sfc_main$3 = {
  		}
  		function onDocumentMouseUp(event) {
  			if (!dragState.value) return;
@@ -1619,7 +1699,7 @@ index 9fb9d99..5f4b7c3 100644
  			const finalWidth = dragState.value.constrainedWidth;
  			const finalHeight = dragState.value.constrainedHeight;
  			const blockId = props.imageElement?.getAttribute("data-sd-block-id");
-@@ -135923,25 +136031,25 @@ var _sfc_main$3 = {
+@@ -135923,25 +136056,25 @@ var _sfc_main$3 = {
  			}
  			const widthDelta = Math.abs(finalWidth - dragState.value.initialWidth);
  			const heightDelta = Math.abs(finalHeight - dragState.value.initialHeight);
@@ -1655,7 +1735,7 @@ index 9fb9d99..5f4b7c3 100644
  			}
  			try {
  				const { state, dispatch } = editor.view;
-@@ -135952,7 +136060,7 @@ var _sfc_main$3 = {
+@@ -135952,7 +136085,7 @@ var _sfc_main$3 = {
  						blockId,
  						error: "Image position marker (data-pm-start) not found"
  					});
@@ -1664,7 +1744,7 @@ index 9fb9d99..5f4b7c3 100644
  				}
  				const imagePos = parseInt(pmStartAttr, 10);
  				if (!Number.isFinite(imagePos) || imagePos < 0) {
-@@ -135960,7 +136068,7 @@ var _sfc_main$3 = {
+@@ -135960,7 +136093,7 @@ var _sfc_main$3 = {
  						blockId,
  						error: "Invalid image position marker"
  					});
@@ -1673,7 +1753,7 @@ index 9fb9d99..5f4b7c3 100644
  				}
  				const imageNode = state.doc.nodeAt(imagePos);
  				if (!imageNode || imageNode.type.name !== "image") {
-@@ -135968,7 +136076,7 @@ var _sfc_main$3 = {
+@@ -135968,7 +136101,7 @@ var _sfc_main$3 = {
  						blockId,
  						error: "Invalid image node at position"
  					});
@@ -1682,7 +1762,7 @@ index 9fb9d99..5f4b7c3 100644
  				}
  				tr.setNodeAttribute(imagePos, "size", {
  					width: Math.round(newWidth),
-@@ -135989,11 +136097,13 @@ var _sfc_main$3 = {
+@@ -135989,11 +136122,13 @@ var _sfc_main$3 = {
  					newWidth,
  					newHeight
  				});
@@ -1696,7 +1776,7 @@ index 9fb9d99..5f4b7c3 100644
  			}
  		}
  		(0, vue.watch)(() => props.imageElement, () => {
-@@ -136009,6 +136119,7 @@ var _sfc_main$3 = {
+@@ -136009,6 +136144,7 @@ var _sfc_main$3 = {
  		});
  		(0, vue.onBeforeUnmount)(() => {
  			mouseMoveThrottle.cancel();

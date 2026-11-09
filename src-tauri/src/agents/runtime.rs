@@ -376,6 +376,11 @@ impl AgentRuntime {
         for command in pending {
             let _ = command.sender.send(Err(provider::cancelled_error()));
         }
+        // cancel_window only fires on window destroy (lib.rs WindowEvent::
+        // Destroyed) or failed window build, after which this label is never
+        // reused. Drop the per-document serialization lock entry; in-flight
+        // holders cloned the Arc and keep their mutex alive.
+        self.document_locks.lock().remove(window_label);
         removed_runs.len()
     }
 

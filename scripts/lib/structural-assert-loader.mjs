@@ -6,6 +6,10 @@
 const VIRTUAL_ASSERT = 'structural-virtual:assert'
 const VIRTUAL_ASSERT_STRICT = 'structural-virtual:assert/strict'
 
+// Repo root relative to this loader (scripts/lib/ -> repo root). Injected into
+// the virtual module so it doesn't depend on the caller's cwd.
+const rootUrl = new URL('../../', import.meta.url)
+
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === 'node:assert' || specifier === 'assert') {
     return { url: VIRTUAL_ASSERT, shortCircuit: true }
@@ -26,12 +30,11 @@ export async function load(url, context, nextLoad) {
 function buildSource(url) {
   const strict = url === VIRTUAL_ASSERT_STRICT
   // require() bypasses ESM loader hooks, so the builtin is reachable without
-  // re-entering this loader. Base createRequire on a real file in the working
-  // directory (the runner always sets cwd to the project root).
+  // re-entering this loader. Base createRequire on the repo root package.json
+  // (anchored to this loader's location, not the caller's cwd).
   return `
 import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
-const require = createRequire(pathToFileURL(process.cwd() + '/package.json'))
+const require = createRequire(${JSON.stringify(new URL('package.json', rootUrl).href)})
 const realDefault = require(${strict ? "'node:assert/strict'" : "'node:assert'"})
 const realStrict = require('node:assert/strict')
 

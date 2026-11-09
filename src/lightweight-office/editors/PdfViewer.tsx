@@ -214,6 +214,9 @@ export function PdfViewer({
   const fontBytesRef = useRef(new Map<string, Promise<Uint8Array>>())
   const mutationQueueRef = useRef<Promise<void>>(Promise.resolve())
   const dragStateRef = useRef<DragState | null>(null)
+  // Detach for any in-flight annotation drag so a mid-drag unmount (tab switch)
+  // or a pointercancel does not leak document-level pointermove/up listeners.
+  const dragDetachRef = useRef<(() => void) | null>(null)
   const editStyleRef = useRef({ bold: false, italic: false, underline: false })
   const editModeRef = useRef(editMode)
   const currentToolRef = useRef(currentTool)
@@ -508,6 +511,13 @@ export function PdfViewer({
     const observer = new ResizeObserver(update)
     observer.observe(element)
     return () => observer.disconnect()
+  }, [])
+
+  // Cancel any in-flight annotation drag on unmount so document-level pointer
+  // listeners are not left attached to a torn-down component.
+  useEffect(() => () => {
+    dragDetachRef.current?.()
+    dragDetachRef.current = null
   }, [])
 
   const effectiveZoom = fitMode !== 'custom' && fitZoom != null ? fitZoom : clampZoom(zoom)
@@ -1556,6 +1566,8 @@ export function PdfViewer({
     const onUp = () => {
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onUp)
+      dragDetachRef.current = null
       const state = dragStateRef.current
       dragStateRef.current = null
       if (!state?.moved) {
@@ -1580,6 +1592,13 @@ export function PdfViewer({
 
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onUp)
+    dragDetachRef.current = () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onUp)
+      dragStateRef.current = null
+    }
   }, [editMode, enterTextAnnotationEdit, queueMutation, selectAnnotation, upsertText])
 
   useEffect(() => {

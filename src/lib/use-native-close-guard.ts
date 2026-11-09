@@ -72,7 +72,11 @@ export function useNativeCloseGuard(): void {
       desktopApi.app
         .listen(event, handler)
         .then((unlisten) => {
-          if (!disposed) unlistenList.push(unlisten)
+          // Mirror platform/subscription.ts: if the hook already disposed while
+          // Tauri was still registering the listener, unlisten immediately
+          // instead of leaking the native event subscription.
+          if (disposed) unlisten()
+          else unlistenList.push(unlisten)
         })
         .catch((error: unknown) => {
           console.error(`[close-guard] Failed to listen for ${event}`, error)

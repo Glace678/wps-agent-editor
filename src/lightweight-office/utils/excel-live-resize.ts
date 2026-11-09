@@ -1,3 +1,5 @@
+import { getFortuneLiveContext } from './fortune-rendering'
+
 /**
  * Live preview for Fortune column/row resize drags.
  *
@@ -7,19 +9,24 @@
  * history-free op channel — every animation frame, which re-runs the
  * visibledatacolumn/-row layout and repaints the canvas in real time.
  *
- * On mouseup (capture phase, i.e. BEFORE Fortune's own bubble-phase commit)
- * the original size map is restored so that:
- *  - Fortune's commit computes `original + delta` (no double apply), and
- *  - undo history / collaboration ops stay exactly as without the preview:
- *    a single native entry per resize.
- * Restore and commit run inside the same mouseup dispatch, so React batches
- * them into one render — no visible flicker.
- *
- * Frozen panes shift drag coordinates (fixPositionOnFrozenCells); for frozen
- * sheets the preview backs off and Fortune's native behavior is untouched.
+ * The blue resize guide line (.fortune-change-size-line and the header handle)
+ * is locked to the rendered track edge (visibledatacolumn / visibledatarow)
+ * rather than the raw unclamped cursor coordinate, so the blue line and the
+ * worksheet grid line coincide to the exact pixel on every frame.
  */
 
+interface FortuneFrozenRangeLike {
+  row_focus?: number
+  column_focus?: number
+}
+
+interface FortuneFrozenLike {
+  type?: string
+  range?: FortuneFrozenRangeLike
+}
+
 interface FortuneSheetLike {
+  id?: string
   frozen?: unknown
   zoomRatio?: number
   data?: unknown[][]
@@ -52,16 +59,49 @@ const EDGE_TOLERANCE = 8
  */
 const PREVIEW_LAG = 5
 
+const SUPPORTED_FROZEN_TYPES = new Set([
+  'row',
+  'column',
+  'both',
+  'rangeRow',
+  'rangeColumn',
+  'rangeBoth',
+])
+
+function isUnsupportedFrozen(frozen: unknown): boolean {
+  if (!frozen) return false
+  if (typeof frozen !== 'object') return true
+  const type = (frozen as FortuneFrozenLike).type
+  return typeof type !== 'string' || !SUPPORTED_FROZEN_TYPES.has(type)
+}
+
+function isAxisFrozen(axis: ResizeAxis, frozen: FortuneFrozenLike | undefined): boolean {
+  if (!frozen?.type) return false
+  if (axis === 'col') {
+    return frozen.type === 'column'
+      || frozen.type === 'rangeColumn'
+      || frozen.type === 'both'
+      || frozen.type === 'rangeBoth'
+  }
+  return frozen.type === 'row'
+    || frozen.type === 'rangeRow'
+    || frozen.type === 'both'
+    || frozen.type === 'rangeBoth'
+}
+
 interface DragSession {
   axis: ResizeAxis
   index: number
   originalLen: number
   /** Snapshot of config.columnlen / rowlen restored if the drag is canceled. */
   originalMap: Record<string, number>
+  /** Initial cumulative track edges (visibledatacolumn / visibledatarow). */
+  edges: number[]
   startClient: number
   /** Fortune's luckysheet_*_change_size_start[0] (content coordinates). */
   startNative: number
   zoom: number
+  inFreeze: boolean
   lastApplied: number | null
 }
 
@@ -97,6 +137,13 @@ function computeTrackEdges(
   return edges
 }
 
+function computeEdgesWithTrackLen(session: DragSession, len: number): number[] {
+  const prevEdge = session.index > 0 ? (session.edges[session.index - 1] ?? 0) : 0
+  const nextEdge = prevEdge + Math.round((len + 1) * session.zoom)
+  const deltaEdge = nextEdge - (session.edges[session.index] ?? nextEdge)
+  return session.edges.map((edge, i) => (i >= session.index ? edge + deltaEdge : edge))
+}
+
 /**
  * Attach live resize preview to the Excel shell. Returns a cleanup function.
  * `getApi` is read per event so Workbook remounts (file/language key changes)
@@ -110,20 +157,69 @@ export function attachExcelLiveResize(
   let frame: number | null = null
   let pendingClient = 0
 
+  /**
+   * Position Fortune's guide line (.fortune-change-size-line) and header handle
+   * (.fortune-cols-change-size / .fortune-rows-change-size) at the exact
+   * rendered track edge (`domEdge - 3` / `domEdge - 4`) so the 1px #0188fb
+   * guide border lands on `[domEdge - 2, domEdge - 1]`, matching the 1px
+   * worksheet grid line stroked by Canvas (`end - 2 + 0.5`).
+   */
+  const moveGuideLine = (_event?: MouseEvent) => {
+    if (!session) return
+    const header = shell.querySelector<HTMLElement>(
+      session.axis === 'col' ? '.fortune-col-header' : '.fortune-row-header',
+    )
+    const line = shell.querySelector<HTMLElement>('.fortune-change-size-line')
+    const handle = shell.querySelector<HTMLElement>(
+      session.axis === 'col' ? '.fortune-cols-change-size' : '.fortune-rows-change-size',
+    )
+    if (!header) return
+    const liveCtx = getFortuneLiveContext(shell)
+    const liveEdges = session.axis === 'col'
+      ? liveCtx?.visibledatacolumn
+      : liveCtx?.visibledatarow
+    const prevEdge = session.index > 0 ? (session.edges[session.index - 1] ?? 0) : 0
+    const appliedLen = session.lastApplied ?? session.originalLen
+    const fallbackEdge = prevEdge + Math.round((appliedLen + 1) * session.zoom)
+    const renderedEdge = liveEdges?.[session.index] ?? fallbackEdge
+    const scrollOffset = session.axis === 'col' ? header.scrollLeft : header.scrollTop
+    const domEdge = renderedEdge + (session.inFreeze ? scrollOffset : 0)
+    if (session.axis === 'col') {
+      if (line) line.style.left = `${domEdge - 3}px`
+      if (handle) handle.style.left = `${domEdge - 4}px`
+    } else {
+      if (line) line.style.top = `${domEdge - 3}px`
+      if (handle) handle.style.top = `${domEdge - 4}px`
+    }
+  }
+
   const applyLen = (len: number) => {
     const api = getApi()
     if (!api || !session || session.lastApplied === len) return
     session.lastApplied = len
     shell.dataset.excelLiveResizeLen = String(len)
+    const nextEdges = computeEdgesWithTrackLen(session, len)
+    const totalSpan = (nextEdges[nextEdges.length - 1] ?? 0) + (session.axis === 'col' ? 120 : 80)
     // 拖拽预览只下发一次 applyOp，不使用 flushSync：强制同步渲染会让 Fortune
     // 在每个 pointermove 上全画布重排（连带右侧整块数字区），是卡顿根源。
-    // 去掉 flushSync 后，op 与浏览器帧合并，仅在帧末重绘一次，实时且流畅。
+    // 同时在同一个 op 批次内同步更新 visibledatacolumn/visibledatarow，避免
+    // Sheet 被动 useEffect 二次渲染导致的 1 帧滞后。
     try {
       api.applyOp([
         {
           op: 'replace',
           path: ['config', session.axis === 'col' ? 'columnlen' : 'rowlen'],
           value: { ...session.originalMap, [session.index]: len },
+        },
+        {
+          op: 'replace',
+          path: [session.axis === 'col' ? 'visibledatacolumn' : 'visibledatarow'],
+          value: nextEdges,
+        },
+        {
+          op: 'replace',
+          path: [session.axis === 'col' ? 'ch_width' : 'rh_height'],
+          value: totalSpan,
         },
         {
           op: 'replace',
@@ -136,33 +232,11 @@ export function attachExcelLiveResize(
           ],
         },
       ])
+      moveGuideLine()
     } catch {
       // A throwing op channel mid-drag must not leave listeners / a half-applied
       // resize behind: treat the drag as canceled and restore the original sizes.
       endSession(true)
-    }
-  }
-
-  /** Mirror Fortune's own guide-line DOM updates (mouseRender) for the axis. */
-  const moveGuideLine = (event: MouseEvent) => {
-    if (!session) return
-    const header = shell.querySelector<HTMLElement>(
-      session.axis === 'col' ? '.fortune-col-header' : '.fortune-row-header',
-    )
-    const line = shell.querySelector<HTMLElement>('.fortune-change-size-line')
-    const handle = shell.querySelector<HTMLElement>(
-      session.axis === 'col' ? '.fortune-cols-change-size' : '.fortune-rows-change-size',
-    )
-    if (!header) return
-    const rect = header.getBoundingClientRect()
-    if (session.axis === 'col') {
-      const x = event.clientX - rect.left + header.scrollLeft
-      if (line) line.style.left = `${x}px`
-      if (handle) handle.style.left = `${x - 2}px`
-    } else {
-      const y = event.clientY - rect.top + header.scrollTop
-      if (line) line.style.top = `${y}px`
-      if (handle) handle.style.top = `${y}px`
     }
   }
 
@@ -173,8 +247,7 @@ export function attachExcelLiveResize(
     // queue when the discrete mouseup commit renders — and React's rebase
     // then re-executes the commit updater, double-recording the resize in
     // fortune-sheet's impure undo push. During a preview session we swallow
-    // mousemove entirely and reproduce the only thing Fortune's move handler
-    // does mid-drag: tracking the guide line / handle DOM styles.
+    // mousemove entirely and keep the guide line locked to the rendered track.
     event.stopPropagation()
     moveGuideLine(event)
     pendingClient = session.axis === 'col' ? event.clientX : event.clientY
@@ -192,6 +265,7 @@ export function attachExcelLiveResize(
 
   const endSession = (restoreForCancel: boolean) => {
     if (!session) return
+    const finished = session
     if (frame != null) {
       cancelAnimationFrame(frame)
       frame = null
@@ -199,12 +273,61 @@ export function attachExcelLiveResize(
     if (restoreForCancel && session.lastApplied !== null) {
       // Canceled drag (window blur): no Fortune commit will follow, so put
       // the original sizes back ourselves.
-      const { axis, originalMap } = session
-      getApi()?.applyOp([{
-        op: 'replace',
-        path: ['config', axis === 'col' ? 'columnlen' : 'rowlen'],
-        value: originalMap,
-      }])
+      const { axis, originalMap, edges } = session
+      const totalSpan = (edges[edges.length - 1] ?? 0) + (axis === 'col' ? 120 : 80)
+      getApi()?.applyOp([
+        {
+          op: 'replace',
+          path: ['config', axis === 'col' ? 'columnlen' : 'rowlen'],
+          value: originalMap,
+        },
+        {
+          op: 'replace',
+          path: [axis === 'col' ? 'visibledatacolumn' : 'visibledatarow'],
+          value: edges,
+        },
+        {
+          op: 'replace',
+          path: [axis === 'col' ? 'ch_width' : 'rh_height'],
+          value: totalSpan,
+        },
+        {
+          op: 'replace',
+          path: [axis === 'col' ? 'luckysheet_cols_change_size' : 'luckysheet_rows_change_size'],
+          value: false,
+        },
+      ])
+    } else if (!restoreForCancel && finished.lastApplied !== null) {
+      // After Fortune's bubble-phase handleOverlayMouseUp runs, ensure
+      // sheet.config stays in sync with liveCtx.config even if the release
+      // landed within Fortune's < 3px residual threshold (e.g. clamped at
+      // MIN_TRACK_LEN = 10 or after a slight pointer recoil before mouseup).
+      queueMicrotask(() => {
+        const liveCtx = getFortuneLiveContext(shell)
+        const sheet = getApi()?.getSheet()
+        if (liveCtx?.config && sheet && sheet.config !== liveCtx.config) {
+          sheet.config = {
+            ...(sheet.config ?? {}),
+            ...liveCtx.config,
+          }
+        }
+        const header = shell.querySelector<HTMLElement>(
+          finished.axis === 'col' ? '.fortune-col-header' : '.fortune-row-header',
+        )
+        const handle = shell.querySelector<HTMLElement>(
+          finished.axis === 'col' ? '.fortune-cols-change-size' : '.fortune-rows-change-size',
+        )
+        const liveEdges = finished.axis === 'col'
+          ? liveCtx?.visibledatacolumn
+          : liveCtx?.visibledatarow
+        const finalEdge = liveEdges?.[finished.index]
+        if (header && handle && typeof finalEdge === 'number' && Number.isFinite(finalEdge)) {
+          const scrollOffset = finished.axis === 'col' ? header.scrollLeft : header.scrollTop
+          const domEdge = finalEdge + (finished.inFreeze ? scrollOffset : 0)
+          if (finished.axis === 'col') handle.style.left = `${domEdge - 5}px`
+          else handle.style.top = `${domEdge - 3}px`
+        }
+      })
     }
     session = null
     shell.dataset.excelLiveResize = 'idle'
@@ -222,8 +345,9 @@ export function attachExcelLiveResize(
   const beginSession = (axis: ResizeAxis, event: MouseEvent) => {
     const api = getApi()
     const sheet = api?.getSheet()
-    if (!api || !sheet || sheet.frozen) return
-    const zoom = sheet.zoomRatio ?? 1
+    if (!api || !sheet || isUnsupportedFrozen(sheet.frozen) && sheet.frozen) return
+    const liveCtx = getFortuneLiveContext(shell)
+    const zoom = liveCtx?.zoomRatio ?? sheet.zoomRatio ?? 1
     const count = axis === 'col' ? (sheet.data?.[0]?.length ?? 0) : (sheet.data?.length ?? 0)
     if (count <= 0) return
     const header = shell.querySelector<HTMLElement>(
@@ -231,28 +355,69 @@ export function attachExcelLiveResize(
     )
     if (!header) return
 
-    // Header scroll offset mirrors ctx.scrollLeft / scrollTop (kept in sync by
-    // Fortune), so this reproduces the content-coordinate x/y of the drag.
-    const rect = header.getBoundingClientRect()
-    const pointer = axis === 'col'
-      ? event.clientX - rect.left + header.scrollLeft
-      : event.clientY - rect.top + header.scrollTop
+    // If a prior drag exited early in handleOverlayMouseUp before syncing
+    // ctx.luckysheetfile[idx].config = ctx.config, reconcile sheet.config first
+    // so getColumnWidth/getRowHeight and originalMap read the true live sizes.
+    if (liveCtx?.config && sheet.config !== liveCtx.config) {
+      sheet.config = {
+        ...(sheet.config ?? {}),
+        ...liveCtx.config,
+      }
+    }
 
     const indices = Array.from({ length: count }, (_, i) => i)
     const lens = axis === 'col' ? api.getColumnWidth(indices) : api.getRowHeight(indices)
-    const hidden = axis === 'col' ? sheet.config?.colhidden : sheet.config?.rowhidden
+    const liveLenMap = axis === 'col' ? liveCtx?.config?.columnlen : liveCtx?.config?.rowlen
+    if (liveLenMap) {
+      for (const [k, v] of Object.entries(liveLenMap)) {
+        const idx = Number(k)
+        if (Number.isInteger(idx) && idx >= 0 && typeof v === 'number' && Number.isFinite(v)) {
+          lens[idx] = v
+        }
+      }
+    }
+    const hidden = (axis === 'col'
+      ? (liveCtx?.config?.colhidden ?? sheet.config?.colhidden)
+      : (liveCtx?.config?.rowhidden ?? sheet.config?.rowhidden))
     const edges = computeTrackEdges(lens, hidden, count, zoom)
 
-    // Same lookup Fortune performs in col/rowLocation on the native mousedown.
+    // Header scroll offset mirrors ctx.scrollLeft / scrollTop (kept in sync by
+    // Fortune), so this reproduces the content-coordinate x/y of the drag.
+    const rect = header.getBoundingClientRect()
+    const rawOffset = axis === 'col'
+      ? event.clientX - rect.left
+      : event.clientY - rect.top
+    const startNative = axis === 'col'
+      ? event.clientX - rect.left + header.scrollLeft
+      : event.clientY - rect.top + header.scrollTop
+
+    const frozen = sheet.frozen as FortuneFrozenLike | undefined
+    const hasFreeze = isAxisFrozen(axis, frozen)
+    const freezeFocus = axis === 'col'
+      ? (frozen?.range?.column_focus ?? 0)
+      : (frozen?.range?.row_focus ?? 0)
+    const freezeBoundary = hasFreeze ? (edges[freezeFocus] ?? 0) : -1
+    const inFreeze = Boolean(hasFreeze && rawOffset <= freezeBoundary + EDGE_TOLERANCE)
+    const pointer = inFreeze ? rawOffset : startNative
+
+    // Lookup the nearest track edge. Note that the 5px resize handle spans
+    // across the track edge (e.g. [edge - 3, edge + 2] for rows and
+    // [edge - 4, edge + 1] for cols), so clicks on the trailing side of the
+    // handle have `pointer > edges[c]`, where `lowerBound` returns `c + 1`.
+    // Always resolve `index` to whichever adjacent edge is closer!
     let index = lowerBound(edges, pointer)
     if (index >= edges.length) index = edges.length - 1
+    const currentEdgeDist = Math.abs((edges[index] ?? Number.POSITIVE_INFINITY) - pointer)
+    const prevEdgeDist = index > 0
+      ? Math.abs((edges[index - 1] ?? Number.POSITIVE_INFINITY) - pointer)
+      : Number.POSITIVE_INFINITY
+    if (prevEdgeDist < currentEdgeDist) {
+      index -= 1
+    }
 
     // The press must sit on a track edge our model agrees with; if layouts
     // disagree (unexpected sheet state), fall back to native behavior.
-    const nearestEdge = Math.min(
-      Math.abs((edges[index] ?? Number.POSITIVE_INFINITY) - pointer),
-      Math.abs((index > 0 ? edges[index - 1] : 0) - pointer),
-    )
+    const nearestEdge = Math.min(currentEdgeDist, prevEdgeDist)
     if (nearestEdge > EDGE_TOLERANCE) {
       shell.dataset.excelLiveResize = `rejected:${axis}:${index}:${Math.round(nearestEdge)}`
       return
@@ -260,17 +425,47 @@ export function attachExcelLiveResize(
 
     // Observability for tests (and post-mortem debugging).
     shell.dataset.excelLiveResize = `${axis}:${index}`
-    const originalMapSource = axis === 'col' ? sheet.config?.columnlen : sheet.config?.rowlen
+    const originalMapSource = axis === 'col'
+      ? (liveCtx?.config?.columnlen ?? sheet.config?.columnlen)
+      : (liveCtx?.config?.rowlen ?? sheet.config?.rowlen)
     session = {
       axis,
       index,
       originalLen: lens[index] ?? MIN_TRACK_LEN,
       originalMap: { ...(originalMapSource ?? {}) },
+      edges,
       startClient: axis === 'col' ? event.clientX : event.clientY,
-      startNative: pointer,
+      startNative,
       zoom,
+      inFreeze,
       lastApplied: null,
     }
+    moveGuideLine(event)
+    // Fortune's own bubble-phase onColSizeHandleMouseDown / onRowSizeHandleMouseDown
+    // runs right after this capture listener. If `pointer > edges[index]`, Fortune's
+    // sortedIndex lookup picked `index + 1` and placed `.fortune-change-size-line`
+    // one track too far right; snap the guide line and start-index back immediately
+    // after the mousedown dispatch finishes.
+    const activeSession = session
+    queueMicrotask(() => {
+      if (session !== activeSession) return
+      moveGuideLine(event)
+      if (pointer > (edges[index] ?? Number.POSITIVE_INFINITY)) {
+        try {
+          getApi()?.applyOp([
+            {
+              op: 'replace',
+              path: [axis === 'col'
+                ? 'luckysheet_cols_change_size_start'
+                : 'luckysheet_rows_change_size_start'],
+              value: [activeSession.startNative, activeSession.index],
+            },
+          ])
+        } catch {
+          /* ignore if workbook unmounted */
+        }
+      }
+    })
     document.addEventListener('mousemove', onMove, true)
     document.addEventListener('mouseup', onUp, true)
     window.addEventListener('blur', onBlur)

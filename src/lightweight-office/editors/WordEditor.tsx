@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react'
 import '../../../node_modules/superdoc/dist/style.css'
 import '../word-editor.css'
 import '../word-color-picker.css'
@@ -30,7 +30,14 @@ import { installWordTablePicker } from '../word-table-picker'
 import { installWordFontColorPicker } from '../word-color-picker'
 import { installWordAlignmentPolicy } from '../word-alignment-policy'
 import { WordInsertTableDialog } from '../components/WordInsertTableDialog'
-import { WordDocumentLayout } from '../components/WordDocumentLayout'
+import {
+  WordDocumentLayout,
+  captureScrollAnchor,
+  findWordScrollContainer,
+  restoreScrollAnchor,
+  syncWordLayoutWithZoom,
+} from '../components/WordDocumentLayout'
+import { resolvePresentationEditor } from '../components/WordPageStitch'
 import { WordCaret } from '../components/WordCaret'
 import {
   WordAlternateView,
@@ -102,27 +109,6 @@ const WORD_FONT_EMPTY_TEXTS: Record<LanguageCode, string> = {
 
 function clampWordPercent(value: number): number {
   return Math.min(500, Math.max(10, Math.round(value)))
-}
-
-function findWordScrollContainer(root: HTMLElement | null): HTMLElement | null {
-  if (!root) return null
-  const subDoc = root.querySelector<HTMLElement>('.superdoc__sub-document')
-  if (subDoc) return subDoc
-  const pagesHost = root.querySelector<HTMLElement>('.presentation-editor__pages')
-  if (pagesHost) {
-    let el: HTMLElement | null = pagesHost.parentElement
-    while (el && el !== root) {
-      const style = window.getComputedStyle(el)
-      if (
-        (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-        el.scrollHeight > el.clientHeight
-      ) {
-        return el
-      }
-      el = el.parentElement
-    }
-  }
-  return null
 }
 
 export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegisterSave }: WordEditorProps) {
@@ -388,16 +374,31 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       const currentPercent = Math.round(zoomRef.current * 100)
       const inst = instanceRef.current ?? superdocInstance
 
+      // 跨双页↔单页阈值时，在同一次同步调用里一次性完成锚点采集、Zoom + LayoutMode 切换与滚动恢复，
+      // 彻底消除“先以旧模式缩放绘制一帧、随后再切换布局模式”的闪烁跳变。
+      if (inst && syncWordLayoutWithZoom(inst, { nextPercent, anchorCoords })) {
+        setZoomPercent(nextPercent)
+        return
+      }
+
       const root = editorRootRef.current
+      const presentation = inst ? resolvePresentationEditor(inst) : null
       const scrollEl = findWordScrollContainer(root)
-      const oldZoom = currentPercent / 100
+      const pagesHost = root?.querySelector<HTMLElement>('.presentation-editor__pages') ?? null
+      const oldZoom =
+        presentation?.zoom && Number.isFinite(presentation.zoom) && presentation.zoom > 0
+          ? presentation.zoom
+          : currentPercent / 100
       const nextZoom = nextPercent / 100
+
+      const pageAnchor =
+        scrollEl && pagesHost ? captureScrollAnchor(scrollEl, pagesHost, anchorCoords, oldZoom) : null
 
       let targetScrollLeft = 0
       let targetScrollTop = 0
-      let hasAnchor = false
+      let hasFallbackAnchor = false
 
-      if (scrollEl && oldZoom > 0 && nextZoom > 0) {
+      if (!pageAnchor && scrollEl && oldZoom > 0 && nextZoom > 0) {
         const rect = scrollEl.getBoundingClientRect()
         const anchorX = anchorCoords
           ? Math.max(0, Math.min(scrollEl.clientWidth, anchorCoords.x - rect.left))
@@ -411,7 +412,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
 
         targetScrollLeft = Math.max(0, Math.round(logicalX * nextZoom - anchorX))
         targetScrollTop = Math.max(0, Math.round(logicalY * nextZoom - anchorY))
-        hasAnchor = true
+        hasFallbackAnchor = true
       }
 
       if (inst) {
@@ -419,22 +420,19 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
           if (Math.round(inst.getZoom()) !== nextPercent) {
             inst.setZoom(nextPercent)
           }
+          // SuperDoc.setZoom 仅写入 Vue 响应式 activeZoom，需等待微任务才同步给 PresentationEditor；
+          // 此处直接同步调用 presentation.setZoom(nextZoom)，确保 .presentation-editor__pages 与页面节点在当前调用栈内立即完成缩放。
+          presentation?.setZoom?.(nextZoom)
         } catch (err) {
           console.warn('[WordEditor] setZoom 失败:', err)
         }
       }
 
-      if (hasAnchor && scrollEl) {
+      if (scrollEl && pagesHost && pageAnchor) {
+        restoreScrollAnchor(scrollEl, pagesHost, pageAnchor, nextZoom)
+      } else if (hasFallbackAnchor && scrollEl) {
         scrollEl.scrollLeft = targetScrollLeft
         scrollEl.scrollTop = targetScrollTop
-
-        // 保持滚动锚定，防止 SuperDoc 异步 selectionSync 将视口拉偏
-        requestAnimationFrame(() => {
-          if (scrollEl.isConnected) {
-            scrollEl.scrollLeft = targetScrollLeft
-            scrollEl.scrollTop = targetScrollTop
-          }
-        })
       }
 
       setZoomPercent(nextPercent)
@@ -442,7 +440,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     [setZoomPercent, superdocInstance],
   )
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!superdocInstance) return
     const percent = Math.round(zoom * 100)
     if (Math.round(superdocInstance.getZoom()) !== percent) {
@@ -456,6 +454,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     if (!root) return
 
     let wheelRaf: number | null = null
+    let wheelTimer: number | null = null
     let accumulatedDelta = 0
     let lastFlushAt = Number.NEGATIVE_INFINITY
     let lastClientX = 0
@@ -487,14 +486,15 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
       lastClientY = e.clientY
       accumulatedDelta += delta
 
-      if (wheelRaf === null) {
+      if (wheelRaf === null && wheelTimer === null) {
         const wait = 16 - (performance.now() - lastFlushAt)
         if (wait <= 0) {
           wheelRaf = requestAnimationFrame(flushWheel)
         } else {
-          wheelRaf = window.setTimeout(() => {
+          wheelTimer = window.setTimeout(() => {
+            wheelTimer = null
             wheelRaf = requestAnimationFrame(flushWheel)
-          }, wait) as unknown as number
+          }, wait)
         }
       }
     }
@@ -503,6 +503,7 @@ export function WordEditor({ filePath, onReady, onDirty, onSaveSuccess, onRegist
     return () => {
       root.removeEventListener('wheel', onWheel)
       if (wheelRaf !== null) cancelAnimationFrame(wheelRaf)
+      if (wheelTimer !== null) window.clearTimeout(wheelTimer)
     }
   }, [applyZoomWithAnchor])
 

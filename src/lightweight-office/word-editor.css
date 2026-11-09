@@ -1009,6 +1009,19 @@ body .link-input-ctn .go-to-anchor a:hover {
   max-width: 100%;
 }
 
+/* SuperEditor Vue 包装层会在微任务里异步写 min-width: pageWidth * zoom，
+ * 与引擎 #applyZoom 同步更新的 .presentation-editor__viewport 尺寸存在一帧时间差，
+ * 缩小时会导致外层容器先保持旧宽度、微任务后再收缩而横向闪动。
+ * 清零外层异步 min-width 并让 viewport 自身水平居中，保证缩放与单双页切换同帧到位。 */
+.word-editor-panel .super-editor-container {
+  min-width: 0 !important;
+}
+
+.word-editor-panel .presentation-editor__viewport {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /*
  * 页面拼接（双击页间黑边隐藏空白，见 WordPageStitch.tsx）：
  * 间距本身走引擎原生通道归零；这里只做装饰——页面投影会在接缝处

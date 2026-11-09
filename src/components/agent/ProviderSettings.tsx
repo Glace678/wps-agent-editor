@@ -498,8 +498,13 @@ export function ProviderSettings({ onClose }: ProviderSettingsProps) {
                 onApiKeyChange={setApiKey}
                 onSaveKey={() => void handleSaveKey()}
                 onDeleteKey={async () => {
-                  await desktopApi.providers.auth.remove(selectedId)
-                  await load()
+                  try {
+                    await desktopApi.providers.auth.remove(selectedId)
+                  } catch (removeError) {
+                    console.error('[ProviderSettings] Failed to remove API key:', removeError)
+                  } finally {
+                    await load()
+                  }
                 }}
                 onOpenLink={(url) => void desktopApi.app.openUrl(url)}
               />

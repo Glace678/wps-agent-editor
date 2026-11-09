@@ -30,7 +30,18 @@ export function DebugConsoleView() {
     if (!expression || status === 'idle' || !sessionId) return
     setInput('')
     useDebugStore.getState().addConsoleLine({ kind: 'eval', text: `> ${expression}` })
-    void desktopApi.process.debugEvaluate(sessionId, expression, crypto.randomUUID())
+    // The eval result arrives via a routed debug event; if the invoke itself rejects
+    // (e.g. the debug session died between commands), surface it as a console line
+    // instead of leaving the printed "> expr" hanging with no output.
+    void desktopApi.process
+      .debugEvaluate(sessionId, expression, crypto.randomUUID())
+      .catch((evaluateError) => {
+        console.error('[DebugConsoleView] debugEvaluate failed:', evaluateError)
+        useDebugStore.getState().addConsoleLine({
+          kind: 'err',
+          text: String(evaluateError instanceof Error ? evaluateError.message : evaluateError),
+        })
+      })
   }
 
   const breakpointEntries = Object.entries(breakpoints)

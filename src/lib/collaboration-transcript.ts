@@ -225,9 +225,10 @@ interface TranscriptContext {
   settleTyping(agentId?: string): void
   settleAllTyping(): void
   /**
-   * Finalizes every still-streaming speech bubble. Called when the run ends
-   * via cancellation or an error so partial answers do not spin forever
-   * (wps_06 A4).
+   * Finalizes every still-streaming speech bubble. Called when a run ends with
+   * an error so partial answers do not spin forever. Cancellation
+   * intentionally leaves the partial bubble streaming (an unfinished turn);
+   * the runCancelled warning row itself carries the termination.
    */
   settleAllSpeech(): void
   pushTyping(event: AgentCollaborationEvent): void
@@ -517,8 +518,9 @@ const onRunComplete: TranscriptEventHandler = (_event, ctx) => {
 
 const onRunCancelled: TranscriptEventHandler = (_event, ctx) => {
   ctx.settleAllTyping()
-  // wps_06 A4: keep whatever partial answer arrived, but end the spinner.
-  ctx.settleAllSpeech()
+  // Cancel: end the typing spinner, but keep whatever partial answer arrived
+  // as a still-streaming (unfinished-turn) bubble — the runCancelled warning
+  // row itself carries the termination signal.
   ctx.pushSystem('runCancelled', 'warning')
 }
 

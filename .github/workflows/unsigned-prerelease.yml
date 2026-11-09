@@ -77,7 +77,12 @@ jobs:
       - name: Prepare target esbuild sidecar
         run: npm run prepare:sidecar -- --target ${{ matrix.target }}
       - name: Audit renderer and package inputs
+        # shell: bash: the Windows matrix entries default to pwsh, which does not
+        # stop on a native-command non-zero exit; without this, a failed
+        # `build:web` would be masked by the later node step exiting 0.
+        shell: bash
         run: |
+          set -euo pipefail
           npm run build:web
           node scripts/release/check-bundle-inputs.mjs --target ${{ matrix.target }}
       - name: Generate unsigned bundle config
@@ -86,7 +91,11 @@ jobs:
       - name: Build unsigned release candidate
         run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.temp }}/tauri-unsigned.json"
       - name: Collect and enforce primary package size
+        # shell: bash: see "Audit renderer and package inputs" — on Windows pwsh
+        # a failed collect would be masked by the later check-artifacts step.
+        shell: bash
         run: |
+          set -euo pipefail
           node scripts/release/collect-unsigned-artifact.mjs ${{ matrix.platform }} ${{ matrix.arch }} src-tauri/target/${{ matrix.target }}/release/bundle candidate-artifact
           node scripts/release/check-artifacts.mjs candidate-artifact
       - name: Windows unsigned install/start/uninstall smoke

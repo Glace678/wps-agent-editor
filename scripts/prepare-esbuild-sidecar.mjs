@@ -5,6 +5,11 @@ import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// Anchor all repo-relative paths to this script's location (scripts/ -> repo
+// root), so the sidecar preparation works regardless of the caller's cwd.
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const targets = {
   'i686-pc-windows-msvc': { package: 'win32-ia32', executable: 'esbuild.exe' },
@@ -41,7 +46,7 @@ function canExecuteTarget(target) {
 }
 
 async function packageVersion() {
-  const value = JSON.parse(await readFile('node_modules/esbuild/package.json', 'utf8'))
+  const value = JSON.parse(await readFile(resolve(root, 'node_modules', 'esbuild', 'package.json'), 'utf8'))
   if (typeof value.version !== 'string') throw new Error('Cannot determine the pinned esbuild version')
   return value.version
 }
@@ -49,7 +54,7 @@ async function packageVersion() {
 // Read the integrity (SHA-512) that npm ci resolved for this platform package
 // from package-lock.json. We refuse to download a tarball we cannot pin.
 async function loadLockEntry(name) {
-  const lock = JSON.parse(await readFile('package-lock.json', 'utf8'))
+  const lock = JSON.parse(await readFile(resolve(root, 'package-lock.json'), 'utf8'))
   const key = `node_modules/@esbuild/${name}`
   const entry = lock.packages?.[key]
   if (!entry || typeof entry.integrity !== 'string') {
@@ -125,7 +130,7 @@ async function downloadPackage(name, version, executable) {
     const output = execFileSync(
       npm.command,
       [...npm.args, 'pack', `@esbuild/${name}@${version}`, '--pack-destination', directory],
-      { encoding: 'utf8', windowsHide: true },
+      { encoding: 'utf8', windowsHide: true, cwd: root },
     ).trim().split(/\r?\n/).at(-1)
     if (!output) throw new Error(`npm pack did not return an archive for @esbuild/${name}`)
     const archive = join(directory, basename(output))
@@ -182,14 +187,14 @@ async function main() {
   const definition = targets[target]
   if (!definition) throw new Error(`Unsupported esbuild sidecar target: ${target}`)
   const version = await packageVersion()
-  const installed = resolve('node_modules', '@esbuild', definition.package, definition.executable)
+  const installed = resolve(root, 'node_modules', '@esbuild', definition.package, definition.executable)
   const downloaded = !existsSync(installed)
   const source = downloaded
     ? await downloadPackage(definition.package, version, definition.executable)
     : installed
   const suffix = target.includes('windows') ? '.exe' : ''
-  const destination = resolve('src-tauri', 'binaries', `esbuild-${target}${suffix}`)
-  await mkdir(resolve('src-tauri', 'binaries'), { recursive: true })
+  const destination = resolve(root, 'src-tauri', 'binaries', `esbuild-${target}${suffix}`)
+  await mkdir(resolve(root, 'src-tauri', 'binaries'), { recursive: true })
   // Fast path: an already-prepared sidecar of the pinned version is reused,
   // avoiding the copy + version exec on every dev start.
   if (existsSync(destination) && canExecuteTarget(target)) {

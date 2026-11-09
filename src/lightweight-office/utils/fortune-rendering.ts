@@ -48,6 +48,116 @@ type SpreadsheetFontMenuItem = {
   menuName: string
 }
 
+export interface FortuneLiveContextLike {
+  currentSheetId?: string
+  zoomRatio?: number
+  scrollLeft?: number
+  scrollTop?: number
+  defaultcollen?: number
+  defaultrowlen?: number
+  ch_width?: number
+  rh_height?: number
+  visibledatacolumn?: number[]
+  visibledatarow?: number[]
+  luckysheet_cols_change_size?: boolean
+  luckysheet_cols_change_size_start?: [number, number]
+  luckysheet_rows_change_size?: boolean
+  luckysheet_rows_change_size_start?: [number, number]
+  config?: {
+    columnlen?: Record<string, number>
+    rowlen?: Record<string, number>
+    colhidden?: Record<string, number>
+    rowhidden?: Record<string, number>
+  }
+  luckysheetfile?: Array<{
+    id?: string
+    zoomRatio?: number
+    frozen?: {
+      type?: string
+      range?: {
+        row_focus?: number
+        column_focus?: number
+      }
+    }
+    config?: {
+      columnlen?: Record<string, number>
+      rowlen?: Record<string, number>
+      colhidden?: Record<string, number>
+      rowhidden?: Record<string, number>
+    }
+  }>
+}
+
+const liveContextByElement = new WeakMap<Element, FortuneLiveContextLike>()
+
+export function getFortuneLiveContext(element: Element | null | undefined): FortuneLiveContextLike | null {
+  if (!element) return null
+  const direct = liveContextByElement.get(element)
+  if (direct) return direct
+  const canvas = element.querySelector?.('canvas.fortune-sheet-canvas')
+  return canvas ? (liveContextByElement.get(canvas) ?? null) : null
+}
+
+function syncResizeGuideLineWithCanvas(
+  canvas: HTMLCanvasElement,
+  sheetCtx: FortuneLiveContextLike | null | undefined,
+) {
+  if (!sheetCtx) return
+  const shell = canvas.closest<HTMLElement>('.excel-editor-shell')
+  if (!shell) return
+  liveContextByElement.set(canvas, sheetCtx)
+  liveContextByElement.set(shell, sheetCtx)
+
+  const activeSheet = sheetCtx.luckysheetfile?.find((s) => s.id === sheetCtx.currentSheetId)
+    ?? sheetCtx.luckysheetfile?.[0]
+  const frozen = activeSheet?.frozen
+  const liveTag = shell.dataset.excelLiveResize ?? ''
+
+  if (sheetCtx.luckysheet_cols_change_size && Array.isArray(sheetCtx.luckysheet_cols_change_size_start)) {
+    const parsedFromTag = liveTag.startsWith('col:') ? Number.parseInt(liveTag.slice(4), 10) : Number.NaN
+    const colIndex = Number.isInteger(parsedFromTag) && parsedFromTag >= 0
+      ? parsedFromTag
+      : Number(sheetCtx.luckysheet_cols_change_size_start[1])
+    const edge = sheetCtx.visibledatacolumn?.[colIndex]
+    if (typeof edge === 'number' && Number.isFinite(edge)) {
+      const hasColFreeze = frozen?.type === 'column'
+        || frozen?.type === 'rangeColumn'
+        || frozen?.type === 'both'
+        || frozen?.type === 'rangeBoth'
+      const inVerticalFreeze = Boolean(
+        hasColFreeze && colIndex <= (frozen?.range?.column_focus ?? 0),
+      )
+      const domEdge = edge + (inVerticalFreeze ? (sheetCtx.scrollLeft ?? 0) : 0)
+      const line = shell.querySelector<HTMLElement>('.fortune-change-size-line')
+      const handle = shell.querySelector<HTMLElement>('.fortune-cols-change-size')
+      if (line) line.style.left = `${domEdge - 3}px`
+      if (handle) handle.style.left = `${domEdge - 4}px`
+    }
+  }
+
+  if (sheetCtx.luckysheet_rows_change_size && Array.isArray(sheetCtx.luckysheet_rows_change_size_start)) {
+    const parsedFromTag = liveTag.startsWith('row:') ? Number.parseInt(liveTag.slice(4), 10) : Number.NaN
+    const rowIndex = Number.isInteger(parsedFromTag) && parsedFromTag >= 0
+      ? parsedFromTag
+      : Number(sheetCtx.luckysheet_rows_change_size_start[1])
+    const edge = sheetCtx.visibledatarow?.[rowIndex]
+    if (typeof edge === 'number' && Number.isFinite(edge)) {
+      const hasRowFreeze = frozen?.type === 'row'
+        || frozen?.type === 'rangeRow'
+        || frozen?.type === 'both'
+        || frozen?.type === 'rangeBoth'
+      const inHorizontalFreeze = Boolean(
+        hasRowFreeze && rowIndex <= (frozen?.range?.row_focus ?? 0),
+      )
+      const domEdge = edge + (inHorizontalFreeze ? (sheetCtx.scrollTop ?? 0) : 0)
+      const line = shell.querySelector<HTMLElement>('.fortune-change-size-line')
+      const handle = shell.querySelector<HTMLElement>('.fortune-rows-change-size')
+      if (line) line.style.top = `${domEdge - 3}px`
+      if (handle) handle.style.top = `${domEdge - 4}px`
+    }
+  }
+}
+
 function isWorksheetCanvas(canvas: HTMLCanvasElement) {
   return canvas.classList.contains('fortune-sheet-canvas')
     && canvas.closest('.excel-editor-shell') !== null
@@ -322,25 +432,35 @@ function installNativeDarkCanvasRendering() {
       ...args: unknown[]
     ) {
       const canvas = this.canvasElement
-      if (isWorksheetCanvas(canvas)) {
+      const worksheetCanvas = isWorksheetCanvas(canvas)
+      if (worksheetCanvas) {
         // Fortune re-applies its integer CSS size on every container resize
         // (updateContextWithCanvas), so re-snap on every draw.
         snapCanvasCssSizeToBacking(canvas)
       }
 
-      if (!isWorksheetCanvas(canvas) || !isDarkMode()) {
-        return original.apply(this, args)
-      }
+      try {
+        if (!worksheetCanvas || !isDarkMode()) {
+          return original.apply(this, args)
+        }
 
-      const context = canvas.getContext('2d')
-      if (!context) return original.apply(this, args)
-      if (methodName === 'drawMain') {
-        return withDarkWorksheetBase(context, () => original.apply(this, args))
+        const context = canvas.getContext('2d')
+        if (!context) return original.apply(this, args)
+        if (methodName === 'drawMain') {
+          return withDarkWorksheetBase(context, () => original.apply(this, args))
+        }
+        if (methodName === 'drawRowHeader' || methodName === 'drawColumnHeader') {
+          return withDarkWorksheetHeader(context, () => original.apply(this, args))
+        }
+        return original.apply(this, args)
+      } finally {
+        if (worksheetCanvas) {
+          syncResizeGuideLineWithCanvas(
+            canvas,
+            this.sheetCtx as unknown as FortuneLiveContextLike,
+          )
+        }
       }
-      if (methodName === 'drawRowHeader' || methodName === 'drawColumnHeader') {
-        return withDarkWorksheetHeader(context, () => original.apply(this, args))
-      }
-      return original.apply(this, args)
     }
   }
 

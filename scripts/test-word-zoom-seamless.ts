@@ -196,12 +196,22 @@ function calculateAnchoredScroll(params: {
       /this\.#viewportHost\.style\.height = "";/,
       `${chunk}: no paginated #applyZoom branch may leave viewport height auto`,
     )
+    assert.match(
+      code,
+      /setLayoutMode\(mode\)\s*\{[\s\S]{0,600}if \(this\.#repaintCurrentLayout\(\)\)/,
+      `${chunk}: setLayoutMode must repaint existing layout synchronously via #repaintCurrentLayout()`,
+    )
+    assert.doesNotMatch(
+      code,
+      /setZoom\(zoom\)\s*\{[\s\S]{0,600}this\.#shouldScrollSelectionIntoView = true/,
+      `${chunk}: setZoom must not force #shouldScrollSelectionIntoView = true`,
+    )
     }
   }
 }
 
 // 6. 结构性断言：WordDocumentLayout 不再搬运/修补引擎 DOM，
-//    改为模式切换时克隆覆盖 + 滚动锚定（无感切换）。
+//    改为同步模式切换 + 真实滚动容器锚定（无感切换）。
 {
   const layout = read('src/lightweight-office/components/WordDocumentLayout.tsx')
   assert.doesNotMatch(
@@ -214,10 +224,17 @@ function calculateAnchoredScroll(params: {
     /pagesHost\.style\.minHeight\s*=\s*'0px'/,
     'WordDocumentLayout must not reset minHeight to 0px',
   )
+  assert.doesNotMatch(
+    layout,
+    /ZOOM_SETTLE_MS/,
+    'WordDocumentLayout must not delay fitsTwoPages evaluation with ZOOM_SETTLE_MS',
+  )
   assert.match(layout, /coverWithPagesClone/, 'WordDocumentLayout must cover mode switches with a page clone')
   assert.match(layout, /cloneNode\(true\)/, 'WordDocumentLayout must deep-clone the pages host as cover')
   assert.match(layout, /captureScrollAnchor/, 'WordDocumentLayout must capture a scroll anchor before switching')
   assert.match(layout, /restoreScrollAnchor/, 'WordDocumentLayout must restore the scroll anchor after switching')
+  assert.match(layout, /syncWordLayoutWithZoom/, 'WordDocumentLayout must export syncWordLayoutWithZoom for atomic threshold transitions')
+  assert.match(layout, /\.super-editor-container\.contained/, 'WordDocumentLayout must target the real scroll container .super-editor-container.contained')
   assert.match(
     layout,
     /data-word-mode-swap-cover|wordModeSwapCover/,

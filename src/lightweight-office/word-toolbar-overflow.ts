@@ -79,6 +79,7 @@ const DEFAULT_ITEM_WIDTH = 34
 const DEFAULT_ROW_HORIZONTAL_PADDING = 16
 /** 34px 三点按钮 + 3px 与最后一个可见按钮的间距。 */
 const DEFAULT_OVERFLOW_SLOT_WIDTH = 37
+const DEFAULT_GROUP_GAP = 2
 const WIDTH_EPSILON = 0.75
 
 const itemName = (item: ToolbarItemLike): string => item.name?.value ?? ''
@@ -103,6 +104,7 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
   const original = toolbar.onToolbarResize
   const measuredItemWidths = new Map<string, number>()
   let rowHorizontalPadding = DEFAULT_ROW_HORIZONTAL_PADDING
+  let groupGap = DEFAULT_GROUP_GAP
   let overflowSlotWidth = DEFAULT_OVERFLOW_SLOT_WIDTH
   let orderedItems: ToolbarItemLike[] = []
   let overflowControl: ToolbarItemLike | null = null
@@ -123,6 +125,7 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
     const rowStyle = getComputedStyle(row)
     const measuredPadding = numericStyle(rowStyle.paddingLeft) + numericStyle(rowStyle.paddingRight)
     if (measuredPadding > 0) rowHorizontalPadding = measuredPadding
+    groupGap = numericStyle(rowStyle.columnGap)
 
     const center = row.querySelector<HTMLElement>(":scope > [data-toolbar-position='center']")
     const measuredOverflowSlot = center ? numericStyle(getComputedStyle(center).paddingRight) : 0
@@ -181,7 +184,13 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
       ?? DEFAULT_ITEM_WIDTH
     ))
     const totalWidth = widths.reduce((sum, width) => sum + width, 0)
-    const fullBudget = Math.max(0, available - rowHorizontalPadding)
+    // Undo/redo/tracking buttons live in the side groups, outside the ordered
+    // center list. Include their actual widths and both inter-group gaps; without
+    // this reservation the last center item sits underneath the pinned overflow.
+    const sideGroupsWidth = Array.from(toolbarRow()?.querySelectorAll<HTMLElement>(
+      ":scope > [data-toolbar-position='left'], :scope > [data-toolbar-position='right']",
+    ) ?? []).reduce((sum, group) => sum + group.getBoundingClientRect().width, 0)
+    const fullBudget = Math.max(0, available - rowHorizontalPadding - sideGroupsWidth - groupGap * 2)
     const needsOverflow = totalWidth > fullBudget + WIDTH_EPSILON
     const budget = Math.max(0, fullBudget - (needsOverflow ? overflowSlotWidth : 0))
 
@@ -228,6 +237,9 @@ export function installWordToolbarOverflowPolicy(toolbar: SuperToolbarLike | nul
   const patched = () => {
     // Item widths stay stable while a sidebar is dragged. Cached values avoid
     // forcing layout reads for every pixel of movement.
+    // Width-only sidebar drags cannot change a control's intrinsic width.
+    // Skip DOM reads on that hot path, but always include the side groups in
+    // the measured budget (their widths remain valid during the drag).
     const panelResizing = toolbar.toolbarContainer?.closest('[data-panel-resizing="true"]')
     if (!panelResizing) measureRenderedToolbar()
     if (orderedItems.length === 0) rebuildCompleteItemSet()
